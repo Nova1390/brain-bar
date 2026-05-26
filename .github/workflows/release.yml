@@ -1,0 +1,36 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Public safety check
+        run: scripts/check-public-safety.sh
+
+      - name: Test
+        run: |
+          xcodebuild test \
+            -project BrainBar.xcodeproj \
+            -scheme BrainBar \
+            -destination 'platform=macOS' \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Package
+        run: scripts/package-release.sh
+
+      - name: Publish release asset
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build/release/products/BrainBar.zip

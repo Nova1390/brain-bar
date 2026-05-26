@@ -1,0 +1,24 @@
+# Xcode
+DerivedData/
+build/
+*.xcarchive
+*.ipa
+*.dSYM.zip
+*.dSYM
+*.xcresult
+xcuserdata/
+
+# SwiftPM and editor state
+.build/
+.swiftpm/
+.vscode/
+.idea/
+
+# Local configuration and logs
+.local/
+*.local.json
+*.log
+
+# Release scratch artifacts
+*.zip
+*.dmg
