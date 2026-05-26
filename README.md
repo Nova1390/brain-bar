@@ -8,7 +8,7 @@
 [![Graphify](https://img.shields.io/badge/Graphify-compatible-6D7DFF?style=flat-square)](https://github.com/safishamsi/graphify)
 [![License: MIT](https://img.shields.io/badge/license-MIT-0f172a?style=flat-square)](LICENSE)
 
-![BrainBar preview](docs/brainbar-screenshot.png)
+![BrainBar social preview](docs/brainbar-social-preview.png)
 
 BrainBar is a native macOS menu bar control surface for a local-first Markdown or Obsidian vault powered by [Graphify](https://github.com/safishamsi/graphify).
 
@@ -33,6 +33,10 @@ It keeps the graph where it belongs: on your machine, inside a compact menu bar 
 - Optional Obsidian URL scheme support
 - Optional local HTTP server bound to `127.0.0.1`
 - Optional macOS notifications after long-running commands finish
+
+## Preview
+
+![BrainBar app preview](docs/brainbar-screenshot.png)
 
 ## Graphify
 

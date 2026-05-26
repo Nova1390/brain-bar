@@ -2,6 +2,11 @@
 
 All notable changes to BrainBar are documented here.
 
+## Unreleased
+
+- Added a dedicated 1280x640 GitHub social preview image.
+- Moved the real app screenshot lower in the README as product evidence instead of using it as the top banner.
+
 ## 0.1.2 - 2026-05-26
 
 - Added a real macOS app icon asset catalog so Finder no longer shows the default placeholder icon.
