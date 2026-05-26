@@ -18,6 +18,8 @@
 		100000000000000000000109 /* DashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000009 /* DashboardView.swift */; };
 		100000000000000000000110 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000010 /* SettingsView.swift */; };
 		100000000000000000000111 /* BrainBarTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000011 /* BrainBarTests.swift */; };
+		100000000000000000000112 /* GraphWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000013 /* GraphWebView.swift */; };
+		100000000000000000000113 /* GraphShellView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000014 /* GraphShellView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -43,6 +45,8 @@
 		100000000000000000000010 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		100000000000000000000011 /* BrainBarTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrainBarTests.swift; sourceTree = "<group>"; };
 		100000000000000000000012 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		100000000000000000000013 /* GraphWebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GraphWebView.swift; sourceTree = "<group>"; };
+		100000000000000000000014 /* GraphShellView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GraphShellView.swift; sourceTree = "<group>"; };
 		100000000000000000000020 /* BrainBar.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BrainBar.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		100000000000000000000021 /* BrainBarTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = BrainBarTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -112,6 +116,8 @@
 			children = (
 				100000000000000000000009 /* DashboardView.swift */,
 				100000000000000000000010 /* SettingsView.swift */,
+				100000000000000000000013 /* GraphWebView.swift */,
+				100000000000000000000014 /* GraphShellView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -249,6 +255,8 @@
 				100000000000000000000108 /* NotificationService.swift in Sources */,
 				100000000000000000000109 /* DashboardView.swift in Sources */,
 				100000000000000000000110 /* SettingsView.swift in Sources */,
+				100000000000000000000112 /* GraphWebView.swift in Sources */,
+				100000000000000000000113 /* GraphShellView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -14,6 +14,7 @@ struct CommandRunner: Sendable {
             process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
             process.arguments = [spec.executable] + spec.arguments
         }
+        process.environment = mergedEnvironment()
 
         if let workingDirectory = spec.workingDirectory, !workingDirectory.isEmpty {
             if workingDirectory == "vault" {
@@ -47,5 +48,26 @@ struct CommandRunner: Sendable {
                 continuation.resume(throwing: BrainBarError.processFailed(error.localizedDescription))
             }
         }
+    }
+
+    private func mergedEnvironment() -> [String: String] {
+        var environment = ProcessInfo.processInfo.environment
+        let localBin = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".local/bin")
+            .path
+        let fallbackPath = [
+            environment["PATH"],
+            localBin,
+            "/opt/homebrew/bin",
+            "/usr/local/bin",
+            "/usr/bin",
+            "/bin",
+            "/usr/sbin",
+            "/sbin"
+        ]
+        .compactMap { $0 }
+        .joined(separator: ":")
+        environment["PATH"] = fallbackPath
+        return environment
     }
 }

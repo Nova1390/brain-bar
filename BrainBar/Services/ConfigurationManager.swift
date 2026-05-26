@@ -25,7 +25,7 @@ struct ConfigurationManager {
 
     func load() throws -> BrainBarConfig {
         let data = try Data(contentsOf: configURL)
-        return try JSONDecoder().decode(BrainBarConfig.self, from: data)
+        return try JSONDecoder().decode(BrainBarConfig.self, from: data).normalized()
     }
 
     func save(_ config: BrainBarConfig) throws {

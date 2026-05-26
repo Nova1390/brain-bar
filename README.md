@@ -7,11 +7,18 @@ It is intentionally generic and public-safe: no vault contents, no private vault
 ## Features
 
 - macOS menu bar app built with SwiftUI and `MenuBarExtra`
-- Compact popover with vault, Git, Graphify, brain check, and server status
-- Buttons to open the vault, dashboard, graph, Graphify report, refresh Graphify, and run a configurable check command
-- Optional local HTTP server for `graphify-out/graph.html`
+- Compact graph-first popover with an embedded `graphify-out/graph.html` view
+- Larger Focus Window for longer graph exploration
+- Native action menu for vault, graph, checks, advanced server controls, settings, and quit
+- Visible vault, Git, Graphify, and brain check status
+- One-click Graphify refresh from the footer or action menu
+- Runtime graph skin inside BrainBar, without modifying the generated Graphify HTML
+- Buttons/menu actions to open the vault, dashboard, graph externally, Graphify report, refresh Graphify, and run a configurable check command
+- Optional local HTTP server for `graphify-out/graph.html` as a fallback/debug tool
 - Optional Obsidian URL scheme support
 - Optional macOS notifications after long-running commands finish
+
+BrainBar loads the generated graph file directly in an embedded WebKit view. It does not require a browser for the normal graph workflow.
 
 ## Requirements
 
@@ -40,7 +47,12 @@ The installer creates `~/Library/Application Support/BrainBar/config.json` if it
 BRAIN_BAR_VAULT_PATH="/path/to/your/vault" curl -fsSL https://raw.githubusercontent.com/Nova1390/brain-bar/main/install.sh | bash
 ```
 
-v1 releases may be unsigned. If macOS blocks the app, approve it in System Settings > Privacy & Security.
+v1 releases may be unsigned. On first launch, macOS may block the app until you approve it manually:
+
+1. Try to open BrainBar once.
+2. If macOS blocks it, open System Settings > Privacy & Security.
+3. In the Security section, choose Open Anyway for BrainBar.
+4. If the app does not appear there, right-click BrainBar in Finder and choose Open.
 
 ## Update
 
@@ -85,7 +97,7 @@ Default schema:
   "commands": {
     "brainCheck": null,
     "refreshGraph": {
-      "arguments": ["--update", "."],
+      "arguments": ["update", "."],
       "executable": "graphify",
       "workingDirectory": "vault"
     }
@@ -101,6 +113,74 @@ Default schema:
 ```
 
 `workingDirectory: "vault"` means the command runs inside the configured vault directory. Commands are executed with `Process`, not through a shell.
+
+## Graph View
+
+BrainBar expects a generated Graphify HTML file at:
+
+```text
+graphify-out/graph.html
+```
+
+If the file exists, BrainBar embeds it directly in the menu bar popover and Focus Window. If no refresh has run in the current app session, BrainBar uses the file modification date and shows a status such as `Graph updated 2 min. ago`.
+
+The footer Graphify status is also a refresh button. Click it to run the configured `refreshGraph` command. During refresh, BrainBar shows `Refreshing Graph...`; if the command succeeds, the embedded graph reloads.
+
+The visual styling is applied at runtime by BrainBar through WebKit. The original `graphify-out/graph.html` file is not rewritten.
+
+## Focus Window
+
+Use Actions > Graph > Open Focus Window to open a larger resizable graph window. It shares the same configuration and state as the menu bar popover, but gives the graph more room for inspection.
+
+Settings can be opened from either the popover or Focus Window. BrainBar brings the Settings window to the front so it does not get hidden behind the graph window.
+
+## Brain Check Commands
+
+BrainBar does not include a built-in definition of "brain check". Instead, it exposes a local command hook that you can point at any script or CLI that validates your own vault.
+
+The default public config leaves it disabled:
+
+```json
+"brainCheck": null
+```
+
+When it is disabled, the app shows `Brain Check Not Configured`. That is not an error; it means BrainBar is waiting for you to define what a check means for your setup.
+
+Brain check commands always run with the vault as their working directory. This keeps the repo generic and lets each user wire their own private workflow without hardcoding paths or vault-specific scripts into BrainBar.
+
+Examples:
+
+| Use case | Brain check executable | Brain check arguments |
+| --- | --- | --- |
+| Run a Python script inside the vault | `python3` | `scripts/brain_check.py` |
+| Run a shell script inside the vault | `bash` | `scripts/brain_check.sh` |
+| Run an executable script in the vault | `./scripts/brain_check` | |
+| Run a custom installed CLI | `brain-check` | `--strict .` |
+
+If your terminal command is:
+
+```sh
+python3 scripts/brain_check.py --strict
+```
+
+configure BrainBar like this:
+
+```text
+Brain check executable: python3
+Brain check arguments: scripts/brain_check.py --strict
+```
+
+Because BrainBar uses `Process` directly rather than a shell, shell-only syntax such as pipes, redirects, aliases, and inline environment variables is not interpreted. Put that logic in a script, then configure BrainBar to run the script.
+
+## Local Server
+
+The embedded graph view does not need the local server. The server is available from Actions > Advanced for workflows that need an HTTP URL instead of a local file URL, for example:
+
+```text
+http://127.0.0.1:8765/graphify-out/graph.html
+```
+
+BrainBar starts the server with Python's built-in `http.server`, bound to `127.0.0.1`. It is intended for local fallback/debug use, not cloud publishing.
 
 ## Development
 
@@ -140,6 +220,14 @@ scripts/check-public-safety.sh
    ```
 
 4. GitHub Actions builds `BrainBar.zip` and attaches it to the release.
+
+The expected release asset name is:
+
+```text
+BrainBar.zip
+```
+
+The installer downloads this asset from the latest GitHub Release.
 
 ## Homebrew Roadmap
 

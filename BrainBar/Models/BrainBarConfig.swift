@@ -21,7 +21,7 @@ struct BrainBarConfig: Codable, Equatable, Sendable {
         commands: CommandConfiguration(
             refreshGraph: CommandSpec(
                 executable: "graphify",
-                arguments: ["--update", "."],
+                arguments: ["update", "."],
                 workingDirectory: "vault"
             ),
             brainCheck: nil
@@ -57,6 +57,17 @@ struct CommandConfiguration: Codable, Equatable, Sendable {
         } else {
             try container.encodeNil(forKey: .brainCheck)
         }
+    }
+}
+
+extension BrainBarConfig {
+    func normalized() -> BrainBarConfig {
+        var config = self
+        if config.commands.refreshGraph.executable == "graphify",
+           config.commands.refreshGraph.arguments == ["--update", "."] {
+            config.commands.refreshGraph.arguments = ["update", "."]
+        }
+        return config
     }
 }
 
@@ -100,6 +111,7 @@ struct VaultStatus: Equatable, Sendable {
     var vaultExists: Bool
     var dashboardExists: Bool
     var graphHtmlExists: Bool
+    var graphHtmlModifiedAt: Date?
     var graphReportExists: Bool
     var gitBranch: String?
     var gitDirty: Bool?
@@ -109,6 +121,7 @@ struct VaultStatus: Equatable, Sendable {
         vaultExists: false,
         dashboardExists: false,
         graphHtmlExists: false,
+        graphHtmlModifiedAt: nil,
         graphReportExists: false,
         gitBranch: nil,
         gitDirty: nil
@@ -155,5 +168,13 @@ enum BrainBarError: LocalizedError, Equatable, Sendable {
 extension TimeInterval {
     var formattedSeconds: String {
         String(format: "%.1fs", self)
+    }
+}
+
+extension Date {
+    var formattedRelative: String {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .short
+        return formatter.localizedString(for: self, relativeTo: Date())
     }
 }

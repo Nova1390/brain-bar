@@ -11,12 +11,15 @@ struct VaultStatusService: Sendable {
         let branch = vaultExists ? await runGit(["branch", "--show-current"], in: vaultURL) : nil
         let dirtyOutput = vaultExists ? await runGit(["status", "--porcelain"], in: vaultURL) : nil
         let isGitRepo = branch != nil || dirtyOutput != nil
+        let graphURL = resolvedURL(config.graphHtmlRelativePath, in: vaultURL)
+        let graphExists = FileManager.default.fileExists(atPath: graphURL.path)
 
         return VaultStatus(
             vaultPath: vaultURL.path,
             vaultExists: vaultExists,
             dashboardExists: FileManager.default.fileExists(atPath: resolvedURL(config.projectDashboardRelativePath, in: vaultURL).path),
-            graphHtmlExists: FileManager.default.fileExists(atPath: resolvedURL(config.graphHtmlRelativePath, in: vaultURL).path),
+            graphHtmlExists: graphExists,
+            graphHtmlModifiedAt: graphExists ? modificationDate(for: graphURL) : nil,
             graphReportExists: FileManager.default.fileExists(atPath: resolvedURL(config.graphReportRelativePath, in: vaultURL).path),
             gitBranch: branch?.trimmingCharacters(in: .whitespacesAndNewlines),
             gitDirty: isGitRepo ? !(dirtyOutput?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true) : nil
@@ -70,6 +73,11 @@ struct VaultStatusService: Sendable {
     private func directoryExists(_ url: URL) -> Bool {
         var isDirectory: ObjCBool = false
         return FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) && isDirectory.boolValue
+    }
+
+    private func modificationDate(for url: URL) -> Date? {
+        let attributes = try? FileManager.default.attributesOfItem(atPath: url.path)
+        return attributes?[.modificationDate] as? Date
     }
 
     private func obsidianURL(for fileURL: URL) -> URL? {

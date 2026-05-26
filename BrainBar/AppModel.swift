@@ -12,6 +12,7 @@ final class AppModel {
     var isRefreshingGraph = false
     var isRunningBrainCheck = false
     var errorMessage: String?
+    var graphReloadToken = 0
 
     @ObservationIgnored private let configurationManager: ConfigurationManager
     @ObservationIgnored private let commandRunner: CommandRunner
@@ -31,6 +32,30 @@ final class AppModel {
         graphServerController.graphURL(for: config)
     }
 
+    var graphFileURL: URL? {
+        guard let vaultURL = vaultStatusService.vaultURL(for: config) else {
+            return nil
+        }
+        return vaultStatusService.resolvedURL(config.graphHtmlRelativePath, in: vaultURL)
+    }
+
+    var graphReadAccessURL: URL? {
+        graphFileURL?.deletingLastPathComponent()
+    }
+
+    var graphRefreshSummary: String {
+        if isRefreshingGraph {
+            return "Refreshing Graph..."
+        }
+        if let lastGraphRefresh {
+            return lastGraphRefresh.summary
+        }
+        if let modifiedAt = status.graphHtmlModifiedAt {
+            return "Graph updated \(modifiedAt.formattedRelative)"
+        }
+        return status.graphHtmlExists ? "Graph ready" : "Graphify not run"
+    }
+
     init(
         configurationManager: ConfigurationManager = ConfigurationManager(),
         commandRunner: CommandRunner = CommandRunner(),
@@ -48,18 +73,29 @@ final class AppModel {
 
     func refreshStatus() async {
         status = await vaultStatusService.status(for: config)
+        graphReloadToken += 1
+        errorMessage = nil
     }
 
-    func saveConfig(_ newConfig: BrainBarConfig) {
+    func reloadGraphView() {
+        graphReloadToken += 1
+        errorMessage = nil
+    }
+
+    @discardableResult
+    func saveConfig(_ newConfig: BrainBarConfig) -> Bool {
         do {
             try configurationManager.save(newConfig)
             config = newConfig
+            graphReloadToken += 1
             errorMessage = nil
             Task {
                 await refreshStatus()
             }
+            return true
         } catch {
             errorMessage = error.localizedDescription
+            return false
         }
     }
 
@@ -111,7 +147,7 @@ final class AppModel {
             )
             await refreshStatus()
             if result.succeeded, openAfterSuccess {
-                openGraph()
+                graphReloadToken += 1
             }
         } catch {
             errorMessage = error.localizedDescription
