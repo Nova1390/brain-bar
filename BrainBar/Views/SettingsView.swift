@@ -84,6 +84,8 @@ struct SettingsView: View {
                 }
                 .keyboardShortcut(.defaultAction)
             }
+
+            SettingsFooter()
         }
         .formStyle(.grouped)
         .padding()
@@ -104,6 +106,52 @@ struct SettingsView: View {
             try? await Task.sleep(for: .seconds(2))
             saveMessage = nil
         }
+    }
+}
+
+private struct SettingsFooter: View {
+    private let repositoryURL = URL(string: "https://github.com/Nova1390/brain-bar")!
+    private let releaseURL = URL(string: "https://github.com/Nova1390/brain-bar/releases/latest")!
+    private let licenseURL = URL(string: "https://github.com/Nova1390/brain-bar/blob/main/LICENSE")!
+
+    var body: some View {
+        Section {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 10) {
+                    Link(destination: releaseURL) {
+                        Label("Release \(versionText)", systemImage: "tag")
+                    }
+
+                    Link(destination: repositoryURL) {
+                        Label {
+                            Text("Nova1390/brain-bar")
+                        } icon: {
+                            Image("GitHubMark")
+                                .resizable()
+                                .renderingMode(.template)
+                                .frame(width: 13, height: 13)
+                        }
+                    }
+                }
+
+                HStack(spacing: 4) {
+                    Text("Copyright © 2026 Rocco D'Affuso ·")
+                    Link("MIT License", destination: licenseURL)
+                }
+                .foregroundStyle(.secondary)
+            }
+            .font(.caption)
+            .buttonStyle(.link)
+        }
+    }
+
+    private var versionText: String {
+        let dictionary = Bundle.main.infoDictionary
+        let version = dictionary?["CFBundleShortVersionString"] as? String ?? "dev"
+        guard let build = dictionary?["CFBundleVersion"] as? String, !build.isEmpty else {
+            return version
+        }
+        return "\(version) (\(build))"
     }
 }
 
