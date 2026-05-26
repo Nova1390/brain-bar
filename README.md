@@ -73,7 +73,7 @@ To install elsewhere:
 BRAIN_BAR_INSTALL_DIR=/Applications curl -fsSL https://raw.githubusercontent.com/Nova1390/brain-bar/main/install.sh | bash
 ```
 
-v1 releases may be unsigned. On first launch, macOS may block the app until you approve it manually:
+v1 releases are ad-hoc signed but not notarized. On first launch, macOS may block the app until you approve it manually:
 
 1. Try to open BrainBar once.
 2. If macOS blocks it, open System Settings > Privacy & Security.
@@ -282,7 +282,7 @@ end
 
 ## Signing And Notarization
 
-v1 can ship unsigned with manual approval. A production-ready release should add:
+v1 ships ad-hoc signed and not notarized, with manual approval documented above. A production-ready release should add:
 
 - Developer ID Application signing
 - `xcrun notarytool` submission in GitHub Actions

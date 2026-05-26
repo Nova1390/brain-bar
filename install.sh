@@ -86,7 +86,7 @@ create_config_if_missing
 
 printf "\nInstalled %s to %s\n" "$APP_NAME" "$APP_PATH"
 printf "Open it with:\n  open %q\n" "$APP_PATH"
-printf "\nIf macOS blocks the unsigned v1 build:\n"
+printf "\nIf macOS blocks the non-notarized v1 build:\n"
 printf "  1. Try opening the app once.\n"
 printf "  2. Open System Settings > Privacy & Security and choose Open Anyway for BrainBar.\n"
 printf "  3. If it does not appear there, right-click BrainBar in Finder and choose Open.\n"
