@@ -215,8 +215,8 @@ scripts/check-public-safety.sh
 3. Tag the release:
 
    ```sh
-   git tag v0.1.0
-   git push origin v0.1.0
+   git tag v0.1.1
+   git push origin v0.1.1
    ```
 
 4. GitHub Actions builds `BrainBar.zip` and attaches it to the release.
@@ -235,7 +235,7 @@ The preferred v1 distribution is the simple release installer above. A later rel
 
 ```ruby
 cask "brain-bar" do
-  version "0.1.0"
+  version "0.1.1"
   sha256 "<release zip sha256>"
   url "https://github.com/Nova1390/brain-bar/releases/download/v#{version}/BrainBar.zip"
   name "BrainBar"
