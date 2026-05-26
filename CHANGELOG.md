@@ -1,0 +1,21 @@
+# Changelog
+
+All notable changes to BrainBar are documented here.
+
+## 0.1.1 - 2026-05-26
+
+- Added graph-first menu bar UI with embedded Graphify HTML view.
+- Added Focus Window for larger graph exploration.
+- Added runtime graph skin for generated Graphify output without modifying `graph.html`.
+- Added Settings save confirmation and clearer Brain Check configuration copy.
+- Added Graphify status based on generated graph modification time.
+- Added footer refresh action for Graphify.
+- Improved Settings window ordering when opened from the Focus Window.
+- Updated README, installer guidance, and release documentation.
+
+## 0.1.0 - 2026-05-26
+
+- Initial native macOS menu bar app scaffold.
+- Added local configuration at `~/Library/Application Support/BrainBar/config.json`.
+- Added configurable vault path, Graphify refresh command, and brain check command.
+- Added vault status, Git status, local graph server controls, installer, uninstaller, and GitHub Release packaging.

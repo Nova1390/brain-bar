@@ -1,38 +1,66 @@
 # BrainBar
 
-BrainBar is a small native macOS menu bar app for controlling a local-first Markdown vault and Graphify memory workflow.
+> Your local vault graph, one click away.
 
-It is intentionally generic and public-safe: no vault contents, no private vault path, no cloud integration, and no bundled personal data. The vault path lives only in local configuration.
+[![Latest release](https://img.shields.io/github/v/release/Nova1390/brain-bar?style=flat-square)](https://github.com/Nova1390/brain-bar/releases/latest)
+[![macOS 14+](https://img.shields.io/badge/macOS-14%2B-111827?style=flat-square&logo=apple)](https://www.apple.com/macos/)
+[![SwiftUI](https://img.shields.io/badge/SwiftUI-native-F05138?style=flat-square&logo=swift&logoColor=white)](https://developer.apple.com/xcode/swiftui/)
+[![Graphify](https://img.shields.io/badge/Graphify-compatible-6D7DFF?style=flat-square)](https://github.com/safishamsi/graphify)
+[![License: MIT](https://img.shields.io/badge/license-MIT-0f172a?style=flat-square)](LICENSE)
 
-## Features
+![BrainBar preview](docs/brainbar-preview.svg)
 
-- macOS menu bar app built with SwiftUI and `MenuBarExtra`
-- Compact graph-first popover with an embedded `graphify-out/graph.html` view
-- Larger Focus Window for longer graph exploration
-- Native action menu for vault, graph, checks, advanced server controls, settings, and quit
-- Visible vault, Git, Graphify, and brain check status
-- One-click Graphify refresh from the footer or action menu
-- Runtime graph skin inside BrainBar, without modifying the generated Graphify HTML
-- Buttons/menu actions to open the vault, dashboard, graph externally, Graphify report, refresh Graphify, and run a configurable check command
-- Optional local HTTP server for `graphify-out/graph.html` as a fallback/debug tool
+BrainBar is a native macOS menu bar control surface for a local-first Markdown or Obsidian vault powered by [Graphify](https://github.com/safishamsi/graphify).
+
+It keeps the graph where it belongs: on your machine, inside a compact menu bar app, with direct access to refresh, inspect, open, and validate your vault workflow.
+
+## Why
+
+- **See the graph immediately.** Click the menu bar icon and inspect `graphify-out/graph.html` inside BrainBar, without bouncing to a browser.
+- **Stay local-first.** BrainBar runs local commands, opens local files, and never uploads vault contents.
+- **Keep the workflow generic.** Vault paths, Graphify commands, dashboards, reports, and check scripts live in local config, not in the public repo.
+- **Use it as a control panel.** Refresh Graphify, open the vault, inspect Git state, run custom checks, and jump into a larger Focus Window when the graph needs room.
+
+## Highlights
+
+- Native SwiftUI macOS menu bar app with `MenuBarExtra`
+- Embedded WebKit graph view for `graphify-out/graph.html`
+- Runtime graph skin that does not rewrite Graphify output
+- Focus Window for longer graph exploration
+- Graphify refresh from the footer or action menu
+- Vault, Git branch/dirty state, Graphify, and brain-check status
+- Configurable vault path, dashboard path, report path, server port, and commands
 - Optional Obsidian URL scheme support
+- Optional local HTTP server bound to `127.0.0.1`
 - Optional macOS notifications after long-running commands finish
 
-BrainBar loads the generated graph file directly in an embedded WebKit view. It does not require a browser for the normal graph workflow.
+## Graphify
 
-## Requirements
+BrainBar is a companion app for [Graphify](https://github.com/safishamsi/graphify), an open-source tool that turns folders of code, docs, notes, papers, and other inputs into a navigable knowledge graph.
 
-- macOS 14 or newer
-- Xcode 26 or newer for local development
-- `git` available on `PATH`
-- `graphify` available on `PATH` if you use the default refresh command
+Graphify writes the files BrainBar expects by default:
+
+```text
+graphify-out/
+├── graph.html
+├── graph.json
+└── GRAPH_REPORT.md
+```
+
+BrainBar does not vendor, fork, or modify Graphify. It runs the configured local `graphify` command and embeds the generated `graph.html` file.
 
 ## Install
 
-The v1 installer downloads the latest GitHub Release asset and installs the app into `~/Applications` by default:
-
 ```sh
 curl -fsSL https://raw.githubusercontent.com/Nova1390/brain-bar/main/install.sh | bash
+```
+
+The installer downloads the latest GitHub Release, installs `BrainBar.app` into `~/Applications`, and creates local config only if it is missing.
+
+To prefill the vault path on first install:
+
+```sh
+BRAIN_BAR_VAULT_PATH="/path/to/your/vault" curl -fsSL https://raw.githubusercontent.com/Nova1390/brain-bar/main/install.sh | bash
 ```
 
 To install elsewhere:
@@ -41,18 +69,19 @@ To install elsewhere:
 BRAIN_BAR_INSTALL_DIR=/Applications curl -fsSL https://raw.githubusercontent.com/Nova1390/brain-bar/main/install.sh | bash
 ```
 
-The installer creates `~/Library/Application Support/BrainBar/config.json` if it does not exist. It never overwrites an existing config. To prefill the vault path on first install:
-
-```sh
-BRAIN_BAR_VAULT_PATH="/path/to/your/vault" curl -fsSL https://raw.githubusercontent.com/Nova1390/brain-bar/main/install.sh | bash
-```
-
 v1 releases may be unsigned. On first launch, macOS may block the app until you approve it manually:
 
 1. Try to open BrainBar once.
 2. If macOS blocks it, open System Settings > Privacy & Security.
 3. In the Security section, choose Open Anyway for BrainBar.
 4. If the app does not appear there, right-click BrainBar in Finder and choose Open.
+
+## Requirements
+
+- macOS 14 or newer
+- Xcode 26 or newer for local development
+- `git` available on `PATH`
+- `graphify` available on `PATH` if you use the default refresh command
 
 ## Update
 
@@ -183,6 +212,8 @@ http://127.0.0.1:8765/graphify-out/graph.html
 BrainBar starts the server with Python's built-in `http.server`, bound to `127.0.0.1`. It is intended for local fallback/debug use, not cloud publishing.
 
 ## Development
+
+Project history is tracked in [CHANGELOG.md](CHANGELOG.md).
 
 Build:
 
