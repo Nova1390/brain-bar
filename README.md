@@ -8,7 +8,7 @@
 [![Graphify](https://img.shields.io/badge/Graphify-compatible-6D7DFF?style=flat-square)](https://github.com/safishamsi/graphify)
 [![License: MIT](https://img.shields.io/badge/license-MIT-0f172a?style=flat-square)](LICENSE)
 
-![BrainBar preview](docs/brainbar-preview.svg)
+![BrainBar preview](docs/brainbar-screenshot.png)
 
 BrainBar is a native macOS menu bar control surface for a local-first Markdown or Obsidian vault powered by [Graphify](https://github.com/safishamsi/graphify).
 
@@ -246,8 +246,8 @@ scripts/check-public-safety.sh
 3. Tag the release:
 
    ```sh
-   git tag v0.1.1
-   git push origin v0.1.1
+   git tag v0.1.2
+   git push origin v0.1.2
    ```
 
 4. GitHub Actions builds `BrainBar.zip` and attaches it to the release.
@@ -266,7 +266,7 @@ The preferred v1 distribution is the simple release installer above. A later rel
 
 ```ruby
 cask "brain-bar" do
-  version "0.1.1"
+  version "0.1.2"
   sha256 "<release zip sha256>"
   url "https://github.com/Nova1390/brain-bar/releases/download/v#{version}/BrainBar.zip"
   name "BrainBar"

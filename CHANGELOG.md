@@ -2,6 +2,11 @@
 
 All notable changes to BrainBar are documented here.
 
+## 0.1.2 - 2026-05-26
+
+- Added a real macOS app icon asset catalog so Finder no longer shows the default placeholder icon.
+- Replaced the generated README preview SVG with a real public-safe BrainBar screenshot.
+
 ## 0.1.1 - 2026-05-26
 
 - Added graph-first menu bar UI with embedded Graphify HTML view.
