@@ -74,6 +74,93 @@ final class BrainBarTests: XCTestCase {
         XCTAssertEqual(status.gitDescription, "Vault · main · changes")
     }
 
+    func testGraphNodeSourceResolvesRelativePathInsideVault() throws {
+        let vault = try temporaryDirectory()
+        let noteURL = vault.appendingPathComponent("Notes/Example.md")
+        try FileManager.default.createDirectory(at: noteURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "note".write(to: noteURL, atomically: true, encoding: .utf8)
+
+        var config = BrainBarConfig.default
+        config.vaultPath = vault.path
+
+        let resolved = try VaultStatusService().resolvedGraphNodeSourceURL("Notes/Example.md", config: config)
+
+        XCTAssertEqual(resolved.path, noteURL.standardizedFileURL.path)
+    }
+
+    func testGraphNodeSourceResolvesAbsolutePathInsideVault() throws {
+        let vault = try temporaryDirectory()
+        let noteURL = vault.appendingPathComponent("Example.md")
+        try "note".write(to: noteURL, atomically: true, encoding: .utf8)
+
+        var config = BrainBarConfig.default
+        config.vaultPath = vault.path
+
+        let resolved = try VaultStatusService().resolvedGraphNodeSourceURL(noteURL.path, config: config)
+
+        XCTAssertEqual(resolved.path, noteURL.standardizedFileURL.path)
+    }
+
+    func testGraphNodeSourceRejectsParentTraversalOutsideVault() throws {
+        let vault = try temporaryDirectory()
+        var config = BrainBarConfig.default
+        config.vaultPath = vault.path
+
+        XCTAssertThrowsError(try VaultStatusService().resolvedGraphNodeSourceURL("../outside.md", config: config)) { error in
+            XCTAssertEqual(error as? BrainBarError, .graphNodeSourceOutsideVault("../outside.md"))
+        }
+    }
+
+    func testGraphNodeSourceRejectsAbsolutePathOutsideVault() throws {
+        let vault = try temporaryDirectory()
+        let outsideURL = try temporaryDirectory().appendingPathComponent("Outside.md")
+        try "outside".write(to: outsideURL, atomically: true, encoding: .utf8)
+        var config = BrainBarConfig.default
+        config.vaultPath = vault.path
+
+        XCTAssertThrowsError(try VaultStatusService().resolvedGraphNodeSourceURL(outsideURL.path, config: config)) { error in
+            XCTAssertEqual(error as? BrainBarError, .graphNodeSourceOutsideVault(outsideURL.path))
+        }
+    }
+
+    func testGraphNodeSourceMissingFileUsesReadableRelativePath() throws {
+        let vault = try temporaryDirectory()
+        var config = BrainBarConfig.default
+        config.vaultPath = vault.path
+
+        XCTAssertThrowsError(try VaultStatusService().resolvedGraphNodeSourceURL("Missing.md", config: config)) { error in
+            XCTAssertEqual(error as? BrainBarError, .graphNodeSourceFileMissing("Missing.md"))
+        }
+    }
+
+    func testGraphNodeOpenURLUsesObsidianForMarkdownWhenEnabled() throws {
+        let vault = try temporaryDirectory()
+        let noteURL = vault.appendingPathComponent("Note.md")
+        try "note".write(to: noteURL, atomically: true, encoding: .utf8)
+        var config = BrainBarConfig.default
+        config.vaultPath = vault.path
+        config.useObsidianURLScheme = true
+
+        let openURL = try VaultStatusService().graphNodeOpenURL(for: "Note.md", config: config)
+
+        XCTAssertEqual(openURL.scheme, "obsidian")
+        XCTAssertEqual(openURL.host, "open")
+        XCTAssertTrue(openURL.absoluteString.contains("path="))
+    }
+
+    func testGraphNodeOpenURLUsesFileURLForNonMarkdownEvenWhenObsidianEnabled() throws {
+        let vault = try temporaryDirectory()
+        let sourceURL = vault.appendingPathComponent("script.py")
+        try "print('ok')".write(to: sourceURL, atomically: true, encoding: .utf8)
+        var config = BrainBarConfig.default
+        config.vaultPath = vault.path
+        config.useObsidianURLScheme = true
+
+        let openURL = try VaultStatusService().graphNodeOpenURL(for: "script.py", config: config)
+
+        XCTAssertEqual(openURL, sourceURL.standardizedFileURL)
+    }
+
     func testGraphSourceLensLabelsAndRawValuesAreStable() {
         XCTAssertEqual(GraphSourceLens.all.rawValue, "all")
         XCTAssertEqual(GraphSourceLens.all.label, "All")

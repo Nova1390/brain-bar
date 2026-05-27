@@ -60,6 +60,37 @@ struct VaultStatusService: Sendable {
         }
     }
 
+    func graphNodeOpenURL(for sourceFile: String?, config: BrainBarConfig) throws -> URL {
+        let fileURL = try resolvedGraphNodeSourceURL(sourceFile, config: config)
+        if config.useObsidianURLScheme,
+           fileURL.isMarkdownFile,
+           let obsidianURL = obsidianURL(for: fileURL) {
+            return obsidianURL
+        }
+        return fileURL
+    }
+
+    func openGraphNodeSource(_ sourceFile: String?, config: BrainBarConfig) throws {
+        NSWorkspace.shared.open(try graphNodeOpenURL(for: sourceFile, config: config))
+    }
+
+    func resolvedGraphNodeSourceURL(_ sourceFile: String?, config: BrainBarConfig) throws -> URL {
+        let source = sourceFile?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !source.isEmpty else {
+            throw BrainBarError.graphNodeSourceMissing
+        }
+
+        let vaultURL = try requireVaultURL(config)
+        let fileURL = resolvedURL(source, in: vaultURL).standardizedFileURL
+        guard fileURL.isContained(in: vaultURL) else {
+            throw BrainBarError.graphNodeSourceOutsideVault(source)
+        }
+        guard FileManager.default.fileExists(atPath: fileURL.path) else {
+            throw BrainBarError.graphNodeSourceFileMissing(fileURL.relativePath(in: vaultURL) ?? source)
+        }
+        return fileURL
+    }
+
     private func requireVaultURL(_ config: BrainBarConfig) throws -> URL {
         guard let vaultURL = vaultURL(for: config) else {
             throw BrainBarError.vaultNotConfigured
@@ -95,5 +126,30 @@ struct VaultStatusService: Sendable {
             return nil
         }
         return result.stdout
+    }
+}
+
+private extension URL {
+    var isMarkdownFile: Bool {
+        let fileExtension = pathExtension.lowercased()
+        return fileExtension == "md" || fileExtension == "markdown"
+    }
+
+    func isContained(in directory: URL) -> Bool {
+        let directoryPath = directory.standardizedFileURL.path
+        let filePath = standardizedFileURL.path
+        return filePath == directoryPath || filePath.hasPrefix(directoryPath + "/")
+    }
+
+    func relativePath(in directory: URL) -> String? {
+        let directoryPath = directory.standardizedFileURL.path
+        let filePath = standardizedFileURL.path
+        guard filePath == directoryPath || filePath.hasPrefix(directoryPath + "/") else {
+            return nil
+        }
+        if filePath == directoryPath {
+            return URL(fileURLWithPath: filePath).lastPathComponent
+        }
+        return String(filePath.dropFirst(directoryPath.count + 1))
     }
 }

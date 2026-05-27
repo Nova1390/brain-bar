@@ -88,7 +88,8 @@ struct GraphShellView: View {
                 fileURL: graphURL,
                 readAccessURL: readAccessURL,
                 reloadToken: model.graphReloadToken,
-                sourceLens: model.graphSourceLens
+                sourceLens: model.graphSourceLens,
+                onOpenNode: model.openGraphNode
             )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(.black.opacity(0.16))

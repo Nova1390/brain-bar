@@ -163,6 +163,12 @@ final class AppModel {
         }
     }
 
+    func openGraphNode(_ request: GraphNodeOpenRequest) {
+        performOpen {
+            try vaultStatusService.openGraphNodeSource(request.sourceFile, config: config)
+        }
+    }
+
     func refreshGraph(openAfterSuccess: Bool = false) async {
         guard let vaultURL = vaultStatusService.vaultURL(for: config) else {
             errorMessage = BrainBarError.vaultNotConfigured.localizedDescription

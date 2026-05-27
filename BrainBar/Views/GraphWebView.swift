@@ -7,9 +7,10 @@ struct GraphWebView: NSViewRepresentable {
     let readAccessURL: URL
     let reloadToken: Int
     let sourceLens: GraphSourceLens
+    let onOpenNode: @MainActor (GraphNodeOpenRequest) -> Void
 
     func makeCoordinator() -> Coordinator {
-        Coordinator()
+        Coordinator(onOpenNode: onOpenNode)
     }
 
     func makeNSView(context: Context) -> WKWebView {
@@ -17,6 +18,7 @@ struct GraphWebView: NSViewRepresentable {
         configuration.userContentController.addUserScript(
             WKUserScript(source: Self.graphThemeScript, injectionTime: .atDocumentEnd, forMainFrameOnly: true)
         )
+        configuration.userContentController.add(context.coordinator, name: "brainBarNodeAction")
         let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.allowsMagnification = true
         webView.setValue(false, forKey: "drawsBackground")
@@ -29,6 +31,7 @@ struct GraphWebView: NSViewRepresentable {
 
     func updateNSView(_ webView: WKWebView, context: Context) {
         let didLoad = load(in: webView, context: context)
+        context.coordinator.onOpenNode = onOpenNode
         context.coordinator.graphMetadataScript = Self.graphMetadataScript(readAccessURL: readAccessURL)
         if didLoad || context.coordinator.sourceLens != sourceLens {
             context.coordinator.sourceLens = sourceLens
@@ -47,11 +50,16 @@ struct GraphWebView: NSViewRepresentable {
         return true
     }
 
-    final class Coordinator: NSObject, WKNavigationDelegate {
+    final class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
         var loadedURL: URL?
         var reloadToken = -1
         var sourceLens: GraphSourceLens = .all
         var graphMetadataScript = ""
+        var onOpenNode: @MainActor (GraphNodeOpenRequest) -> Void
+
+        init(onOpenNode: @escaping @MainActor (GraphNodeOpenRequest) -> Void) {
+            self.onOpenNode = onOpenNode
+        }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             applyLens(sourceLens, in: webView)
@@ -66,6 +74,25 @@ struct GraphWebView: NSViewRepresentable {
             }
             """
             webView.evaluateJavaScript(script)
+        }
+
+        func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+            guard
+                message.name == "brainBarNodeAction",
+                let body = message.body as? [String: Any]
+            else {
+                return
+            }
+
+            let request = GraphNodeOpenRequest(
+                action: String(describing: body["action"] ?? ""),
+                nodeId: String(describing: body["nodeId"] ?? ""),
+                label: String(describing: body["label"] ?? ""),
+                sourceFile: body["sourceFile"] as? String
+            )
+            Task { @MainActor in
+                onOpenNode(request)
+            }
         }
     }
 }
@@ -245,6 +272,27 @@ private extension GraphWebView {
           background: rgba(255, 255, 255, 0.075) !important;
         }
 
+        #brainbar-open-note {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          min-height: 30px;
+          margin: 8px 0 2px;
+          padding: 6px 10px;
+          border: 1px solid rgba(159, 175, 255, 0.24);
+          border-radius: 8px;
+          background: rgba(132, 152, 255, 0.14);
+          color: rgba(244, 246, 255, 0.90);
+          font: 650 12px -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+          letter-spacing: 0;
+          cursor: pointer;
+        }
+
+        #brainbar-open-note:hover {
+          border-color: rgba(182, 194, 255, 0.38);
+          background: rgba(152, 169, 255, 0.20);
+        }
+
         #brainbar-lens-empty {
           position: fixed;
           left: 50%;
@@ -289,6 +337,79 @@ private extension GraphWebView {
 
       const edgeSource = (edge) => edge.from ?? edge.source;
       const edgeTarget = (edge) => edge.to ?? edge.target;
+
+      const sourceFileForNode = (node) => node?._source_file || node?.source_file || '';
+
+      const sendNodeAction = (action, node) => {
+        if (!node || !window.webkit?.messageHandlers?.brainBarNodeAction) {
+          return;
+        }
+        window.webkit.messageHandlers.brainBarNodeAction.postMessage({
+          action,
+          nodeId: String(node.id || ''),
+          label: String(node.label || ''),
+          sourceFile: sourceFileForNode(node)
+        });
+      };
+
+      const ensureOpenNoteButton = () => {
+        const info = document.getElementById('info-content');
+        if (!info || info.dataset.brainBarOpenNote === 'installed') {
+          return;
+        }
+        info.dataset.brainBarOpenNote = 'installed';
+        info.addEventListener('click', (event) => {
+          const button = event.target.closest('#brainbar-open-note');
+          if (!button) {
+            return;
+          }
+          event.preventDefault();
+          const node = nodesDS.get(button.dataset.nodeId);
+          sendNodeAction('openNode', node);
+        });
+      };
+
+      const addOpenNoteButton = (nodeId) => {
+        try {
+          ensureOpenNoteButton();
+          const node = nodesDS.get(nodeId);
+          const sourceFile = sourceFileForNode(node);
+          const info = document.getElementById('info-content');
+          if (!info || !sourceFile || document.getElementById('brainbar-open-note')) {
+            return;
+          }
+          const button = document.createElement('button');
+          button.id = 'brainbar-open-note';
+          button.type = 'button';
+          button.dataset.nodeId = String(nodeId);
+          button.textContent = 'Open Note';
+          info.insertBefore(button, info.children[1] || null);
+        } catch (error) {
+          console.debug('BrainBar open note button skipped', error);
+        }
+      };
+
+      const installNodeActionBridge = () => {
+        if (window.__brainBarNodeBridgeInstalled || typeof network === 'undefined') {
+          return;
+        }
+        window.__brainBarNodeBridgeInstalled = true;
+        if (typeof showInfo === 'function' && !window.__brainBarShowInfoWrapped) {
+          window.__brainBarShowInfoWrapped = true;
+          const originalShowInfo = showInfo;
+          showInfo = (nodeId) => {
+            originalShowInfo(nodeId);
+            addOpenNoteButton(nodeId);
+          };
+        }
+        network.on('doubleClick', (params) => {
+          const nodeId = params.nodes?.[0];
+          if (!nodeId || typeof nodesDS === 'undefined') {
+            return;
+          }
+          sendNodeAction('openNode', nodesDS.get(nodeId));
+        });
+      };
 
       const ensureLensEmptyState = () => {
         let overlay = document.getElementById('brainbar-lens-empty');
@@ -518,6 +639,12 @@ private extension GraphWebView {
 
       const applyBrainBarGraphRuntime = () => {
         applyNetworkTheme();
+        installNodeActionBridge();
+        ensureOpenNoteButton();
+        const selectedNodeId = typeof network !== 'undefined' ? network.getSelectedNodes()?.[0] : null;
+        if (selectedNodeId) {
+          addOpenNoteButton(selectedNodeId);
+        }
         window.brainBarApplyGraphLens(window.__brainBarPendingGraphLens || 'all');
       };
 

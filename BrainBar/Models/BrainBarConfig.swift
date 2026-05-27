@@ -136,10 +136,20 @@ struct VaultStatus: Equatable, Sendable {
     }
 }
 
+struct GraphNodeOpenRequest: Equatable, Sendable {
+    var action: String
+    var nodeId: String
+    var label: String
+    var sourceFile: String?
+}
+
 enum BrainBarError: LocalizedError, Equatable, Sendable {
     case vaultNotConfigured
     case vaultMissing(String)
     case fileMissing(String)
+    case graphNodeSourceMissing
+    case graphNodeSourceOutsideVault(String)
+    case graphNodeSourceFileMissing(String)
     case commandNotConfigured(String)
     case invalidPort(Int)
     case portBusy(Int)
@@ -153,6 +163,12 @@ enum BrainBarError: LocalizedError, Equatable, Sendable {
             return "Vault path does not exist: \(path)"
         case .fileMissing(let path):
             return "File does not exist: \(path)"
+        case .graphNodeSourceMissing:
+            return "This graph node does not include a source file."
+        case .graphNodeSourceOutsideVault(let path):
+            return "Graph node source is outside the configured vault: \(path)"
+        case .graphNodeSourceFileMissing(let path):
+            return "Source file does not exist: \(path)"
         case .commandNotConfigured(let name):
             return "\(name) is not configured."
         case .invalidPort(let port):
