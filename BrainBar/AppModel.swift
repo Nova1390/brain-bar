@@ -2,6 +2,36 @@ import AppKit
 import Foundation
 import Observation
 
+enum GraphSourceLens: String, CaseIterable, Identifiable, Sendable {
+    case all
+    case graphify
+    case obsidian
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .all:
+            return "All"
+        case .graphify:
+            return "Graphify"
+        case .obsidian:
+            return "Obsidian"
+        }
+    }
+
+    var help: String {
+        switch self {
+        case .all:
+            return "Show every graph edge"
+        case .graphify:
+            return "Show generated Graphify relationships"
+        case .obsidian:
+            return "Show native Obsidian wikilinks"
+        }
+    }
+}
+
 @MainActor
 @Observable
 final class AppModel {
@@ -13,6 +43,7 @@ final class AppModel {
     var isRunningBrainCheck = false
     var errorMessage: String?
     var graphReloadToken = 0
+    var graphSourceLens: GraphSourceLens = .all
 
     @ObservationIgnored private let configurationManager: ConfigurationManager
     @ObservationIgnored private let commandRunner: CommandRunner
@@ -79,6 +110,11 @@ final class AppModel {
 
     func reloadGraphView() {
         graphReloadToken += 1
+        errorMessage = nil
+    }
+
+    func setGraphSourceLens(_ lens: GraphSourceLens) {
+        graphSourceLens = lens
         errorMessage = nil
     }
 

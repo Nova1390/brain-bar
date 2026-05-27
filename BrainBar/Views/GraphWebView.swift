@@ -5,6 +5,7 @@ struct GraphWebView: NSViewRepresentable {
     let fileURL: URL
     let readAccessURL: URL
     let reloadToken: Int
+    let sourceLens: GraphSourceLens
 
     func makeCoordinator() -> Coordinator {
         Coordinator()
@@ -18,26 +19,49 @@ struct GraphWebView: NSViewRepresentable {
         let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.allowsMagnification = true
         webView.setValue(false, forKey: "drawsBackground")
+        webView.navigationDelegate = context.coordinator
+        context.coordinator.sourceLens = sourceLens
         load(in: webView, context: context)
         return webView
     }
 
     func updateNSView(_ webView: WKWebView, context: Context) {
-        load(in: webView, context: context)
+        let didLoad = load(in: webView, context: context)
+        if didLoad || context.coordinator.sourceLens != sourceLens {
+            context.coordinator.sourceLens = sourceLens
+            context.coordinator.applyLens(sourceLens, in: webView)
+        }
     }
 
-    private func load(in webView: WKWebView, context: Context) {
+    @discardableResult
+    private func load(in webView: WKWebView, context: Context) -> Bool {
         guard context.coordinator.loadedURL != fileURL || context.coordinator.reloadToken != reloadToken else {
-            return
+            return false
         }
         context.coordinator.loadedURL = fileURL
         context.coordinator.reloadToken = reloadToken
         webView.loadFileURL(fileURL, allowingReadAccessTo: readAccessURL)
+        return true
     }
 
-    final class Coordinator {
+    final class Coordinator: NSObject, WKNavigationDelegate {
         var loadedURL: URL?
         var reloadToken = -1
+        var sourceLens: GraphSourceLens = .all
+
+        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            applyLens(sourceLens, in: webView)
+        }
+
+        func applyLens(_ lens: GraphSourceLens, in webView: WKWebView) {
+            let script = """
+            window.__brainBarPendingGraphLens = "\(lens.rawValue)";
+            if (window.brainBarApplyGraphLens) {
+              window.brainBarApplyGraphLens("\(lens.rawValue)");
+            }
+            """
+            webView.evaluateJavaScript(script)
+        }
     }
 }
 
@@ -180,6 +204,30 @@ private extension GraphWebView {
           background: rgba(255, 255, 255, 0.075) !important;
         }
 
+        #brainbar-lens-empty {
+          position: fixed;
+          left: 50%;
+          top: 50%;
+          z-index: 20;
+          transform: translate(-50%, -50%);
+          padding: 10px 14px;
+          border: 1px solid rgba(244, 246, 255, 0.10);
+          border-radius: 999px;
+          background: rgba(12, 15, 25, 0.72);
+          color: rgba(244, 246, 255, 0.62);
+          font-size: 12px;
+          font-weight: 650;
+          letter-spacing: 0;
+          box-shadow: 0 18px 60px rgba(0, 0, 0, 0.25);
+          backdrop-filter: blur(18px) saturate(1.12);
+          -webkit-backdrop-filter: blur(18px) saturate(1.12);
+          pointer-events: none;
+        }
+
+        #brainbar-lens-empty[hidden] {
+          display: none !important;
+        }
+
         ::-webkit-scrollbar {
           width: 10px;
           height: 10px;
@@ -197,6 +245,154 @@ private extension GraphWebView {
         }
       `;
       document.head.appendChild(style);
+
+      const edgeSource = (edge) => edge.from ?? edge.source;
+      const edgeTarget = (edge) => edge.to ?? edge.target;
+
+      const ensureLensEmptyState = () => {
+        let overlay = document.getElementById('brainbar-lens-empty');
+        if (!overlay) {
+          overlay = document.createElement('div');
+          overlay.id = 'brainbar-lens-empty';
+          overlay.hidden = true;
+          document.body.appendChild(overlay);
+        }
+        return overlay;
+      };
+
+      const setLensEmptyMessage = (message) => {
+        const overlay = ensureLensEmptyState();
+        overlay.textContent = message || '';
+        overlay.hidden = !message;
+      };
+
+      const ensureGraphLensState = () => {
+        try {
+          if (typeof nodesDS === 'undefined' || typeof edgesDS === 'undefined') {
+            return null;
+          }
+
+          const state = window.__brainBarGraphLensState || {};
+          if (!state.originalNodes || !state.originalEdges) {
+            state.originalNodes = nodesDS.get().map((node) => ({ ...node }));
+            state.originalEdges = edgesDS.get().map((edge) => ({ ...edge }));
+          }
+
+          if (!state.graphLinksLoading && !state.graphLinksLoaded) {
+            state.graphLinksLoading = true;
+            fetch('graph.json')
+              .then((response) => response.ok ? response.json() : null)
+              .then((graph) => {
+                state.graphLinks = graph ? (graph.links || graph.edges || []) : [];
+                state.graphLinksLoaded = true;
+                state.graphLinksLoading = false;
+                window.__brainBarGraphLensState = state;
+                window.brainBarApplyGraphLens(window.__brainBarPendingGraphLens || 'all');
+              })
+              .catch(() => {
+                state.graphLinks = [];
+                state.graphLinksLoaded = true;
+                state.graphLinksLoading = false;
+                window.__brainBarGraphLensState = state;
+              });
+          }
+
+          window.__brainBarGraphLensState = state;
+          return state;
+        } catch (error) {
+          console.debug('BrainBar graph lens state skipped', error);
+          return null;
+        }
+      };
+
+      const metadataForEdge = (edge, state) => {
+        const index = Number(edge.id);
+        if (Number.isInteger(index)) {
+          const graphLink = state.graphLinks?.[index];
+          if (graphLink) {
+            return graphLink;
+          }
+          if (typeof RAW_EDGES !== 'undefined' && RAW_EDGES[index]) {
+            return RAW_EDGES[index];
+          }
+        }
+        return edge;
+      };
+
+      const isObsidianEdge = (edge, state) => {
+        const metadata = metadataForEdge(edge, state);
+        const values = [
+          metadata.context,
+          metadata.relation,
+          metadata.label,
+          metadata.title,
+          edge.context,
+          edge.relation,
+          edge.label,
+          edge.title
+        ]
+          .filter(Boolean)
+          .map((value) => String(value).toLowerCase());
+        return values.some((value) => value === 'obsidian_wikilink' || value.includes('obsidian_wikilink'));
+      };
+
+      window.brainBarApplyGraphLens = (lens) => {
+        const state = ensureGraphLensState();
+        if (!state) {
+          return;
+        }
+
+        const selectedLens = lens || 'all';
+        window.__brainBarPendingGraphLens = selectedLens;
+
+        const filteredEdges = state.originalEdges.filter((edge) => {
+          if (selectedLens === 'all') {
+            return true;
+          }
+          const obsidian = isObsidianEdge(edge, state);
+          return selectedLens === 'obsidian' ? obsidian : !obsidian;
+        });
+
+        const visibleEdgeIds = new Set(filteredEdges.map((edge) => edge.id));
+        const visibleNodeIds = new Set();
+        filteredEdges.forEach((edge) => {
+          const source = edgeSource(edge);
+          const target = edgeTarget(edge);
+          if (source !== undefined && source !== null) {
+            visibleNodeIds.add(source);
+          }
+          if (target !== undefined && target !== null) {
+            visibleNodeIds.add(target);
+          }
+        });
+
+        edgesDS.update(state.originalEdges.map((edge) => ({
+          id: edge.id,
+          hidden: selectedLens !== 'all' && !visibleEdgeIds.has(edge.id)
+        })));
+        nodesDS.update(state.originalNodes.map((node) => ({
+          id: node.id,
+          hidden: selectedLens !== 'all' && !visibleNodeIds.has(node.id)
+        })));
+
+        if (selectedLens === 'obsidian' && filteredEdges.length === 0) {
+          setLensEmptyMessage('No Obsidian links found');
+        } else if (selectedLens === 'graphify' && filteredEdges.length === 0) {
+          setLensEmptyMessage('No Graphify edges found');
+        } else {
+          setLensEmptyMessage('');
+        }
+
+        if (typeof network !== 'undefined') {
+          network.redraw();
+          if (selectedLens !== 'all' && visibleNodeIds.size > 0) {
+            network.fit({
+              nodes: Array.from(visibleNodeIds),
+              animation: { duration: 220, easingFunction: 'easeInOutQuad' }
+            });
+          }
+        }
+      };
 
       const applyNetworkTheme = () => {
         try {
@@ -290,8 +486,13 @@ private extension GraphWebView {
         }
       };
 
-      requestAnimationFrame(applyNetworkTheme);
-      window.setTimeout(applyNetworkTheme, 350);
+      const applyBrainBarGraphRuntime = () => {
+        applyNetworkTheme();
+        window.brainBarApplyGraphLens(window.__brainBarPendingGraphLens || 'all');
+      };
+
+      requestAnimationFrame(applyBrainBarGraphRuntime);
+      window.setTimeout(applyBrainBarGraphRuntime, 350);
     })();
     """
 }

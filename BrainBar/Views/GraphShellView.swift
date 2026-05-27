@@ -35,6 +35,13 @@ struct GraphShellView: View {
                 .help("Git status for the configured vault")
                 .accessibilityHint("Git status for the configured vault, not the BrainBar app repository")
 
+            if model.status.graphHtmlExists {
+                GraphLensControl(
+                    selectedLens: model.graphSourceLens,
+                    onSelect: model.setGraphSourceLens
+                )
+            }
+
             Spacer(minLength: 12)
 
             GraphActionMenu(model: model, showsFocusButton: mode.showsFocusButton)
@@ -77,7 +84,12 @@ struct GraphShellView: View {
                 }
             }
         } else if let graphURL = model.graphFileURL, let readAccessURL = model.graphReadAccessURL {
-            GraphWebView(fileURL: graphURL, readAccessURL: readAccessURL, reloadToken: model.graphReloadToken)
+            GraphWebView(
+                fileURL: graphURL,
+                readAccessURL: readAccessURL,
+                reloadToken: model.graphReloadToken,
+                sourceLens: model.graphSourceLens
+            )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(.black.opacity(0.16))
                 .clipShape(.rect(cornerRadius: 10))
@@ -291,6 +303,50 @@ private struct GraphActionMenu: View {
     private func copyToPasteboard(_ text: String) {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
+    }
+}
+
+private struct GraphLensControl: View {
+    let selectedLens: GraphSourceLens
+    let onSelect: (GraphSourceLens) -> Void
+
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(GraphSourceLens.allCases) { lens in
+                Button {
+                    onSelect(lens)
+                } label: {
+                    Text(lens.label)
+                        .font(.caption.weight(.semibold))
+                        .lineLimit(1)
+                        .frame(minWidth: 54)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 5)
+                        .contentShape(.rect)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(selectedLens == lens ? .primary : .secondary)
+                .background {
+                    if selectedLens == lens {
+                        Capsule()
+                            .fill(.white.opacity(0.12))
+                            .overlay {
+                                Capsule()
+                                    .stroke(.white.opacity(0.08), lineWidth: 1)
+                            }
+                    }
+                }
+                .help(lens.help)
+                .accessibilityLabel(lens.label)
+                .accessibilityHint(lens.help)
+            }
+        }
+        .padding(3)
+        .background(.thinMaterial, in: Capsule())
+        .overlay {
+            Capsule()
+                .stroke(.white.opacity(0.06), lineWidth: 1)
+        }
     }
 }
 

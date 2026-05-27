@@ -74,6 +74,15 @@ final class BrainBarTests: XCTestCase {
         XCTAssertEqual(status.gitDescription, "Vault · main · changes")
     }
 
+    func testGraphSourceLensLabelsAndRawValuesAreStable() {
+        XCTAssertEqual(GraphSourceLens.all.rawValue, "all")
+        XCTAssertEqual(GraphSourceLens.all.label, "All")
+        XCTAssertEqual(GraphSourceLens.graphify.rawValue, "graphify")
+        XCTAssertEqual(GraphSourceLens.graphify.label, "Graphify")
+        XCTAssertEqual(GraphSourceLens.obsidian.rawValue, "obsidian")
+        XCTAssertEqual(GraphSourceLens.obsidian.label, "Obsidian")
+    }
+
     func testGraphServerStartsAndStops() async throws {
         let vault = try temporaryDirectory()
         try FileManager.default.createDirectory(at: vault.appendingPathComponent("graphify-out"), withIntermediateDirectories: true)
@@ -104,6 +113,21 @@ final class BrainBarTests: XCTestCase {
 
         let saved = try manager.load()
         XCTAssertEqual(saved.vaultPath, "/tmp/example-vault")
+    }
+
+    @MainActor
+    func testAppModelGraphSourceLensIsSessionOnly() throws {
+        let directory = try temporaryDirectory()
+        let configURL = directory.appendingPathComponent("config.json")
+        var manager = ConfigurationManager()
+        manager.environment = ["BRAIN_BAR_CONFIG": configURL.path]
+        let model = AppModel(configurationManager: manager)
+        let initialConfig = model.config
+
+        model.setGraphSourceLens(.obsidian)
+
+        XCTAssertEqual(model.graphSourceLens, .obsidian)
+        XCTAssertEqual(model.config, initialConfig)
     }
 
     private func temporaryDirectory() throws -> URL {

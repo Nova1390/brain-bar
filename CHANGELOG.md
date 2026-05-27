@@ -10,6 +10,7 @@ All notable changes to BrainBar are documented here.
 - Ad-hoc sign release packages and verify the bundle before creating `BrainBar.zip`.
 - Added release, GitHub repository, copyright, and MIT license links to Settings.
 - Clarified the header Git badge so it explicitly refers to the configured vault.
+- Added a session-only Graph Source Lens to switch between All, Graphify, and Obsidian graph relationships.
 
 ## 0.1.2 - 2026-05-26
 
