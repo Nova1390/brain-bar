@@ -4,6 +4,8 @@ All notable changes to BrainBar are documented here.
 
 ## Unreleased
 
+## 0.2.0 - 2026-05-27
+
 - Added a dedicated 1280x640 GitHub social preview image.
 - Refined the social preview banner with more native app chrome and quieter feature badges.
 - Moved the real app screenshot lower in the README as product evidence instead of using it as the top banner.
