@@ -27,6 +27,8 @@ It keeps the graph where it belongs: on your machine, inside a compact menu bar 
 - Embedded WebKit graph view for `graphify-out/graph.html`
 - Runtime graph skin that does not rewrite Graphify output
 - Focus Window for longer graph exploration
+- Source lens for switching between all edges, generated Graphify relationships, and native Obsidian wikilinks
+- Node inspection with an Open Note action for jumping from graph node to local source file
 - Graphify refresh from the footer or action menu
 - Vault, Git branch/dirty state, Graphify, and brain-check status
 - Configurable vault path, dashboard path, report path, server port, and commands
@@ -34,9 +36,27 @@ It keeps the graph where it belongs: on your machine, inside a compact menu bar 
 - Optional local HTTP server bound to `127.0.0.1`
 - Optional macOS notifications after long-running commands finish
 
-## Preview
+## Product Tour
 
-![BrainBar app preview](docs/brainbar-screenshot.png)
+### Focus Window
+
+BrainBar can expand from the menu bar into a larger native Focus Window for longer graph exploration, while keeping refresh, settings, and action controls close at hand.
+
+![BrainBar Focus Window](docs/brainbar-focus-all.png)
+
+### Source Lens
+
+Switch between the full graph, generated Graphify relationships, and native Obsidian wikilinks without modifying the generated Graphify HTML on disk.
+
+| Graphify relationships | Obsidian wikilinks |
+| --- | --- |
+| ![BrainBar Graphify source lens](docs/brainbar-focus-graphify.png) | ![BrainBar Obsidian source lens](docs/brainbar-focus-obsidian.png) |
+
+### Node Navigation
+
+Select a graph node to inspect its metadata, then open the backing local note or source file directly from BrainBar.
+
+![BrainBar node navigation](docs/brainbar-node-navigation.png)
 
 ## Graphify
 
@@ -158,6 +178,10 @@ graphify-out/graph.html
 If the file exists, BrainBar embeds it directly in the menu bar popover and Focus Window. If no refresh has run in the current app session, BrainBar uses the file modification date and shows a status such as `Graph updated 2 min. ago`.
 
 The footer Graphify status is also a refresh button. Click it to run the configured `refreshGraph` command. During refresh, BrainBar shows `Refreshing Graph...`; if the command succeeds, the embedded graph reloads.
+
+Use the source lens to switch between all graph edges, Graphify-generated relationships, and Obsidian wikilinks. The lens is session-only and does not change local config or rewrite generated files.
+
+Select a node to inspect it. If the generated graph includes a source file for that node, BrainBar shows an Open Note action and supports double-clicking the node to open the backing local file. Source paths are resolved inside the configured vault before opening.
 
 The visual styling is applied at runtime by BrainBar through WebKit. The original `graphify-out/graph.html` file is not rewritten.
 
