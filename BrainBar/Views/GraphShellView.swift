@@ -40,9 +40,22 @@ struct GraphShellView: View {
                     selectedLens: model.graphSourceLens,
                     onSelect: model.setGraphSourceLens
                 )
+
+                if mode == .focus {
+                    GraphViewModeControl(
+                        selectedMode: model.graphViewMode,
+                        onSelect: model.setGraphViewMode
+                    )
+                }
             }
 
             Spacer(minLength: 12)
+
+            if mode == .focus, model.graphViewMode == .threeD, model.status.graphHtmlExists {
+                IconButton(systemImage: "viewfinder", help: "Reset 3D Camera") {
+                    model.resetGraph3DCamera()
+                }
+            }
 
             GraphActionMenu(model: model, showsFocusButton: mode.showsFocusButton)
 
@@ -84,13 +97,7 @@ struct GraphShellView: View {
                 }
             }
         } else if let graphURL = model.graphFileURL, let readAccessURL = model.graphReadAccessURL {
-            GraphWebView(
-                fileURL: graphURL,
-                readAccessURL: readAccessURL,
-                reloadToken: model.graphReloadToken,
-                sourceLens: model.graphSourceLens,
-                onOpenNode: model.openGraphNode
-            )
+            activeGraphView(graphURL: graphURL, readAccessURL: readAccessURL)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(.black.opacity(0.16))
                 .clipShape(.rect(cornerRadius: 10))
@@ -110,6 +117,27 @@ struct GraphShellView: View {
                     await model.refreshStatus()
                 }
             }
+        }
+    }
+
+    @ViewBuilder
+    private func activeGraphView(graphURL: URL, readAccessURL: URL) -> some View {
+        if mode == .focus, model.graphViewMode == .threeD {
+            Graph3DWebView(
+                readAccessURL: readAccessURL,
+                reloadToken: model.graphReloadToken,
+                sourceLens: model.graphSourceLens,
+                resetCameraToken: model.graph3DResetToken,
+                onOpenNode: model.openGraphNode
+            )
+        } else {
+            GraphWebView(
+                fileURL: graphURL,
+                readAccessURL: readAccessURL,
+                reloadToken: model.graphReloadToken,
+                sourceLens: model.graphSourceLens,
+                onOpenNode: model.openGraphNode
+            )
         }
     }
 
@@ -340,6 +368,50 @@ private struct GraphLensControl: View {
                 .help(lens.help)
                 .accessibilityLabel(lens.label)
                 .accessibilityHint(lens.help)
+            }
+        }
+        .padding(3)
+        .background(.thinMaterial, in: Capsule())
+        .overlay {
+            Capsule()
+                .stroke(.white.opacity(0.06), lineWidth: 1)
+        }
+    }
+}
+
+private struct GraphViewModeControl: View {
+    let selectedMode: GraphViewMode
+    let onSelect: (GraphViewMode) -> Void
+
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(GraphViewMode.allCases) { mode in
+                Button {
+                    onSelect(mode)
+                } label: {
+                    Text(mode.label)
+                        .font(.caption.weight(.semibold))
+                        .lineLimit(1)
+                        .frame(minWidth: 34)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 5)
+                        .contentShape(.rect)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(selectedMode == mode ? .primary : .secondary)
+                .background {
+                    if selectedMode == mode {
+                        Capsule()
+                            .fill(.white.opacity(0.12))
+                            .overlay {
+                                Capsule()
+                                    .stroke(.white.opacity(0.08), lineWidth: 1)
+                            }
+                    }
+                }
+                .help(mode.help)
+                .accessibilityLabel(mode.label)
+                .accessibilityHint(mode.help)
             }
         }
         .padding(3)

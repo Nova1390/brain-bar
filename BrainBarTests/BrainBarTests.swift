@@ -170,6 +170,13 @@ final class BrainBarTests: XCTestCase {
         XCTAssertEqual(GraphSourceLens.obsidian.label, "Obsidian")
     }
 
+    func testGraphViewModeLabelsAndRawValuesAreStable() {
+        XCTAssertEqual(GraphViewMode.twoD.rawValue, "twoD")
+        XCTAssertEqual(GraphViewMode.twoD.label, "2D")
+        XCTAssertEqual(GraphViewMode.threeD.rawValue, "threeD")
+        XCTAssertEqual(GraphViewMode.threeD.label, "3D")
+    }
+
     func testGraphServerStartsAndStops() async throws {
         let vault = try temporaryDirectory()
         try FileManager.default.createDirectory(at: vault.appendingPathComponent("graphify-out"), withIntermediateDirectories: true)
@@ -214,6 +221,22 @@ final class BrainBarTests: XCTestCase {
         model.setGraphSourceLens(.obsidian)
 
         XCTAssertEqual(model.graphSourceLens, .obsidian)
+        XCTAssertEqual(model.config, initialConfig)
+    }
+
+    @MainActor
+    func testAppModelGraphViewModeIsSessionOnly() throws {
+        let directory = try temporaryDirectory()
+        let configURL = directory.appendingPathComponent("config.json")
+        var manager = ConfigurationManager()
+        manager.environment = ["BRAIN_BAR_CONFIG": configURL.path]
+        let model = AppModel(configurationManager: manager)
+        let initialConfig = model.config
+
+        model.setGraphViewMode(.threeD)
+
+        XCTAssertEqual(model.graphViewMode, .threeD)
+        XCTAssertEqual(model.graphSourceLens, .all)
         XCTAssertEqual(model.config, initialConfig)
     }
 

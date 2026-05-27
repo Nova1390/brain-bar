@@ -32,6 +32,31 @@ enum GraphSourceLens: String, CaseIterable, Identifiable, Sendable {
     }
 }
 
+enum GraphViewMode: String, CaseIterable, Identifiable, Sendable {
+    case twoD
+    case threeD
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .twoD:
+            return "2D"
+        case .threeD:
+            return "3D"
+        }
+    }
+
+    var help: String {
+        switch self {
+        case .twoD:
+            return "Show the standard Graphify view"
+        case .threeD:
+            return "Show the experimental 3D focus graph"
+        }
+    }
+}
+
 @MainActor
 @Observable
 final class AppModel {
@@ -44,6 +69,8 @@ final class AppModel {
     var errorMessage: String?
     var graphReloadToken = 0
     var graphSourceLens: GraphSourceLens = .all
+    var graphViewMode: GraphViewMode = .twoD
+    var graph3DResetToken = 0
 
     @ObservationIgnored private let configurationManager: ConfigurationManager
     @ObservationIgnored private let commandRunner: CommandRunner
@@ -115,6 +142,16 @@ final class AppModel {
 
     func setGraphSourceLens(_ lens: GraphSourceLens) {
         graphSourceLens = lens
+        errorMessage = nil
+    }
+
+    func setGraphViewMode(_ mode: GraphViewMode) {
+        graphViewMode = mode
+        errorMessage = nil
+    }
+
+    func resetGraph3DCamera() {
+        graph3DResetToken += 1
         errorMessage = nil
     }
 

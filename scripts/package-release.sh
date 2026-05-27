@@ -3,11 +3,12 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BUILD_DIR="$ROOT/build/release"
-ARCHIVE_DIR="$BUILD_DIR/archive"
 PRODUCTS_DIR="$BUILD_DIR/products"
+STAGING_DIR="$(mktemp -d "${TMPDIR:-/tmp}/brainbar-package.XXXXXX")"
+trap 'rm -rf "$STAGING_DIR"' EXIT
 
 rm -rf "$BUILD_DIR"
-mkdir -p "$ARCHIVE_DIR" "$PRODUCTS_DIR"
+mkdir -p "$PRODUCTS_DIR"
 
 "$ROOT/scripts/check-public-safety.sh"
 
@@ -25,7 +26,7 @@ if [ ! -d "$APP_PATH" ]; then
   exit 1
 fi
 
-STAGED_APP="$ARCHIVE_DIR/BrainBar.app"
+STAGED_APP="$STAGING_DIR/BrainBar.app"
 ditto --noextattr --noqtn "$APP_PATH" "$STAGED_APP"
 xattr -cr "$STAGED_APP"
 codesign --force --deep --sign - "$STAGED_APP"

@@ -21,6 +21,8 @@
 		100000000000000000000112 /* GraphWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000013 /* GraphWebView.swift */; };
 		100000000000000000000113 /* GraphShellView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000014 /* GraphShellView.swift */; };
 		100000000000000000000114 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000015 /* Assets.xcassets */; };
+		100000000000000000000115 /* Graph3DWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000016 /* Graph3DWebView.swift */; };
+		100000000000000000000116 /* Graph3D in Resources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000017 /* Graph3D */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -49,6 +51,8 @@
 		100000000000000000000013 /* GraphWebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GraphWebView.swift; sourceTree = "<group>"; };
 		100000000000000000000014 /* GraphShellView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GraphShellView.swift; sourceTree = "<group>"; };
 		100000000000000000000015 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		100000000000000000000016 /* Graph3DWebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Graph3DWebView.swift; sourceTree = "<group>"; };
+		100000000000000000000017 /* Graph3D */ = {isa = PBXFileReference; lastKnownFileType = folder; path = Graph3D; sourceTree = "<group>"; };
 		100000000000000000000020 /* BrainBar.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BrainBar.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		100000000000000000000021 /* BrainBarTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = BrainBarTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -119,6 +123,7 @@
 				100000000000000000000009 /* DashboardView.swift */,
 				100000000000000000000010 /* SettingsView.swift */,
 				100000000000000000000013 /* GraphWebView.swift */,
+				100000000000000000000016 /* Graph3DWebView.swift */,
 				100000000000000000000014 /* GraphShellView.swift */,
 			);
 			path = Views;
@@ -146,6 +151,7 @@
 			children = (
 				100000000000000000000012 /* Info.plist */,
 				100000000000000000000015 /* Assets.xcassets */,
+				100000000000000000000017 /* Graph3D */,
 			);
 			path = Resources;
 			sourceTree = "<group>";
@@ -232,6 +238,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				100000000000000000000114 /* Assets.xcassets in Resources */,
+				100000000000000000000116 /* Graph3D in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -260,6 +267,7 @@
 				100000000000000000000109 /* DashboardView.swift in Sources */,
 				100000000000000000000110 /* SettingsView.swift in Sources */,
 				100000000000000000000112 /* GraphWebView.swift in Sources */,
+				100000000000000000000115 /* Graph3DWebView.swift in Sources */,
 				100000000000000000000113 /* GraphShellView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -404,14 +412,14 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "-";
 				CODE_SIGN_STYLE = Manual;
-				CURRENT_PROJECT_VERSION = 4;
+				CURRENT_PROJECT_VERSION = 5;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = BrainBar/Resources/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 0.2.0;
+				MARKETING_VERSION = 0.4.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.nova1390.brainbar;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = NO;
@@ -425,14 +433,14 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "-";
 				CODE_SIGN_STYLE = Manual;
-				CURRENT_PROJECT_VERSION = 4;
+				CURRENT_PROJECT_VERSION = 5;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = BrainBar/Resources/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 0.2.0;
+				MARKETING_VERSION = 0.4.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.nova1390.brainbar;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = NO;
