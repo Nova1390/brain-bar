@@ -7,6 +7,7 @@ struct GraphWebView: NSViewRepresentable {
     let readAccessURL: URL
     let reloadToken: Int
     let sourceLens: GraphSourceLens
+    let viewportCommand: GraphViewportCommand?
     let onOpenNode: @MainActor (GraphNodeOpenRequest) -> Void
 
     func makeCoordinator() -> Coordinator {
@@ -37,6 +38,7 @@ struct GraphWebView: NSViewRepresentable {
             context.coordinator.sourceLens = sourceLens
             context.coordinator.applyLens(sourceLens, in: webView)
         }
+        context.coordinator.applyViewportCommandIfNeeded(viewportCommand, in: webView)
     }
 
     @discardableResult
@@ -54,6 +56,7 @@ struct GraphWebView: NSViewRepresentable {
         var loadedURL: URL?
         var reloadToken = -1
         var sourceLens: GraphSourceLens = .all
+        var lastViewportCommandID: Int?
         var graphMetadataScript = ""
         var onOpenNode: @MainActor (GraphNodeOpenRequest) -> Void
 
@@ -71,6 +74,19 @@ struct GraphWebView: NSViewRepresentable {
             window.__brainBarPendingGraphLens = "\(lens.rawValue)";
             if (window.brainBarApplyGraphLens) {
               window.brainBarApplyGraphLens("\(lens.rawValue)");
+            }
+            """
+            webView.evaluateJavaScript(script)
+        }
+
+        func applyViewportCommandIfNeeded(_ command: GraphViewportCommand?, in webView: WKWebView) {
+            guard let command, lastViewportCommandID != command.id else {
+                return
+            }
+            lastViewportCommandID = command.id
+            let script = """
+            if (window.brainBarApplyViewportCommand) {
+              window.brainBarApplyViewportCommand("\(command.kind.rawValue)");
             }
             """
             webView.evaluateJavaScript(script)
@@ -420,6 +436,24 @@ private extension GraphWebView {
           document.body.appendChild(overlay);
         }
         return overlay;
+      };
+
+      window.brainBarApplyViewportCommand = (command) => {
+        if (typeof network === 'undefined') {
+          return;
+        }
+        const animation = { duration: 220, easingFunction: 'easeInOutQuad' };
+        if (command === 'fit' || command === 'topView') {
+          network.fit({ animation });
+          return;
+        }
+
+        if (command === 'zoomIn' || command === 'zoomOut') {
+          const currentScale = typeof network.getScale === 'function' ? network.getScale() : 1;
+          const multiplier = command === 'zoomIn' ? 1.18 : 1 / 1.18;
+          const scale = Math.max(0.08, Math.min(4, currentScale * multiplier));
+          network.moveTo({ scale, animation });
+        }
       };
 
       const setLensEmptyMessage = (message) => {

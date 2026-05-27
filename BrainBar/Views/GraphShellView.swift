@@ -51,10 +51,14 @@ struct GraphShellView: View {
 
             Spacer(minLength: 12)
 
-            if mode == .focus, model.graphViewMode == .threeD, model.status.graphHtmlExists {
-                IconButton(systemImage: "viewfinder", help: "Reset 3D Camera") {
-                    model.resetGraph3DCamera()
-                }
+            if mode == .focus, model.status.graphHtmlExists {
+                GraphViewportControls(
+                    showsTopView: model.graphViewMode == .threeD,
+                    onZoomOut: model.zoomGraphOut,
+                    onZoomIn: model.zoomGraphIn,
+                    onFit: model.fitGraphView,
+                    onTopView: model.resetGraph3DCamera
+                )
             }
 
             GraphActionMenu(model: model, showsFocusButton: mode.showsFocusButton)
@@ -128,6 +132,7 @@ struct GraphShellView: View {
                 reloadToken: model.graphReloadToken,
                 sourceLens: model.graphSourceLens,
                 resetCameraToken: model.graph3DResetToken,
+                viewportCommand: model.graphViewportCommand,
                 onOpenNode: model.openGraphNode
             )
         } else {
@@ -136,6 +141,7 @@ struct GraphShellView: View {
                 readAccessURL: readAccessURL,
                 reloadToken: model.graphReloadToken,
                 sourceLens: model.graphSourceLens,
+                viewportCommand: model.graphViewportCommand,
                 onOpenNode: model.openGraphNode
             )
         }
@@ -420,6 +426,26 @@ private struct GraphViewModeControl: View {
             Capsule()
                 .stroke(.white.opacity(0.06), lineWidth: 1)
         }
+    }
+}
+
+private struct GraphViewportControls: View {
+    let showsTopView: Bool
+    let onZoomOut: () -> Void
+    let onZoomIn: () -> Void
+    let onFit: () -> Void
+    let onTopView: () -> Void
+
+    var body: some View {
+        HStack(spacing: 4) {
+            IconButton(systemImage: "minus.magnifyingglass", help: "Zoom out", action: onZoomOut)
+            IconButton(systemImage: "plus.magnifyingglass", help: "Zoom in", action: onZoomIn)
+            IconButton(systemImage: "arrow.up.left.and.down.right.magnifyingglass", help: "Fit graph", action: onFit)
+            if showsTopView {
+                IconButton(systemImage: "viewfinder", help: "Top view", action: onTopView)
+            }
+        }
+        .padding(.horizontal, 2)
     }
 }
 

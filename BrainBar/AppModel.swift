@@ -57,6 +57,18 @@ enum GraphViewMode: String, CaseIterable, Identifiable, Sendable {
     }
 }
 
+enum GraphViewportCommandKind: String, Sendable {
+    case fit
+    case zoomIn
+    case zoomOut
+    case topView
+}
+
+struct GraphViewportCommand: Equatable, Sendable {
+    let id: Int
+    let kind: GraphViewportCommandKind
+}
+
 @MainActor
 @Observable
 final class AppModel {
@@ -71,12 +83,14 @@ final class AppModel {
     var graphSourceLens: GraphSourceLens = .all
     var graphViewMode: GraphViewMode = .twoD
     var graph3DResetToken = 0
+    var graphViewportCommand: GraphViewportCommand?
 
     @ObservationIgnored private let configurationManager: ConfigurationManager
     @ObservationIgnored private let commandRunner: CommandRunner
     @ObservationIgnored private let vaultStatusService: VaultStatusService
     @ObservationIgnored private let graphServerController: GraphServerController
     @ObservationIgnored private let notificationService: NotificationService
+    @ObservationIgnored private var nextGraphViewportCommandID = 0
 
     var configPath: String {
         configurationManager.configURL.path
@@ -152,6 +166,24 @@ final class AppModel {
 
     func resetGraph3DCamera() {
         graph3DResetToken += 1
+        sendGraphViewportCommand(.topView)
+    }
+
+    func fitGraphView() {
+        sendGraphViewportCommand(.fit)
+    }
+
+    func zoomGraphIn() {
+        sendGraphViewportCommand(.zoomIn)
+    }
+
+    func zoomGraphOut() {
+        sendGraphViewportCommand(.zoomOut)
+    }
+
+    private func sendGraphViewportCommand(_ kind: GraphViewportCommandKind) {
+        nextGraphViewportCommandID += 1
+        graphViewportCommand = GraphViewportCommand(id: nextGraphViewportCommandID, kind: kind)
         errorMessage = nil
     }
 

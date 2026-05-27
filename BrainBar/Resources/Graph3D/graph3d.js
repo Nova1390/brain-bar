@@ -442,6 +442,16 @@ function resetCamera() {
   fitCameraToGraph(true);
 }
 
+function zoomCamera(multiplier) {
+  camera.zoom = THREE.MathUtils.clamp(camera.zoom * multiplier, controls.minZoom, controls.maxZoom);
+  camera.updateProjectionMatrix();
+  controls.update();
+}
+
+function topView() {
+  fitCameraToGraph(true);
+}
+
 function resize() {
   const rect = canvas.parentElement.getBoundingClientRect();
   const width = Math.max(rect.width, 1);
@@ -596,6 +606,8 @@ window.brainBarApplyGraphLens = (lens) => {
 };
 
 window.brainBarResetCamera = resetCamera;
+window.brainBarZoom = zoomCamera;
+window.brainBarTopView = topView;
 
 canvas.addEventListener('click', (event) => {
   const node = nodeAtEvent(event);

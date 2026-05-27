@@ -177,6 +177,13 @@ final class BrainBarTests: XCTestCase {
         XCTAssertEqual(GraphViewMode.threeD.label, "3D")
     }
 
+    func testGraphViewportCommandRawValuesAreStable() {
+        XCTAssertEqual(GraphViewportCommandKind.fit.rawValue, "fit")
+        XCTAssertEqual(GraphViewportCommandKind.zoomIn.rawValue, "zoomIn")
+        XCTAssertEqual(GraphViewportCommandKind.zoomOut.rawValue, "zoomOut")
+        XCTAssertEqual(GraphViewportCommandKind.topView.rawValue, "topView")
+    }
+
     func testGraphServerStartsAndStops() async throws {
         let vault = try temporaryDirectory()
         try FileManager.default.createDirectory(at: vault.appendingPathComponent("graphify-out"), withIntermediateDirectories: true)
@@ -237,6 +244,25 @@ final class BrainBarTests: XCTestCase {
 
         XCTAssertEqual(model.graphViewMode, .threeD)
         XCTAssertEqual(model.graphSourceLens, .all)
+        XCTAssertEqual(model.config, initialConfig)
+    }
+
+    @MainActor
+    func testAppModelGraphViewportCommandsAreSessionOnly() throws {
+        let directory = try temporaryDirectory()
+        let configURL = directory.appendingPathComponent("config.json")
+        var manager = ConfigurationManager()
+        manager.environment = ["BRAIN_BAR_CONFIG": configURL.path]
+        let model = AppModel(configurationManager: manager)
+        let initialConfig = model.config
+
+        model.zoomGraphIn()
+        let firstCommand = model.graphViewportCommand
+        model.fitGraphView()
+
+        XCTAssertEqual(firstCommand?.kind, .zoomIn)
+        XCTAssertEqual(model.graphViewportCommand?.kind, .fit)
+        XCTAssertNotEqual(firstCommand?.id, model.graphViewportCommand?.id)
         XCTAssertEqual(model.config, initialConfig)
     }
 

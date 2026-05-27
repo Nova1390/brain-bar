@@ -7,6 +7,7 @@ struct Graph3DWebView: NSViewRepresentable {
     let reloadToken: Int
     let sourceLens: GraphSourceLens
     let resetCameraToken: Int
+    let viewportCommand: GraphViewportCommand?
     let onOpenNode: @MainActor (GraphNodeOpenRequest) -> Void
 
     func makeCoordinator() -> Coordinator {
@@ -50,6 +51,8 @@ struct Graph3DWebView: NSViewRepresentable {
             context.coordinator.resetCameraToken = resetCameraToken
             context.coordinator.resetCamera(in: webView)
         }
+
+        context.coordinator.applyViewportCommandIfNeeded(viewportCommand, in: webView)
     }
 
     @discardableResult
@@ -74,6 +77,7 @@ struct Graph3DWebView: NSViewRepresentable {
         var reloadToken = -1
         var sourceLens: GraphSourceLens = .all
         var resetCameraToken = 0
+        var lastViewportCommandID: Int?
         var graphJSONURL: URL?
         var graphPayloadScript = ""
         var onOpenNode: @MainActor (GraphNodeOpenRequest) -> Void
@@ -109,6 +113,25 @@ struct Graph3DWebView: NSViewRepresentable {
 
         func resetCamera(in webView: WKWebView) {
             webView.evaluateJavaScript("if (window.brainBarResetCamera) { window.brainBarResetCamera(); }")
+        }
+
+        func applyViewportCommandIfNeeded(_ command: GraphViewportCommand?, in webView: WKWebView) {
+            guard let command, lastViewportCommandID != command.id else {
+                return
+            }
+            lastViewportCommandID = command.id
+            let script: String
+            switch command.kind {
+            case .fit:
+                script = "if (window.brainBarResetCamera) { window.brainBarResetCamera(); }"
+            case .zoomIn:
+                script = "if (window.brainBarZoom) { window.brainBarZoom(1.18); }"
+            case .zoomOut:
+                script = "if (window.brainBarZoom) { window.brainBarZoom(0.8474576271); }"
+            case .topView:
+                script = "if (window.brainBarTopView) { window.brainBarTopView(); }"
+            }
+            webView.evaluateJavaScript(script)
         }
 
         func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
