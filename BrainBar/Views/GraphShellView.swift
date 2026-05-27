@@ -179,7 +179,7 @@ struct GraphShellView: View {
 
     private func openSettings() {
         openWindow(id: "settings")
-        NSApplication.shared.activate(ignoringOtherApps: true)
+        BrainBarWindowController.bringSettingsToFront()
     }
 }
 
@@ -227,7 +227,7 @@ private struct GraphActionMenu: View {
                 if showsFocusButton {
                     Button {
                         openWindow(id: "graph-focus")
-                        NSApplication.shared.activate(ignoringOtherApps: true)
+                        BrainBarWindowController.bringFocusGraphToFront()
                     } label: {
                         Label("Open Focus Window", systemImage: "macwindow")
                     }
@@ -326,7 +326,7 @@ private struct GraphActionMenu: View {
 
     private func openSettings() {
         openWindow(id: "settings")
-        NSApplication.shared.activate(ignoringOtherApps: true)
+        BrainBarWindowController.bringSettingsToFront()
     }
 
     private func copyToPasteboard(_ text: String) {
