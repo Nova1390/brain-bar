@@ -129,10 +129,10 @@ struct VaultStatus: Equatable, Sendable {
 
     var gitDescription: String {
         guard let gitDirty else {
-            return "Not a Git repo"
+            return "Vault · no Git"
         }
         let branch = gitBranch?.isEmpty == false ? gitBranch! : "detached"
-        return gitDirty ? "\(branch) dirty" : "\(branch) clean"
+        return gitDirty ? "Vault · \(branch) · changes" : "Vault · \(branch) · clean"
     }
 }
 

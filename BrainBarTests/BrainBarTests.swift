@@ -59,6 +59,21 @@ final class BrainBarTests: XCTestCase {
         XCTAssertEqual(status.gitDirty, true)
     }
 
+    func testVaultGitDescriptionNamesVaultAndAvoidsDirtyLabel() {
+        let status = VaultStatus(
+            vaultPath: "/tmp/example-vault",
+            vaultExists: true,
+            dashboardExists: false,
+            graphHtmlExists: false,
+            graphHtmlModifiedAt: nil,
+            graphReportExists: false,
+            gitBranch: "main",
+            gitDirty: true
+        )
+
+        XCTAssertEqual(status.gitDescription, "Vault · main · changes")
+    }
+
     func testGraphServerStartsAndStops() async throws {
         let vault = try temporaryDirectory()
         try FileManager.default.createDirectory(at: vault.appendingPathComponent("graphify-out"), withIntermediateDirectories: true)

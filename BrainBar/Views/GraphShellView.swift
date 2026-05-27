@@ -32,6 +32,8 @@ struct GraphShellView: View {
                 .labelStyle(.titleAndIcon)
 
             InlineStatus(text: model.status.gitDescription, systemImage: "point.3.connected.trianglepath.dotted")
+                .help("Git status for the configured vault")
+                .accessibilityHint("Git status for the configured vault, not the BrainBar app repository")
 
             Spacer(minLength: 12)
 

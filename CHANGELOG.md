@@ -9,6 +9,7 @@ All notable changes to BrainBar are documented here.
 - Moved the real app screenshot lower in the README as product evidence instead of using it as the top banner.
 - Ad-hoc sign release packages and verify the bundle before creating `BrainBar.zip`.
 - Added release, GitHub repository, copyright, and MIT license links to Settings.
+- Clarified the header Git badge so it explicitly refers to the configured vault.
 
 ## 0.1.2 - 2026-05-26
 
