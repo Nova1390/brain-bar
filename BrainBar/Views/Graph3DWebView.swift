@@ -15,6 +15,7 @@ struct Graph3DWebView: NSViewRepresentable {
 
     func makeNSView(context: Context) -> WKWebView {
         let configuration = WKWebViewConfiguration()
+        configuration.setURLSchemeHandler(context.coordinator, forURLScheme: "brainbar3d")
         configuration.userContentController.add(context.coordinator, name: "brainBarNodeAction")
 
         let webView = WKWebView(frame: .zero, configuration: configuration)
@@ -56,17 +57,17 @@ struct Graph3DWebView: NSViewRepresentable {
         }
         context.coordinator.reloadToken = reloadToken
 
-        guard let indexURL = Bundle.main.url(forResource: "index", withExtension: "html", subdirectory: "Graph3D") else {
+        guard let indexURL = URL(string: "brainbar3d://resources/index.html") else {
             webView.loadHTMLString("<html><body style='background:#080a12;color:white'>3D graph resources unavailable.</body></html>", baseURL: nil)
             return true
         }
 
         context.coordinator.indexURL = indexURL
-        webView.loadFileURL(indexURL, allowingReadAccessTo: indexURL.deletingLastPathComponent())
+        webView.load(URLRequest(url: indexURL))
         return true
     }
 
-    final class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
+    final class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler, WKURLSchemeHandler {
         var indexURL: URL?
         var reloadToken = -1
         var sourceLens: GraphSourceLens = .all
@@ -123,6 +124,58 @@ struct Graph3DWebView: NSViewRepresentable {
             )
             Task { @MainActor in
                 onOpenNode(request)
+            }
+        }
+
+        func webView(_ webView: WKWebView, start urlSchemeTask: WKURLSchemeTask) {
+            guard let fileURL = bundleURL(for: urlSchemeTask.request.url) else {
+                urlSchemeTask.didFailWithError(BrainBarError.fileMissing("3D graph resource"))
+                return
+            }
+
+            do {
+                let data = try Data(contentsOf: fileURL)
+                let response = URLResponse(
+                    url: urlSchemeTask.request.url ?? fileURL,
+                    mimeType: mimeType(for: fileURL.pathExtension),
+                    expectedContentLength: data.count,
+                    textEncodingName: fileURL.pathExtension == "html" ? "utf-8" : nil
+                )
+                urlSchemeTask.didReceive(response)
+                urlSchemeTask.didReceive(data)
+                urlSchemeTask.didFinish()
+            } catch {
+                urlSchemeTask.didFailWithError(error)
+            }
+        }
+
+        func webView(_ webView: WKWebView, stop urlSchemeTask: WKURLSchemeTask) {}
+
+        private func bundleURL(for url: URL?) -> URL? {
+            guard let url else {
+                return nil
+            }
+            let rawPath = url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            let relativePath = rawPath.isEmpty ? "index.html" : rawPath
+            return Bundle.main.resourceURL?
+                .appendingPathComponent("Graph3D", isDirectory: true)
+                .appendingPathComponent(relativePath)
+        }
+
+        private func mimeType(for pathExtension: String) -> String {
+            switch pathExtension.lowercased() {
+            case "html":
+                return "text/html"
+            case "css":
+                return "text/css"
+            case "js":
+                return "text/javascript"
+            case "json":
+                return "application/json"
+            case "txt":
+                return "text/plain"
+            default:
+                return "application/octet-stream"
             }
         }
     }

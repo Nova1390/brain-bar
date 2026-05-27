@@ -30,6 +30,20 @@
         <div id="stats"></div>
       </aside>
     </main>
+    <script>
+      const showBootError = (message) => {
+        const overlay = document.getElementById('overlay');
+        if (!overlay) return;
+        overlay.textContent = message;
+        overlay.hidden = false;
+      };
+      window.addEventListener('error', (event) => {
+        showBootError(event.message || '3D graph failed to load');
+      });
+      window.addEventListener('unhandledrejection', (event) => {
+        showBootError(event.reason?.message || '3D graph failed to load');
+      });
+    </script>
     <script type="module" src="./graph3d.js"></script>
   </body>
 </html>
