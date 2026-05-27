@@ -29,10 +29,18 @@ const state = {
 };
 
 const scene = new THREE.Scene();
-scene.fog = new THREE.FogExp2(0x060912, 0.0015);
+scene.fog = new THREE.FogExp2(0x060912, 0.0009);
 
-const camera = new THREE.PerspectiveCamera(46, 1, 0.1, 5000);
-camera.position.set(0, 0, 760);
+const cameraFrustum = 900;
+const camera = new THREE.OrthographicCamera(
+  -cameraFrustum / 2,
+  cameraFrustum / 2,
+  cameraFrustum / 2,
+  -cameraFrustum / 2,
+  0.1,
+  5000
+);
+camera.position.set(0, 0, 980);
 
 const renderer = new THREE.WebGLRenderer({
   canvas,
@@ -49,16 +57,17 @@ controls.dampingFactor = 0.08;
 controls.rotateSpeed = 0.65;
 controls.zoomSpeed = 0.72;
 controls.panSpeed = 0.55;
-controls.minDistance = 120;
-controls.maxDistance = 2000;
+controls.minZoom = 0.28;
+controls.maxZoom = 5.2;
 
 const raycaster = new THREE.Raycaster();
-raycaster.params.Points.threshold = 9;
+raycaster.params.Points.threshold = 14;
 const pointer = new THREE.Vector2();
 
 let nodesMesh = null;
 let edgesMesh = null;
 let selectedMesh = null;
+const nodeTexture = createNodeTexture();
 
 function normalizeGraph(payload) {
   if (!payload) {
@@ -172,8 +181,10 @@ function renderGraph() {
   nodeGeometry.setAttribute('position', new THREE.BufferAttribute(nodePositions, 3));
   nodeGeometry.setAttribute('color', new THREE.BufferAttribute(nodeColors, 3));
   const nodeMaterial = new THREE.PointsMaterial({
-    size: 5.6,
-    sizeAttenuation: true,
+    size: 8.4,
+    sizeAttenuation: false,
+    map: nodeTexture,
+    alphaTest: 0.08,
     vertexColors: true,
     transparent: true,
     opacity: 0.96,
@@ -198,20 +209,21 @@ function renderGraph() {
   const edgeMaterial = new THREE.LineBasicMaterial({
     color: 0x8c9ec8,
     transparent: true,
-    opacity: 0.18,
+    opacity: 0.105,
     depthWrite: false
   });
   edgesMesh = new THREE.LineSegments(edgeGeometry, edgeMaterial);
   scene.add(edgesMesh);
 
   updateSelectedMarker();
+  fitCameraToGraph();
 }
 
 function calculateLayout() {
   state.positions = new Map();
   const communityMap = new Map(state.communities.map((community, index) => [community.name, index]));
   const communityCount = Math.max(state.communities.length, 1);
-  const clusterRadius = Math.min(360, 120 + communityCount * 8);
+  const clusterRadius = Math.min(480, 120 + Math.sqrt(communityCount) * 58);
   const nodesByCommunity = new Map();
 
   state.visibleNodes.forEach((node) => {
@@ -222,13 +234,13 @@ function calculateLayout() {
 
   nodesByCommunity.forEach((nodes, communityName) => {
     const communityIndex = communityMap.get(communityName) ?? 0;
-    const center = pointOnSphere(communityIndex, communityCount).multiplyScalar(clusterRadius);
-    const localRadius = Math.max(20, Math.min(150, Math.sqrt(nodes.length) * 12));
+    const center = pointOnDisc(communityIndex, communityCount).multiplyScalar(clusterRadius);
+    const localRadius = Math.max(22, Math.min(96, Math.sqrt(nodes.length) * 7.5));
     nodes.forEach((node, index) => {
       const seed = hashString(node.id);
       const angle = index * 2.399963 + (seed % 100) * 0.01;
       const distance = localRadius * Math.sqrt((index + 0.5) / Math.max(nodes.length, 1));
-      const z = (((seed >> 8) % 200) / 100 - 1) * localRadius * 0.62;
+      const z = (((seed >> 8) % 200) / 100 - 1) * Math.min(46, localRadius * 0.42);
       state.positions.set(node.id, new THREE.Vector3(
         center.x + Math.cos(angle) * distance,
         center.y + Math.sin(angle) * distance,
@@ -242,8 +254,8 @@ function calculateLayout() {
 
 function relaxLayout(nodesByCommunity, communityMap, clusterRadius) {
   const visibleIds = new Set(state.visibleNodes.map((node) => node.id));
-  const edgeIterations = Math.min(90, Math.max(24, state.visibleEdges.length / 12));
-  const targetDistance = 42;
+  const edgeIterations = Math.min(48, Math.max(18, state.visibleEdges.length / 22));
+  const targetDistance = 34;
 
   for (let iteration = 0; iteration < edgeIterations; iteration += 1) {
     state.visibleEdges.forEach((edge) => {
@@ -254,30 +266,34 @@ function relaxLayout(nodesByCommunity, communityMap, clusterRadius) {
       const target = state.positions.get(edge.target);
       const delta = new THREE.Vector3().subVectors(target, source);
       const length = Math.max(delta.length(), 0.001);
-      const force = (length - targetDistance) * 0.012;
+      const force = (length - targetDistance) * 0.0048;
       delta.multiplyScalar(force / length);
       source.add(delta);
       target.sub(delta);
+      source.z *= 0.993;
+      target.z *= 0.993;
     });
 
     nodesByCommunity.forEach((nodes, communityName) => {
       const communityIndex = communityMap.get(communityName) ?? 0;
-      const center = pointOnSphere(communityIndex, Math.max(state.communities.length, 1)).multiplyScalar(clusterRadius);
+      const center = pointOnDisc(communityIndex, Math.max(state.communities.length, 1)).multiplyScalar(clusterRadius);
       nodes.forEach((node) => {
         const position = state.positions.get(node.id);
-        position.lerp(center, 0.008);
+        position.lerp(center, 0.004);
+        position.z = THREE.MathUtils.clamp(position.z * 0.985, -120, 120);
       });
     });
   }
 }
 
-function pointOnSphere(index, count) {
-  const offset = 2 / count;
-  const increment = Math.PI * (3 - Math.sqrt(5));
-  const y = ((index * offset) - 1) + (offset / 2);
-  const radius = Math.sqrt(1 - y * y);
-  const phi = index * increment;
-  return new THREE.Vector3(Math.cos(phi) * radius, y, Math.sin(phi) * radius);
+function pointOnDisc(index, count) {
+  if (count <= 1) {
+    return new THREE.Vector3(0, 0, 0);
+  }
+  const goldenAngle = Math.PI * (3 - Math.sqrt(5));
+  const radius = Math.sqrt((index + 0.5) / count);
+  const angle = index * goldenAngle;
+  return new THREE.Vector3(Math.cos(angle) * radius, Math.sin(angle) * radius, 0);
 }
 
 function colorForCommunity(name) {
@@ -397,7 +413,9 @@ function focusNode(node) {
     return;
   }
   controls.target.copy(position);
-  camera.position.lerp(new THREE.Vector3(position.x, position.y, position.z + 320), 0.86);
+  camera.position.set(position.x, position.y, position.z + 980);
+  camera.zoom = Math.min(controls.maxZoom, Math.max(camera.zoom, 1.75));
+  camera.updateProjectionMatrix();
   controls.update();
 }
 
@@ -421,9 +439,7 @@ function showOverlay(message) {
 }
 
 function resetCamera() {
-  controls.target.set(0, 0, 0);
-  camera.position.set(0, 0, 760);
-  controls.update();
+  fitCameraToGraph(true);
 }
 
 function resize() {
@@ -431,8 +447,52 @@ function resize() {
   const width = Math.max(rect.width, 1);
   const height = Math.max(rect.height, 1);
   renderer.setSize(width, height, false);
-  camera.aspect = width / height;
+  const aspect = width / height;
+  camera.left = (-cameraFrustum * aspect) / 2;
+  camera.right = (cameraFrustum * aspect) / 2;
+  camera.top = cameraFrustum / 2;
+  camera.bottom = -cameraFrustum / 2;
   camera.updateProjectionMatrix();
+}
+
+function fitCameraToGraph(force = false) {
+  if (!force && state.__cameraFitted) {
+    return;
+  }
+
+  if (state.positions.size === 0) {
+    controls.target.set(0, 0, 0);
+    camera.position.set(0, 0, 980);
+    camera.zoom = 1;
+    camera.updateProjectionMatrix();
+    controls.update();
+    state.__cameraFitted = true;
+    return;
+  }
+
+  const box = new THREE.Box3();
+  state.positions.forEach((position) => box.expandByPoint(position));
+  const center = new THREE.Vector3();
+  const size = new THREE.Vector3();
+  box.getCenter(center);
+  box.getSize(size);
+
+  const rect = canvas.parentElement.getBoundingClientRect();
+  const viewWidth = Math.max(rect.width, 1);
+  const viewHeight = Math.max(rect.height, 1);
+  const graphWidth = Math.max(size.x, 120);
+  const graphHeight = Math.max(size.y, 120);
+  const zoomX = (cameraFrustum * (viewWidth / viewHeight)) / (graphWidth * 1.18);
+  const zoomY = cameraFrustum / (graphHeight * 1.18);
+
+  controls.target.copy(center);
+  camera.position.set(center.x, center.y, center.z + 980);
+  camera.zoom = THREE.MathUtils.clamp(Math.min(zoomX, zoomY), controls.minZoom, 1.7);
+  camera.up.set(0, 1, 0);
+  camera.lookAt(center);
+  camera.updateProjectionMatrix();
+  controls.update();
+  state.__cameraFitted = true;
 }
 
 function pointerForEvent(event) {
@@ -475,6 +535,26 @@ function disposeObject(object) {
   object.material?.dispose();
 }
 
+function createNodeTexture() {
+  const size = 64;
+  const textureCanvas = document.createElement('canvas');
+  textureCanvas.width = size;
+  textureCanvas.height = size;
+  const context = textureCanvas.getContext('2d');
+  const gradient = context.createRadialGradient(32, 28, 2, 32, 32, 30);
+  gradient.addColorStop(0, 'rgba(255,255,255,1)');
+  gradient.addColorStop(0.48, 'rgba(255,255,255,0.95)');
+  gradient.addColorStop(0.72, 'rgba(255,255,255,0.36)');
+  gradient.addColorStop(1, 'rgba(255,255,255,0)');
+  context.fillStyle = gradient;
+  context.beginPath();
+  context.arc(32, 32, 30, 0, Math.PI * 2);
+  context.fill();
+  const texture = new THREE.CanvasTexture(textureCanvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+
 function hashString(value) {
   let hash = 2166136261;
   for (let index = 0; index < value.length; index += 1) {
@@ -503,14 +583,15 @@ window.brainBarLoadGraph = (payload, lens = 'all') => {
   state.graph = normalizeGraph(payload);
   state.lens = lens;
   state.selectedNode = null;
+  state.__cameraFitted = false;
   prepareCommunities(state.graph);
-  resetCamera();
   applyLens();
 };
 
 window.brainBarApplyGraphLens = (lens) => {
   state.lens = lens;
   state.selectedNode = null;
+  state.__cameraFitted = false;
   applyLens();
 };
 
