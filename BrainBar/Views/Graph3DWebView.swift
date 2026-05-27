@@ -25,6 +25,7 @@ struct Graph3DWebView: NSViewRepresentable {
 
         context.coordinator.sourceLens = sourceLens
         context.coordinator.resetCameraToken = resetCameraToken
+        context.coordinator.graphJSONURL = readAccessURL.appendingPathComponent("graph.json")
         context.coordinator.graphPayloadScript = Self.graphPayloadScript(readAccessURL: readAccessURL)
         load(in: webView, context: context)
         return webView
@@ -33,6 +34,7 @@ struct Graph3DWebView: NSViewRepresentable {
     func updateNSView(_ webView: WKWebView, context: Context) {
         let didLoad = load(in: webView, context: context)
         context.coordinator.onOpenNode = onOpenNode
+        context.coordinator.graphJSONURL = readAccessURL.appendingPathComponent("graph.json")
         context.coordinator.graphPayloadScript = Self.graphPayloadScript(readAccessURL: readAccessURL)
 
         if didLoad {
@@ -72,6 +74,7 @@ struct Graph3DWebView: NSViewRepresentable {
         var reloadToken = -1
         var sourceLens: GraphSourceLens = .all
         var resetCameraToken = 0
+        var graphJSONURL: URL?
         var graphPayloadScript = ""
         var onOpenNode: @MainActor (GraphNodeOpenRequest) -> Void
 
@@ -157,6 +160,9 @@ struct Graph3DWebView: NSViewRepresentable {
             }
             let rawPath = url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
             let relativePath = rawPath.isEmpty ? "index.html" : rawPath
+            if relativePath == "graph.json" {
+                return graphJSONURL
+            }
             return Bundle.main.resourceURL?
                 .appendingPathComponent("Graph3D", isDirectory: true)
                 .appendingPathComponent(relativePath)

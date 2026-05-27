@@ -538,4 +538,19 @@ animate();
 
 if (window.__brainBarGraphJSON) {
   window.brainBarLoadGraph(window.__brainBarGraphJSON, window.__brainBarPendingGraphLens || 'all');
+} else {
+  fetch('./graph.json')
+    .then((response) => {
+      if (!response.ok) {
+        throw new Error(`Graph data unavailable (${response.status})`);
+      }
+      return response.json();
+    })
+    .then((payload) => {
+      window.__brainBarGraphJSON = payload;
+      window.brainBarLoadGraph(payload, window.__brainBarPendingGraphLens || 'all');
+    })
+    .catch((error) => {
+      showOverlay(error.message || 'Graph data unavailable');
+    });
 }
