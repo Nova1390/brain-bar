@@ -8,16 +8,18 @@ struct Graph3DWebView: NSViewRepresentable {
     let sourceLens: GraphSourceLens
     let resetCameraToken: Int
     let viewportCommand: GraphViewportCommand?
+    let onDiagnostic: @MainActor (String) -> Void
     let onOpenNode: @MainActor (GraphNodeOpenRequest) -> Void
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(onOpenNode: onOpenNode)
+        Coordinator(onDiagnostic: onDiagnostic, onOpenNode: onOpenNode)
     }
 
     func makeNSView(context: Context) -> WKWebView {
         let configuration = WKWebViewConfiguration()
         configuration.setURLSchemeHandler(context.coordinator, forURLScheme: "brainbar3d")
         configuration.userContentController.add(context.coordinator, name: "brainBarNodeAction")
+        configuration.userContentController.add(context.coordinator, name: "brainBarGraphDiagnostic")
 
         let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.allowsMagnification = true
@@ -35,6 +37,7 @@ struct Graph3DWebView: NSViewRepresentable {
     func updateNSView(_ webView: WKWebView, context: Context) {
         let didLoad = load(in: webView, context: context)
         context.coordinator.onOpenNode = onOpenNode
+        context.coordinator.onDiagnostic = onDiagnostic
         context.coordinator.graphJSONURL = readAccessURL.appendingPathComponent("graph.json")
         context.coordinator.graphPayloadScript = Self.graphPayloadScript(readAccessURL: readAccessURL)
 
@@ -80,9 +83,14 @@ struct Graph3DWebView: NSViewRepresentable {
         var lastViewportCommandID: Int?
         var graphJSONURL: URL?
         var graphPayloadScript = ""
+        var onDiagnostic: @MainActor (String) -> Void
         var onOpenNode: @MainActor (GraphNodeOpenRequest) -> Void
 
-        init(onOpenNode: @escaping @MainActor (GraphNodeOpenRequest) -> Void) {
+        init(
+            onDiagnostic: @escaping @MainActor (String) -> Void,
+            onOpenNode: @escaping @MainActor (GraphNodeOpenRequest) -> Void
+        ) {
+            self.onDiagnostic = onDiagnostic
             self.onOpenNode = onOpenNode
         }
 
@@ -98,7 +106,7 @@ struct Graph3DWebView: NSViewRepresentable {
               window.brainBarLoadGraph(window.__brainBarGraphJSON, "\(lens.rawValue)");
             }
             """
-            webView.evaluateJavaScript(script)
+            evaluate(script, in: webView)
         }
 
         func applyLens(_ lens: GraphSourceLens, in webView: WKWebView) {
@@ -108,11 +116,11 @@ struct Graph3DWebView: NSViewRepresentable {
               window.brainBarApplyGraphLens("\(lens.rawValue)");
             }
             """
-            webView.evaluateJavaScript(script)
+            evaluate(script, in: webView)
         }
 
         func resetCamera(in webView: WKWebView) {
-            webView.evaluateJavaScript("if (window.brainBarResetCamera) { window.brainBarResetCamera(); }")
+            evaluate("if (window.brainBarResetCamera) { window.brainBarResetCamera(); }", in: webView)
         }
 
         func applyViewportCommandIfNeeded(_ command: GraphViewportCommand?, in webView: WKWebView) {
@@ -130,18 +138,39 @@ struct Graph3DWebView: NSViewRepresentable {
                 script = "if (window.brainBarZoom) { window.brainBarZoom(0.8474576271); }"
             case .topView:
                 script = "if (window.brainBarTopView) { window.brainBarTopView(); }"
+            case .resetTilt:
+                script = "if (window.brainBarResetTilt) { window.brainBarResetTilt(); }"
             }
-            webView.evaluateJavaScript(script)
+            evaluate(script, in: webView)
+        }
+
+        func evaluate(_ script: String, in webView: WKWebView) {
+            webView.evaluateJavaScript(script) { [weak self] _, error in
+                guard let self, let error else {
+                    return
+                }
+                Task { @MainActor in
+                    self.onDiagnostic(error.localizedDescription)
+                }
+            }
         }
 
         func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
-            guard
-                message.name == "brainBarNodeAction",
-                let body = message.body as? [String: Any]
-            else {
+            guard let body = message.body as? [String: Any] else {
                 return
             }
 
+            if message.name == "brainBarGraphDiagnostic" {
+                let diagnostic = String(describing: body["message"] ?? body["error"] ?? "")
+                Task { @MainActor in
+                    onDiagnostic(diagnostic)
+                }
+                return
+            }
+
+            guard message.name == "brainBarNodeAction" else {
+                return
+            }
             let request = GraphNodeOpenRequest(
                 action: String(describing: body["action"] ?? ""),
                 nodeId: String(describing: body["nodeId"] ?? ""),

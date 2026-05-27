@@ -8,6 +8,13 @@ const searchResults = document.getElementById('search-results');
 const nodeInfo = document.getElementById('node-info');
 const legend = document.getElementById('legend');
 const stats = document.getElementById('stats');
+const hud = document.getElementById('hud');
+
+const TOP_POLAR_ANGLE = Math.PI / 2;
+const MAX_TILT = 0.42;
+const CAMERA_DISTANCE = 980;
+const EDGE_TARGET_DISTANCE = 38;
+const MAX_DEPTH = 72;
 
 const palette = [
   '#5b8cc5', '#ff9f2d', '#ef5f61', '#7bc8c1', '#5fb156', '#f2d34b',
@@ -23,9 +30,12 @@ const state = {
   visibleNodes: [],
   visibleEdges: [],
   positions: new Map(),
+  desiredDepths: new Map(),
   selectedNode: null,
   hoveredIndex: null,
-  animationFrame: null
+  animationFrame: null,
+  cameraPreset: 'Top view',
+  lastDiagnostic: ''
 };
 
 const scene = new THREE.Scene();
@@ -59,6 +69,22 @@ controls.zoomSpeed = 0.72;
 controls.panSpeed = 0.55;
 controls.minZoom = 0.28;
 controls.maxZoom = 5.2;
+controls.minPolarAngle = TOP_POLAR_ANGLE - MAX_TILT;
+controls.maxPolarAngle = TOP_POLAR_ANGLE + MAX_TILT;
+controls.screenSpacePanning = true;
+controls.mouseButtons = {
+  LEFT: THREE.MOUSE.PAN,
+  MIDDLE: THREE.MOUSE.DOLLY,
+  RIGHT: THREE.MOUSE.ROTATE
+};
+controls.touches = {
+  ONE: THREE.TOUCH.PAN,
+  TWO: THREE.TOUCH.DOLLY_ROTATE
+};
+controls.addEventListener('start', () => {
+  state.cameraPreset = 'Manual';
+  updateHud();
+});
 
 const raycaster = new THREE.Raycaster();
 raycaster.params.Points.threshold = 14;
@@ -68,6 +94,34 @@ let nodesMesh = null;
 let edgesMesh = null;
 let selectedMesh = null;
 const nodeTexture = createNodeTexture();
+
+function reportDiagnostic(message, showsOverlay = false) {
+  const text = String(message || '3D renderer failed');
+  state.lastDiagnostic = text;
+  updateHud();
+
+  if (showsOverlay) {
+    showOverlay(text);
+  }
+
+  if (window.webkit?.messageHandlers?.brainBarGraphDiagnostic) {
+    window.webkit.messageHandlers.brainBarGraphDiagnostic.postMessage({
+      message: text,
+      lens: state.lens,
+      nodes: state.visibleNodes.length,
+      edges: state.visibleEdges.length,
+      cameraPreset: state.cameraPreset
+    });
+  }
+}
+
+window.addEventListener('error', (event) => {
+  reportDiagnostic(event.message || '3D renderer failed', true);
+});
+
+window.addEventListener('unhandledrejection', (event) => {
+  reportDiagnostic(event.reason?.message || '3D renderer failed', true);
+});
 
 function normalizeGraph(payload) {
   if (!payload) {
@@ -111,32 +165,38 @@ function endpointId(value) {
 }
 
 function applyLens() {
-  const graph = state.graph ?? { nodes: [], edges: [] };
-  let lensEdges = graph.edges;
-  if (state.lens === 'obsidian') {
-    lensEdges = graph.edges.filter(isObsidianEdge);
-  } else if (state.lens === 'graphify') {
-    lensEdges = graph.edges.filter((edge) => !isObsidianEdge(edge));
+  try {
+    const graph = state.graph ?? { nodes: [], edges: [] };
+    let lensEdges = graph.edges;
+    if (state.lens === 'obsidian') {
+      lensEdges = graph.edges.filter(isObsidianEdge);
+    } else if (state.lens === 'graphify') {
+      lensEdges = graph.edges.filter((edge) => !isObsidianEdge(edge));
+    }
+
+    const connectedIds = new Set();
+    lensEdges.forEach((edge) => {
+      connectedIds.add(edge.source);
+      connectedIds.add(edge.target);
+    });
+
+    const lensNodes = state.lens === 'all'
+      ? graph.nodes
+      : graph.nodes.filter((node) => connectedIds.has(node.id));
+
+    const enabledCommunities = state.communityEnabled;
+    state.visibleNodes = lensNodes.filter((node) => enabledCommunities.has(node.community));
+    const visibleIds = new Set(state.visibleNodes.map((node) => node.id));
+    state.visibleEdges = lensEdges.filter((edge) => visibleIds.has(edge.source) && visibleIds.has(edge.target));
+
+    renderGraph();
+    renderSidebar();
+    updateOverlay();
+    state.lastDiagnostic = '';
+    updateHud();
+  } catch (error) {
+    reportDiagnostic(error.message || '3D graph render failed', true);
   }
-
-  const connectedIds = new Set();
-  lensEdges.forEach((edge) => {
-    connectedIds.add(edge.source);
-    connectedIds.add(edge.target);
-  });
-
-  const lensNodes = state.lens === 'all'
-    ? graph.nodes
-    : graph.nodes.filter((node) => connectedIds.has(node.id));
-
-  const enabledCommunities = state.communityEnabled;
-  state.visibleNodes = lensNodes.filter((node) => enabledCommunities.has(node.community));
-  const visibleIds = new Set(state.visibleNodes.map((node) => node.id));
-  state.visibleEdges = lensEdges.filter((edge) => visibleIds.has(edge.source) && visibleIds.has(edge.target));
-
-  renderGraph();
-  renderSidebar();
-  updateOverlay();
 }
 
 function isObsidianEdge(edge) {
@@ -217,14 +277,17 @@ function renderGraph() {
 
   updateSelectedMarker();
   fitCameraToGraph();
+  updateHud();
 }
 
 function calculateLayout() {
   state.positions = new Map();
+  state.desiredDepths = new Map();
   const communityMap = new Map(state.communities.map((community, index) => [community.name, index]));
   const communityCount = Math.max(state.communities.length, 1);
   const clusterRadius = Math.min(480, 120 + Math.sqrt(communityCount) * 58);
   const nodesByCommunity = new Map();
+  const degreeMap = buildDegreeMap(state.visibleEdges);
 
   state.visibleNodes.forEach((node) => {
     const nodes = nodesByCommunity.get(node.community) ?? [];
@@ -240,11 +303,12 @@ function calculateLayout() {
       const seed = hashString(node.id);
       const angle = index * 2.399963 + (seed % 100) * 0.01;
       const distance = localRadius * Math.sqrt((index + 0.5) / Math.max(nodes.length, 1));
-      const z = (((seed >> 8) % 200) / 100 - 1) * Math.min(46, localRadius * 0.42);
+      const z = depthForNode(node, communityIndex, index, degreeMap);
+      state.desiredDepths.set(node.id, z);
       state.positions.set(node.id, new THREE.Vector3(
         center.x + Math.cos(angle) * distance,
         center.y + Math.sin(angle) * distance,
-        center.z + z
+        z
       ));
     });
   });
@@ -255,7 +319,6 @@ function calculateLayout() {
 function relaxLayout(nodesByCommunity, communityMap, clusterRadius) {
   const visibleIds = new Set(state.visibleNodes.map((node) => node.id));
   const edgeIterations = Math.min(48, Math.max(18, state.visibleEdges.length / 22));
-  const targetDistance = 34;
 
   for (let iteration = 0; iteration < edgeIterations; iteration += 1) {
     state.visibleEdges.forEach((edge) => {
@@ -264,26 +327,77 @@ function relaxLayout(nodesByCommunity, communityMap, clusterRadius) {
       }
       const source = state.positions.get(edge.source);
       const target = state.positions.get(edge.target);
-      const delta = new THREE.Vector3().subVectors(target, source);
-      const length = Math.max(delta.length(), 0.001);
-      const force = (length - targetDistance) * 0.0048;
-      delta.multiplyScalar(force / length);
-      source.add(delta);
-      target.sub(delta);
-      source.z *= 0.993;
-      target.z *= 0.993;
+      const deltaX = target.x - source.x;
+      const deltaY = target.y - source.y;
+      const length = Math.max(Math.hypot(deltaX, deltaY), 0.001);
+      const force = (length - EDGE_TARGET_DISTANCE) * 0.0048;
+      const offsetX = (deltaX / length) * force;
+      const offsetY = (deltaY / length) * force;
+      source.x += offsetX;
+      source.y += offsetY;
+      target.x -= offsetX;
+      target.y -= offsetY;
     });
+
+    if (iteration % 4 === 0) {
+      separateLocalNodes(nodesByCommunity);
+    }
 
     nodesByCommunity.forEach((nodes, communityName) => {
       const communityIndex = communityMap.get(communityName) ?? 0;
       const center = pointOnDisc(communityIndex, Math.max(state.communities.length, 1)).multiplyScalar(clusterRadius);
       nodes.forEach((node) => {
         const position = state.positions.get(node.id);
-        position.lerp(center, 0.004);
-        position.z = THREE.MathUtils.clamp(position.z * 0.985, -120, 120);
+        position.x += (center.x - position.x) * 0.004;
+        position.y += (center.y - position.y) * 0.004;
+        const desiredDepth = state.desiredDepths.get(node.id) ?? 0;
+        position.z = THREE.MathUtils.lerp(position.z, desiredDepth, 0.08);
       });
     });
   }
+}
+
+function buildDegreeMap(edges) {
+  const degreeMap = new Map();
+  edges.forEach((edge) => {
+    degreeMap.set(edge.source, (degreeMap.get(edge.source) ?? 0) + 1);
+    degreeMap.set(edge.target, (degreeMap.get(edge.target) ?? 0) + 1);
+  });
+  return degreeMap;
+}
+
+function depthForNode(node, communityIndex, localIndex, degreeMap) {
+  const seed = hashString(`${node.id}:${node.community}`);
+  const degree = degreeMap.get(node.id) ?? 0;
+  const hubLift = Math.min(34, Math.log1p(degree) * 8);
+  const communityBand = ((communityIndex % 9) - 4) * 5;
+  const localWave = Math.sin((localIndex + 1) * 1.618 + (seed % 97)) * 8;
+  return THREE.MathUtils.clamp(communityBand + hubLift + localWave, -MAX_DEPTH, MAX_DEPTH);
+}
+
+function separateLocalNodes(nodesByCommunity) {
+  const minDistance = 8.5;
+  nodesByCommunity.forEach((nodes) => {
+    for (let leftIndex = 0; leftIndex < nodes.length; leftIndex += 1) {
+      const left = state.positions.get(nodes[leftIndex].id);
+      for (let rightIndex = leftIndex + 1; rightIndex < nodes.length; rightIndex += 1) {
+        const right = state.positions.get(nodes[rightIndex].id);
+        const deltaX = right.x - left.x;
+        const deltaY = right.y - left.y;
+        const distance = Math.max(Math.hypot(deltaX, deltaY), 0.001);
+        if (distance >= minDistance) {
+          continue;
+        }
+        const push = (minDistance - distance) * 0.28;
+        const offsetX = (deltaX / distance) * push;
+        const offsetY = (deltaY / distance) * push;
+        left.x -= offsetX;
+        left.y -= offsetY;
+        right.x += offsetX;
+        right.y += offsetY;
+      }
+    }
+  });
 }
 
 function pointOnDisc(index, count) {
@@ -412,11 +526,9 @@ function focusNode(node) {
   if (!position) {
     return;
   }
-  controls.target.copy(position);
-  camera.position.set(position.x, position.y, position.z + 980);
-  camera.zoom = Math.min(controls.maxZoom, Math.max(camera.zoom, 1.75));
-  camera.updateProjectionMatrix();
-  controls.update();
+  placeCameraTopDown(position, Math.min(controls.maxZoom, Math.max(camera.zoom, 1.75)));
+  state.cameraPreset = 'Node focus';
+  updateHud();
 }
 
 function updateOverlay() {
@@ -439,17 +551,26 @@ function showOverlay(message) {
 }
 
 function resetCamera() {
-  fitCameraToGraph(true);
+  fitCameraToGraph(true, 'Fit');
 }
 
 function zoomCamera(multiplier) {
   camera.zoom = THREE.MathUtils.clamp(camera.zoom * multiplier, controls.minZoom, controls.maxZoom);
   camera.updateProjectionMatrix();
   controls.update();
+  state.cameraPreset = multiplier > 1 ? 'Zoom in' : 'Zoom out';
+  updateHud();
 }
 
 function topView() {
-  fitCameraToGraph(true);
+  fitCameraToGraph(true, 'Top view');
+}
+
+function resetTilt() {
+  const target = controls.target.clone();
+  placeCameraTopDown(target, camera.zoom);
+  state.cameraPreset = 'Reset tilt';
+  updateHud();
 }
 
 function resize() {
@@ -465,18 +586,16 @@ function resize() {
   camera.updateProjectionMatrix();
 }
 
-function fitCameraToGraph(force = false) {
+function fitCameraToGraph(force = false, preset = 'Fit') {
   if (!force && state.__cameraFitted) {
     return;
   }
 
   if (state.positions.size === 0) {
-    controls.target.set(0, 0, 0);
-    camera.position.set(0, 0, 980);
-    camera.zoom = 1;
-    camera.updateProjectionMatrix();
-    controls.update();
+    placeCameraTopDown(new THREE.Vector3(0, 0, 0), 1);
+    state.cameraPreset = preset;
     state.__cameraFitted = true;
+    updateHud();
     return;
   }
 
@@ -495,14 +614,37 @@ function fitCameraToGraph(force = false) {
   const zoomX = (cameraFrustum * (viewWidth / viewHeight)) / (graphWidth * 1.18);
   const zoomY = cameraFrustum / (graphHeight * 1.18);
 
+  placeCameraTopDown(center, THREE.MathUtils.clamp(Math.min(zoomX, zoomY), controls.minZoom, 1.7));
+  state.cameraPreset = preset;
+  state.__cameraFitted = true;
+  updateHud();
+}
+
+function placeCameraTopDown(center, zoom) {
   controls.target.copy(center);
-  camera.position.set(center.x, center.y, center.z + 980);
-  camera.zoom = THREE.MathUtils.clamp(Math.min(zoomX, zoomY), controls.minZoom, 1.7);
+  camera.position.set(center.x, center.y, center.z + CAMERA_DISTANCE);
   camera.up.set(0, 1, 0);
   camera.lookAt(center);
+  camera.zoom = THREE.MathUtils.clamp(zoom, controls.minZoom, controls.maxZoom);
   camera.updateProjectionMatrix();
   controls.update();
-  state.__cameraFitted = true;
+}
+
+function updateHud() {
+  if (!hud) {
+    return;
+  }
+  if (!state.graph) {
+    hud.hidden = true;
+    return;
+  }
+
+  const lensLabel = state.lens === 'all'
+    ? 'All'
+    : (state.lens === 'graphify' ? 'Graphify' : 'Obsidian');
+  const base = `${state.visibleNodes.length} nodes · ${state.visibleEdges.length} edges · ${lensLabel} · ${state.cameraPreset}`;
+  hud.textContent = state.lastDiagnostic ? `${base} · ${state.lastDiagnostic}` : base;
+  hud.hidden = false;
 }
 
 function pointerForEvent(event) {
@@ -590,12 +732,16 @@ function animate() {
 }
 
 window.brainBarLoadGraph = (payload, lens = 'all') => {
-  state.graph = normalizeGraph(payload);
-  state.lens = lens;
-  state.selectedNode = null;
-  state.__cameraFitted = false;
-  prepareCommunities(state.graph);
-  applyLens();
+  try {
+    state.graph = normalizeGraph(payload);
+    state.lens = lens;
+    state.selectedNode = null;
+    state.__cameraFitted = false;
+    prepareCommunities(state.graph);
+    applyLens();
+  } catch (error) {
+    reportDiagnostic(error.message || '3D graph data could not be loaded', true);
+  }
 };
 
 window.brainBarApplyGraphLens = (lens) => {
@@ -608,6 +754,15 @@ window.brainBarApplyGraphLens = (lens) => {
 window.brainBarResetCamera = resetCamera;
 window.brainBarZoom = zoomCamera;
 window.brainBarTopView = topView;
+window.brainBarResetTilt = resetTilt;
+window.brainBarRendererDiagnostics = () => ({
+  nodes: state.visibleNodes.length,
+  edges: state.visibleEdges.length,
+  lens: state.lens,
+  communities: state.communities.length,
+  cameraPreset: state.cameraPreset,
+  diagnostic: state.lastDiagnostic
+});
 
 canvas.addEventListener('click', (event) => {
   const node = nodeAtEvent(event);
@@ -644,6 +799,6 @@ if (window.__brainBarGraphJSON) {
       window.brainBarLoadGraph(payload, window.__brainBarPendingGraphLens || 'all');
     })
     .catch((error) => {
-      showOverlay(error.message || 'Graph data unavailable');
+      reportDiagnostic(error.message || 'Graph data unavailable', true);
     });
 }

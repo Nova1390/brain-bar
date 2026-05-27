@@ -1,12 +1,12 @@
 # Experimental 3D Focus Graph
 
-BrainBar v0.4 explores a custom 3D graph mode for the Focus Window. The stable product path remains the embedded 2D Graphify graph; the 3D view is a separate experiment for spatial exploration and visual research.
+BrainBar v0.4 explores a custom `3D Beta` graph mode for the Focus Window. The stable product path remains the embedded 2D Graphify graph; the 3D view is a separate experiment for controlled spatial exploration and visual research.
 
 ## Why Focus Window Only
 
 The menu bar popover is for quick inspection and control. It should open fast, keep actions close, and stay readable on small surfaces.
 
-The 3D graph needs room for orbit controls, camera movement, node inspection, and depth cues. Keeping it inside the Focus Window avoids turning the popover into a heavy workspace and keeps the default BrainBar flow stable.
+The 3D graph needs room for camera controls, node inspection, and depth cues. Keeping it inside the Focus Window avoids turning the popover into a heavy workspace and keeps the default BrainBar flow stable.
 
 ## What Experimental Means
 
@@ -18,7 +18,8 @@ Experimental mode must:
 - avoid rewriting Graphify output files;
 - keep all graph data local;
 - preserve the existing 2D graph behavior;
-- fail softly when graph data is unavailable or a lens has no visible edges.
+- fail softly when graph data is unavailable or a lens has no visible edges;
+- stay recoverable through visible fit, top view, zoom, and reset-tilt controls.
 
 ## Architecture
 
@@ -54,9 +55,13 @@ The 3D view is custom BrainBar behavior on top of Three.js:
 
 - communities become spatial clusters;
 - node positions are deterministic for stable reloads;
+- depth is controlled and deterministic rather than random;
 - edges use lightweight WebGL line geometry;
 - nodes are rendered as compact colored points;
-- camera controls support orbit, zoom, top view, and fit/reset;
+- the default camera is a readable top-down view;
+- camera tilt is constrained so the graph cannot become an edge-on stripe field;
+- camera controls support zoom, fit, top view, and reset tilt;
+- a small HUD reports node count, edge count, current lens, camera preset, and renderer diagnostics;
 - styling follows BrainBar's dark native-premium visual direction.
 
 The renderer should prioritize clarity over spectacle. It is not meant to look like a generic 3D demo, and it should not be promoted to the main demo path until real-vault screenshots look at least as useful as the 2D view.
@@ -89,9 +94,12 @@ The Focus Window exposes graph navigation controls in the native header:
 - zoom out;
 - zoom in;
 - fit graph;
-- top view for the 3D renderer.
+- top view for the 3D renderer;
+- reset tilt for the 3D renderer.
 
 The same viewport command model is shared with the 2D graph, where commands call the existing Graphify/vis-network viewport APIs. This keeps the reliable 2D view pleasant to record and demo while the 3D view remains experimental.
+
+The 3D camera is intentionally controlled rather than a free orbit. Left-drag pans, scroll/pinch zooms, and right-drag allows only a limited tilt. This is a product constraint, not a renderer limitation: readable graph inspection matters more than unrestricted 3D movement.
 
 ## Promotion Criteria
 

@@ -174,7 +174,7 @@ final class BrainBarTests: XCTestCase {
         XCTAssertEqual(GraphViewMode.twoD.rawValue, "twoD")
         XCTAssertEqual(GraphViewMode.twoD.label, "2D")
         XCTAssertEqual(GraphViewMode.threeD.rawValue, "threeD")
-        XCTAssertEqual(GraphViewMode.threeD.label, "3D")
+        XCTAssertEqual(GraphViewMode.threeD.label, "3D Beta")
     }
 
     func testGraphViewportCommandRawValuesAreStable() {
@@ -182,6 +182,7 @@ final class BrainBarTests: XCTestCase {
         XCTAssertEqual(GraphViewportCommandKind.zoomIn.rawValue, "zoomIn")
         XCTAssertEqual(GraphViewportCommandKind.zoomOut.rawValue, "zoomOut")
         XCTAssertEqual(GraphViewportCommandKind.topView.rawValue, "topView")
+        XCTAssertEqual(GraphViewportCommandKind.resetTilt.rawValue, "resetTilt")
     }
 
     func testGraphServerStartsAndStops() async throws {
@@ -259,10 +260,14 @@ final class BrainBarTests: XCTestCase {
         model.zoomGraphIn()
         let firstCommand = model.graphViewportCommand
         model.fitGraphView()
+        let secondCommand = model.graphViewportCommand
+        model.resetGraph3DTilt()
 
         XCTAssertEqual(firstCommand?.kind, .zoomIn)
-        XCTAssertEqual(model.graphViewportCommand?.kind, .fit)
-        XCTAssertNotEqual(firstCommand?.id, model.graphViewportCommand?.id)
+        XCTAssertEqual(secondCommand?.kind, .fit)
+        XCTAssertEqual(model.graphViewportCommand?.kind, .resetTilt)
+        XCTAssertNotEqual(firstCommand?.id, secondCommand?.id)
+        XCTAssertNotEqual(secondCommand?.id, model.graphViewportCommand?.id)
         XCTAssertEqual(model.config, initialConfig)
     }
 

@@ -57,7 +57,8 @@ struct GraphShellView: View {
                     onZoomOut: model.zoomGraphOut,
                     onZoomIn: model.zoomGraphIn,
                     onFit: model.fitGraphView,
-                    onTopView: model.resetGraph3DCamera
+                    onTopView: model.resetGraph3DCamera,
+                    onResetTilt: model.resetGraph3DTilt
                 )
             }
 
@@ -133,6 +134,7 @@ struct GraphShellView: View {
                 sourceLens: model.graphSourceLens,
                 resetCameraToken: model.graph3DResetToken,
                 viewportCommand: model.graphViewportCommand,
+                onDiagnostic: model.reportGraphRendererIssue,
                 onOpenNode: model.openGraphNode
             )
         } else {
@@ -435,6 +437,7 @@ private struct GraphViewportControls: View {
     let onZoomIn: () -> Void
     let onFit: () -> Void
     let onTopView: () -> Void
+    let onResetTilt: () -> Void
 
     var body: some View {
         HStack(spacing: 4) {
@@ -443,6 +446,7 @@ private struct GraphViewportControls: View {
             IconButton(systemImage: "arrow.up.left.and.down.right.magnifyingglass", help: "Fit graph", action: onFit)
             if showsTopView {
                 IconButton(systemImage: "viewfinder", help: "Top view", action: onTopView)
+                IconButton(systemImage: "rotate.3d", help: "Reset tilt", action: onResetTilt)
             }
         }
         .padding(.horizontal, 2)

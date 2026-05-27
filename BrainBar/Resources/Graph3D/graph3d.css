@@ -43,6 +43,32 @@ body {
   outline: none;
 }
 
+#hud {
+  position: absolute;
+  left: 16px;
+  top: 16px;
+  z-index: 5;
+  max-width: min(520px, calc(100% - 32px));
+  padding: 8px 11px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  background: rgba(8, 11, 20, 0.58);
+  color: rgba(244, 246, 255, 0.62);
+  font-size: 11px;
+  font-weight: 680;
+  letter-spacing: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+  backdrop-filter: blur(16px) saturate(1.12);
+  -webkit-backdrop-filter: blur(16px) saturate(1.12);
+}
+
+#hud[hidden] {
+  display: none;
+}
+
 #overlay {
   position: absolute;
   left: 50%;
