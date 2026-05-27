@@ -1,3 +1,4 @@
+import Foundation
 import SwiftUI
 import WebKit
 
@@ -21,12 +22,14 @@ struct GraphWebView: NSViewRepresentable {
         webView.setValue(false, forKey: "drawsBackground")
         webView.navigationDelegate = context.coordinator
         context.coordinator.sourceLens = sourceLens
+        context.coordinator.graphMetadataScript = Self.graphMetadataScript(readAccessURL: readAccessURL)
         load(in: webView, context: context)
         return webView
     }
 
     func updateNSView(_ webView: WKWebView, context: Context) {
         let didLoad = load(in: webView, context: context)
+        context.coordinator.graphMetadataScript = Self.graphMetadataScript(readAccessURL: readAccessURL)
         if didLoad || context.coordinator.sourceLens != sourceLens {
             context.coordinator.sourceLens = sourceLens
             context.coordinator.applyLens(sourceLens, in: webView)
@@ -48,6 +51,7 @@ struct GraphWebView: NSViewRepresentable {
         var loadedURL: URL?
         var reloadToken = -1
         var sourceLens: GraphSourceLens = .all
+        var graphMetadataScript = ""
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             applyLens(sourceLens, in: webView)
@@ -55,6 +59,7 @@ struct GraphWebView: NSViewRepresentable {
 
         func applyLens(_ lens: GraphSourceLens, in webView: WKWebView) {
             let script = """
+            \(graphMetadataScript)
             window.__brainBarPendingGraphLens = "\(lens.rawValue)";
             if (window.brainBarApplyGraphLens) {
               window.brainBarApplyGraphLens("\(lens.rawValue)");
@@ -66,6 +71,42 @@ struct GraphWebView: NSViewRepresentable {
 }
 
 private extension GraphWebView {
+    static func graphMetadataScript(readAccessURL: URL) -> String {
+        let graphJSONURL = readAccessURL.appendingPathComponent("graph.json")
+        guard
+            let data = try? Data(contentsOf: graphJSONURL),
+            let object = try? JSONSerialization.jsonObject(with: data),
+            let normalizedData = try? JSONSerialization.data(withJSONObject: object),
+            let json = String(data: normalizedData, encoding: .utf8)
+        else {
+            return """
+            window.__brainBarGraphJSONVersion = "missing";
+            window.__brainBarGraphJSON = null;
+            """
+        }
+        let resourceValues = try? graphJSONURL.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey])
+        let modifiedAt = resourceValues?.contentModificationDate?.timeIntervalSince1970 ?? 0
+        let fileSize = resourceValues?.fileSize ?? data.count
+        let version = "\(graphJSONURL.path):\(modifiedAt):\(fileSize)"
+
+        return """
+        window.__brainBarGraphJSONVersion = \(jsStringLiteral(version));
+        window.__brainBarGraphJSON = \(json);
+        """
+    }
+
+    static func jsStringLiteral(_ value: String) -> String {
+        guard
+            let data = try? JSONSerialization.data(withJSONObject: [value]),
+            let arrayLiteral = String(data: data, encoding: .utf8),
+            arrayLiteral.hasPrefix("["),
+            arrayLiteral.hasSuffix("]")
+        else {
+            return "\"\""
+        }
+        return String(arrayLiteral.dropFirst().dropLast())
+    }
+
     static let graphThemeScript = """
     (() => {
       const existing = document.getElementById('brainbar-graph-theme');
@@ -278,23 +319,12 @@ private extension GraphWebView {
             state.originalEdges = edgesDS.get().map((edge) => ({ ...edge }));
           }
 
-          if (!state.graphLinksLoading && !state.graphLinksLoaded) {
-            state.graphLinksLoading = true;
-            fetch('graph.json')
-              .then((response) => response.ok ? response.json() : null)
-              .then((graph) => {
-                state.graphLinks = graph ? (graph.links || graph.edges || []) : [];
-                state.graphLinksLoaded = true;
-                state.graphLinksLoading = false;
-                window.__brainBarGraphLensState = state;
-                window.brainBarApplyGraphLens(window.__brainBarPendingGraphLens || 'all');
-              })
-              .catch(() => {
-                state.graphLinks = [];
-                state.graphLinksLoaded = true;
-                state.graphLinksLoading = false;
-                window.__brainBarGraphLensState = state;
-              });
+          const graphVersion = window.__brainBarGraphJSONVersion || 'missing';
+          if (state.graphLinksVersion !== graphVersion) {
+            const graph = window.__brainBarGraphJSON;
+            state.graphLinks = graph ? (graph.links || graph.edges || []) : [];
+            state.graphLinksLoaded = true;
+            state.graphLinksVersion = graphVersion;
           }
 
           window.__brainBarGraphLensState = state;

@@ -11,6 +11,8 @@ All notable changes to BrainBar are documented here.
 - Added release, GitHub repository, copyright, and MIT license links to Settings.
 - Clarified the header Git badge so it explicitly refers to the configured vault.
 - Added a session-only Graph Source Lens to switch between All, Graphify, and Obsidian graph relationships.
+- Fixed Graph Source Lens metadata loading by passing `graph.json` from Swift into WebKit.
+- Stage the release app before signing so package verification is not affected by macOS extended attributes.
 
 ## 0.1.2 - 2026-05-26
 

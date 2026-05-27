@@ -25,9 +25,11 @@ if [ ! -d "$APP_PATH" ]; then
   exit 1
 fi
 
-xattr -cr "$APP_PATH"
-codesign --force --deep --sign - "$APP_PATH"
-codesign --verify --deep --strict "$APP_PATH"
+STAGED_APP="$ARCHIVE_DIR/BrainBar.app"
+ditto --noextattr --noqtn "$APP_PATH" "$STAGED_APP"
+xattr -cr "$STAGED_APP"
+codesign --force --deep --sign - "$STAGED_APP"
+codesign --verify --deep --strict "$STAGED_APP"
 
-ditto -c -k --keepParent "$APP_PATH" "$PRODUCTS_DIR/BrainBar.zip"
+ditto -c -k --keepParent "$STAGED_APP" "$PRODUCTS_DIR/BrainBar.zip"
 printf "Packaged %s\n" "$PRODUCTS_DIR/BrainBar.zip"
