@@ -774,21 +774,16 @@ function drawFallbackGraph() {
     return;
   }
 
-  camera.updateMatrixWorld();
-
   const projectedNodes = new Map();
   state.visibleNodes.forEach((node) => {
     const position = state.positions.get(node.id);
     if (!position) {
       return;
     }
-    const projected = position.clone().project(camera);
-    if (projected.z < -1 || projected.z > 1) {
-      return;
-    }
+    const projected = topDownScreenPoint(position, width, height);
     projectedNodes.set(node.id, {
-      x: (projected.x * 0.5 + 0.5) * width,
-      y: (-projected.y * 0.5 + 0.5) * height,
+      x: projected.x,
+      y: projected.y,
       z: position.z,
       node
     });
@@ -839,6 +834,13 @@ function drawFallbackGraph() {
   }
 
   fallbackContext.restore();
+}
+
+function topDownScreenPoint(position, width, height) {
+  return {
+    x: width / 2 + (position.x - controls.target.x) * camera.zoom,
+    y: height / 2 - (position.y - controls.target.y) * camera.zoom
+  };
 }
 
 function hashString(value) {
