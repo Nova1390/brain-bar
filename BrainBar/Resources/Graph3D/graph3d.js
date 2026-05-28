@@ -1,5 +1,6 @@
 const canvas = document.getElementById('graph-canvas');
 const context = canvas.getContext('2d', { alpha: true });
+const svg = document.getElementById('graph-svg');
 const stage = document.getElementById('stage');
 const overlay = document.getElementById('overlay');
 const search = document.getElementById('search');
@@ -345,11 +346,13 @@ function fitCameraToGraph(preset = 'Fit') {
 
 function drawGraph() {
   context.clearRect(0, 0, state.width, state.height);
+  clearSVGGraph();
   if (!state.visibleNodes.length || !state.positions.size) {
     return;
   }
 
   updateProjectionCache();
+  drawSVGGraph();
 
   context.save();
   context.lineCap = 'round';
@@ -405,6 +408,95 @@ function drawGraph() {
   }
 
   context.restore();
+}
+
+function drawSVGGraph() {
+  if (!svg) {
+    return;
+  }
+  svg.setAttribute('viewBox', `0 0 ${state.width} ${state.height}`);
+  svg.setAttribute('width', String(state.width));
+  svg.setAttribute('height', String(state.height));
+
+  const fragment = document.createDocumentFragment();
+  const edgesGroup = createSVGElement('g', { class: 'graph-edges' });
+  const nodesGroup = createSVGElement('g', { class: 'graph-nodes' });
+
+  state.visibleEdges.forEach((edge) => {
+    const source = state.projected.get(edge.source);
+    const target = state.projected.get(edge.target);
+    if (!source || !target) {
+      return;
+    }
+    const alpha = 0.18 + clamp((source.depth + target.depth) / 900, -0.05, 0.10);
+    edgesGroup.appendChild(createSVGElement('line', {
+      x1: formatNumber(source.x),
+      y1: formatNumber(source.y),
+      x2: formatNumber(target.x),
+      y2: formatNumber(target.y),
+      stroke: 'rgb(145, 162, 207)',
+      'stroke-opacity': formatNumber(alpha),
+      'stroke-width': '0.85',
+      'stroke-linecap': 'round'
+    }));
+  });
+
+  Array.from(state.projected.values())
+    .sort((left, right) => left.depth - right.depth)
+    .forEach((item) => {
+      const color = colorForCommunity(item.node.community);
+      const radius = clamp(3.2 + item.depth / 150, 2.4, 6.2);
+      nodesGroup.appendChild(createSVGElement('circle', {
+        cx: formatNumber(item.x),
+        cy: formatNumber(item.y),
+        r: formatNumber(radius * 2.2),
+        fill: color,
+        'fill-opacity': '0.16'
+      }));
+      nodesGroup.appendChild(createSVGElement('circle', {
+        cx: formatNumber(item.x),
+        cy: formatNumber(item.y),
+        r: formatNumber(radius),
+        fill: color,
+        'fill-opacity': '0.96'
+      }));
+    });
+
+  if (state.selectedNode) {
+    const selected = state.projected.get(state.selectedNode.id);
+    if (selected) {
+      nodesGroup.appendChild(createSVGElement('circle', {
+        cx: formatNumber(selected.x),
+        cy: formatNumber(selected.y),
+        r: '10',
+        fill: 'none',
+        stroke: 'rgba(244, 246, 255, 0.9)',
+        'stroke-width': '2'
+      }));
+    }
+  }
+
+  fragment.appendChild(edgesGroup);
+  fragment.appendChild(nodesGroup);
+  svg.replaceChildren(fragment);
+}
+
+function clearSVGGraph() {
+  if (svg) {
+    svg.replaceChildren();
+  }
+}
+
+function createSVGElement(name, attributes = {}) {
+  const element = document.createElementNS('http://www.w3.org/2000/svg', name);
+  Object.entries(attributes).forEach(([key, value]) => {
+    element.setAttribute(key, value);
+  });
+  return element;
+}
+
+function formatNumber(value) {
+  return Number.isFinite(value) ? value.toFixed(2) : '0';
 }
 
 function requestDraw() {
