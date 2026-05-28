@@ -9,9 +9,7 @@
   <body>
     <main id="app">
       <section id="stage" aria-label="3D graph">
-        <svg id="graph-svg" aria-hidden="true"></svg>
-        <div id="graph-dom" aria-hidden="true"></div>
-        <canvas id="graph-canvas"></canvas>
+        <svg id="graph-visual" aria-hidden="true"></svg>
         <div id="hud" aria-live="polite" hidden></div>
         <div id="overlay" hidden></div>
       </section>
@@ -47,6 +45,6 @@
         showBootError(event.reason?.message || '3D graph failed to load');
       });
     </script>
-    <script src="./graph3d.js"></script>
+    <script type="module" src="./graph3d.js"></script>
   </body>
 </html>

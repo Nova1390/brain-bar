@@ -2,7 +2,7 @@
 
 BrainBar v0.4 explores a custom `3D Beta` graph mode for the Focus Window. The stable product path remains the embedded 2D Graphify graph; the 3D view is a separate experiment for controlled spatial exploration and visual research.
 
-Current status: the `3D Beta` control remains visible, but the experimental 3D renderer is paused behind the stable graph renderer. Real-vault QA showed that graph data, layout, camera fitting, and diagnostics can succeed while WebKit still presents a blank paint surface. Until that rendering path is fixed, selecting `3D Beta` must never leave the user with an empty graph.
+Current status: the `3D Beta` control is visible in the Focus Window and uses the experimental renderer. Real-vault QA showed that graph data, layout, camera fitting, and diagnostics could succeed while a pure WebGL canvas still presented a blank paint surface in WebKit. The renderer now uses Three.js for camera/projection/picking and an SVG visual layer for the actual visible graph, so the user is not dependent on WebKit's WebGL compositing path.
 
 The installed app still opens the Focus Window in the stable 2D mode by default, and the popover remains 2D-only.
 
@@ -16,7 +16,7 @@ The 3D graph needs room for camera controls, node inspection, and depth cues. Ke
 
 The 3D mode is a preview surface, not the primary graph view. It should be easy to try, easy to leave, and safe to remove or reshape before a stable release. If the 3D graph is less readable than the 2D graph on a real vault, BrainBar should keep the 2D graph as the default experience.
 
-The current product rule is stricter: if the experimental renderer is not visibly reliable, BrainBar falls back to the stable graph renderer instead of showing a blank or partially painted view.
+The current product rule is stricter: if the experimental renderer is not visibly reliable, BrainBar should fall back to the stable graph renderer instead of showing a blank or partially painted view.
 
 At this stage the 3D toggle can remain visible only if the renderer loads a complete graph, keeps it visible after resizing, and preserves the stable 2D path.
 
@@ -58,13 +58,15 @@ The 3D renderer reads nodes and edges from the injected `graph.json` payload. It
 
 ## Layout And Rendering
 
-The 3D view is custom BrainBar behavior rendered through a local Canvas renderer with controlled 2.5D projection:
+The 3D view is custom BrainBar behavior rendered through a local Three.js-powered projection renderer:
 
 - communities become spatial clusters;
 - node positions are deterministic for stable reloads;
 - depth is controlled and deterministic rather than random;
-- edges use lightweight canvas line drawing;
-- nodes are rendered as compact colored points;
+- Three.js owns the camera, projection, viewport controls, and node picking;
+- a lightweight SVG visual layer draws the visible nodes and edges from the projected camera coordinates;
+- the WebGL canvas is kept as an implementation layer rather than the primary visible surface, avoiding a WebKit blank-canvas failure mode seen during QA;
+- nodes are rendered as compact colored points and edges remain intentionally subdued;
 - the default camera fits the full graph;
 - tilt is preset-driven, not free-orbit, so the graph cannot become an edge-on stripe field;
 - camera controls support zoom, fit, top view, and reset tilt;
@@ -104,7 +106,7 @@ When the 3D experiment is enabled, the Focus Window should expose graph navigati
 - top view for the 3D renderer;
 - reset tilt for the 3D renderer.
 
-The stable 2D view should not depend on the 3D viewport command model. The 2D graph should stay as close as possible to the proven embedded Graphify viewer while the 3D view remains experimental. While the 3D renderer is paused, 3D-only controls should not appear.
+The stable 2D view should not depend on the 3D viewport command model. The 2D graph should stay as close as possible to the proven embedded Graphify viewer while the 3D view remains experimental. If the 3D renderer is paused again, 3D-only controls should not appear.
 
 The 3D camera is intentionally controlled rather than a free orbit. Drag pans, scroll/pinch zooms, and the native toolbar exposes fit, top view, and reset tilt. This is a product constraint, not a renderer limitation: readable graph inspection matters more than unrestricted 3D movement.
 

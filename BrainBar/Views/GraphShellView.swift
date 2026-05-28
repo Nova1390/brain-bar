@@ -176,7 +176,7 @@ struct GraphShellView: View {
     }
 
     private var usesExperimental3DRenderer: Bool {
-        false
+        true
     }
 
     private var footer: some View {

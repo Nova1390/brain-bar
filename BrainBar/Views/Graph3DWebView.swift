@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import SwiftUI
 import WebKit
@@ -23,7 +24,9 @@ struct Graph3DWebView: NSViewRepresentable {
 
         let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.allowsMagnification = true
-        webView.setValue(false, forKey: "drawsBackground")
+        webView.wantsLayer = true
+        webView.layer?.backgroundColor = NSColor(red: 0.02, green: 0.025, blue: 0.04, alpha: 1).cgColor
+        webView.setValue(true, forKey: "drawsBackground")
         webView.navigationDelegate = context.coordinator
 
         context.coordinator.sourceLens = sourceLens

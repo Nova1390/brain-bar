@@ -1,8 +1,8 @@
-const canvas = document.getElementById('graph-canvas');
-const context = canvas.getContext('2d', { alpha: true, willReadFrequently: false });
-const svg = document.getElementById('graph-svg');
-const graphDOM = document.getElementById('graph-dom');
+import * as THREE from './vendor/three.module.min.js';
+import { OrbitControls } from './vendor/OrbitControls.js';
+
 const stage = document.getElementById('stage');
+const graphVisual = document.getElementById('graph-visual');
 const overlay = document.getElementById('overlay');
 const search = document.getElementById('search');
 const searchResults = document.getElementById('search-results');
@@ -17,6 +17,8 @@ const palette = [
   '#d96068', '#84cbc4', '#62ad59', '#edcf45', '#b67eaa', '#f498a5'
 ];
 
+const pointTexture = createPointTexture();
+
 const state = {
   graph: null,
   lens: 'all',
@@ -25,33 +27,98 @@ const state = {
   visibleNodes: [],
   visibleEdges: [],
   positions: new Map(),
-  projected: new Map(),
   selectedNode: null,
   hoveredNode: null,
-  animationFrame: null,
-  pixelRatio: 1,
-  width: 1,
-  height: 1,
   lastDiagnostic: '',
+  cameraPreset: 'Fit',
   lastFrameStatus: 'Waiting',
   visibleProjectedNodeCount: 0,
-  cameraPreset: 'Fit',
-  svgElementCount: 0,
-  domElementCount: 0,
-  camera: {
-    yaw: -0.54,
-    tilt: 0.58,
-    zoom: 1,
-    offsetX: 0,
-    offsetY: 0,
-    panX: 0,
-    panY: 0
-  },
-  drag: null
+  pointer: new THREE.Vector2(),
+  raycaster: new THREE.Raycaster(),
+  nodeIndexById: new Map(),
+  animationFrame: null
 };
 
-function isBrainBarWebKitScheme() {
-  return window.location.protocol === 'brainbar3d:';
+let renderer;
+let scene;
+let camera;
+let controls;
+let nodePoints;
+let edgeLines;
+let selectedMarker;
+
+initScene();
+wireEvents();
+resize();
+installWindowAPI();
+
+if (window.__brainBarGraphJSON) {
+  window.brainBarLoadGraph(window.__brainBarGraphJSON, window.__brainBarPendingGraphLens || 'all');
+} else if (!isBrainBarWebKitScheme()) {
+  fetch('./graph.json')
+    .then((response) => {
+      if (!response.ok && response.status !== 0) {
+        throw new Error(`Graph data unavailable (${response.status})`);
+      }
+      return response.json();
+    })
+    .then((payload) => {
+      window.__brainBarGraphJSON = payload;
+      window.brainBarLoadGraph(payload, window.__brainBarPendingGraphLens || 'all');
+    })
+    .catch((error) => {
+      reportDiagnostic(error.message || 'Graph data unavailable', true);
+    });
+} else {
+  updateHud();
+}
+
+function initScene() {
+  scene = new THREE.Scene();
+  scene.background = new THREE.Color('#060912');
+
+  renderer = new THREE.WebGLRenderer({
+    antialias: true,
+    alpha: false,
+    powerPreference: 'high-performance'
+  });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  renderer.setClearColor('#060912', 1);
+  stage.prepend(renderer.domElement);
+
+  camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10000);
+  camera.position.set(0, 860, 520);
+  camera.lookAt(0, 0, 0);
+
+  controls = new OrbitControls(camera, renderer.domElement);
+  controls.enableDamping = false;
+  controls.enablePan = true;
+  controls.enableZoom = true;
+  controls.enableRotate = true;
+  controls.minPolarAngle = 0.08;
+  controls.maxPolarAngle = 1.08;
+  controls.minZoom = 0.08;
+  controls.maxZoom = 8;
+  controls.screenSpacePanning = true;
+  controls.target.set(0, 0, 0);
+  controls.addEventListener('change', () => {
+    state.cameraPreset = state.cameraPreset === 'Fit' ? 'Manual' : state.cameraPreset;
+    requestRender();
+  });
+
+  selectedMarker = new THREE.Mesh(
+    new THREE.SphereGeometry(6, 18, 12),
+    new THREE.MeshBasicMaterial({
+      color: '#f4f6ff',
+      transparent: true,
+      opacity: 0.95,
+      depthTest: false
+    })
+  );
+  selectedMarker.visible = false;
+  scene.add(selectedMarker);
+
+  state.raycaster.params.Points.threshold = 14;
 }
 
 function normalizeGraph(payload) {
@@ -132,6 +199,7 @@ function applyLens(fit = true) {
     state.visibleEdges = lensEdges.filter((edge) => visibleIds.has(edge.source) && visibleIds.has(edge.target));
 
     calculateLayout();
+    rebuildMeshes();
     if (fit) {
       fitCameraToGraph('Fit');
     }
@@ -139,7 +207,7 @@ function applyLens(fit = true) {
     updateOverlay();
     state.lastDiagnostic = '';
     updateHud();
-    requestDraw();
+    requestRender();
   } catch (error) {
     reportDiagnostic(error.message || '3D graph render failed', true);
   }
@@ -156,7 +224,7 @@ function calculateLayout() {
   state.positions = new Map();
   const communityIndex = new Map(state.communities.map((community, index) => [community.name, index]));
   const communityCount = Math.max(state.communities.length, 1);
-  const clusterRadius = Math.min(640, 150 + Math.sqrt(communityCount) * 70);
+  const clusterRadius = Math.min(760, 180 + Math.sqrt(communityCount) * 72);
   const nodesByCommunity = new Map();
   const degreeMap = buildDegreeMap(state.visibleEdges);
 
@@ -169,16 +237,16 @@ function calculateLayout() {
   nodesByCommunity.forEach((nodes, communityName) => {
     const index = communityIndex.get(communityName) ?? 0;
     const center = pointOnDisc(index, communityCount, clusterRadius);
-    const localRadius = Math.max(26, Math.min(132, Math.sqrt(nodes.length) * 9));
+    const localRadius = Math.max(30, Math.min(150, Math.sqrt(nodes.length) * 10));
     nodes.forEach((node, localIndex) => {
       const seed = hashString(node.id);
       const angle = localIndex * 2.399963 + (seed % 100) * 0.01;
       const distance = localRadius * Math.sqrt((localIndex + 0.5) / Math.max(nodes.length, 1));
-      const z = depthForNode(node, index, localIndex, degreeMap);
+      const depth = depthForNode(node, index, localIndex, degreeMap);
       state.positions.set(node.id, {
         x: center.x + Math.cos(angle) * distance,
-        y: center.y + Math.sin(angle) * distance,
-        z
+        y: depth,
+        z: center.y + Math.sin(angle) * distance
       });
     });
   });
@@ -198,15 +266,15 @@ function buildDegreeMap(edges) {
 function depthForNode(node, communityIndex, localIndex, degreeMap) {
   const seed = hashString(`${node.id}:${node.community}`);
   const degree = degreeMap.get(node.id) ?? 0;
-  const hubLift = Math.min(54, Math.log1p(degree) * 11);
-  const communityBand = ((communityIndex % 11) - 5) * 8;
-  const localWave = Math.sin((localIndex + 1) * 1.618 + (seed % 97)) * 15;
-  return clamp(communityBand + hubLift + localWave, -110, 130);
+  const hubLift = Math.min(60, Math.log1p(degree) * 12);
+  const communityBand = ((communityIndex % 13) - 6) * 7;
+  const localWave = Math.sin((localIndex + 1) * 1.618 + (seed % 97)) * 16;
+  return clamp(communityBand + hubLift + localWave, -120, 150);
 }
 
 function relaxLayout(nodesByCommunity) {
   const visibleIds = new Set(state.visibleNodes.map((node) => node.id));
-  const iterations = Math.min(36, Math.max(14, Math.floor(state.visibleEdges.length / 38)));
+  const iterations = Math.min(30, Math.max(12, Math.floor(state.visibleEdges.length / 60)));
   for (let iteration = 0; iteration < iterations; iteration += 1) {
     state.visibleEdges.forEach((edge) => {
       if (!visibleIds.has(edge.source) || !visibleIds.has(edge.target)) {
@@ -215,15 +283,15 @@ function relaxLayout(nodesByCommunity) {
       const source = state.positions.get(edge.source);
       const target = state.positions.get(edge.target);
       const dx = target.x - source.x;
-      const dy = target.y - source.y;
-      const length = Math.max(Math.hypot(dx, dy), 0.001);
-      const force = (length - 52) * 0.0036;
+      const dz = target.z - source.z;
+      const length = Math.max(Math.hypot(dx, dz), 0.001);
+      const force = (length - 58) * 0.003;
       const ox = (dx / length) * force;
-      const oy = (dy / length) * force;
+      const oz = (dz / length) * force;
       source.x += ox;
-      source.y += oy;
+      source.z += oz;
       target.x -= ox;
-      target.y -= oy;
+      target.z -= oz;
     });
 
     if (iteration % 5 === 0) {
@@ -233,25 +301,25 @@ function relaxLayout(nodesByCommunity) {
 }
 
 function separateLocalNodes(nodesByCommunity) {
-  const minDistance = 9.5;
+  const minDistance = 11;
   nodesByCommunity.forEach((nodes) => {
     for (let leftIndex = 0; leftIndex < nodes.length; leftIndex += 1) {
       const left = state.positions.get(nodes[leftIndex].id);
       for (let rightIndex = leftIndex + 1; rightIndex < nodes.length; rightIndex += 1) {
         const right = state.positions.get(nodes[rightIndex].id);
         const dx = right.x - left.x;
-        const dy = right.y - left.y;
-        const distance = Math.max(Math.hypot(dx, dy), 0.001);
+        const dz = right.z - left.z;
+        const distance = Math.max(Math.hypot(dx, dz), 0.001);
         if (distance >= minDistance) {
           continue;
         }
-        const push = (minDistance - distance) * 0.3;
-        const ox = dx === 0 && dy === 0 ? push : (dx / distance) * push;
-        const oy = dx === 0 && dy === 0 ? 0 : (dy / distance) * push;
+        const push = (minDistance - distance) * 0.24;
+        const ox = dx === 0 && dz === 0 ? push : (dx / distance) * push;
+        const oz = dx === 0 && dz === 0 ? 0 : (dz / distance) * push;
         left.x -= ox;
-        left.y -= oy;
+        left.z -= oz;
         right.x += ox;
-        right.y += oy;
+        right.z += oz;
       }
     }
   });
@@ -270,409 +338,287 @@ function pointOnDisc(index, count, radius) {
   };
 }
 
-function projectPoint(position) {
-  const raw = projectRawPoint(position);
-  return {
-    x: state.width / 2 + (raw.x - state.camera.offsetX) * state.camera.zoom + state.camera.panX,
-    y: state.height / 2 + (raw.y - state.camera.offsetY) * state.camera.zoom + state.camera.panY,
-    depth: raw.depth
-  };
-}
+function rebuildMeshes() {
+  removeGraphObjects();
+  state.nodeIndexById = new Map();
 
-function projectRawPoint(position) {
-  const { yaw, tilt } = state.camera;
-  const cosYaw = Math.cos(yaw);
-  const sinYaw = Math.sin(yaw);
-  const cosTilt = Math.cos(tilt);
-  const sinTilt = Math.sin(tilt);
-  const rx = position.x * cosYaw - position.y * sinYaw;
-  const ry = position.x * sinYaw + position.y * cosYaw;
-  const px = rx;
-  const py = ry * cosTilt - position.z * sinTilt;
-  const depth = ry * sinTilt + position.z * cosTilt;
-  return {
-    x: px,
-    y: py,
-    depth
-  };
-}
+  const nodePositions = new Float32Array(state.visibleNodes.length * 3);
+  const nodeColors = new Float32Array(state.visibleNodes.length * 3);
+  const nodeSizes = new Float32Array(state.visibleNodes.length);
+  const degreeMap = buildDegreeMap(state.visibleEdges);
 
-function updateProjectionCache() {
-  state.projected = new Map();
-  state.visibleNodes.forEach((node) => {
-    const position = state.positions.get(node.id);
-    if (position) {
-      state.projected.set(node.id, { ...projectPoint(position), node });
+  state.visibleNodes.forEach((node, index) => {
+    const position = state.positions.get(node.id) ?? { x: 0, y: 0, z: 0 };
+    const color = new THREE.Color(colorForCommunity(node.community));
+    const degree = degreeMap.get(node.id) ?? 0;
+    const size = clamp(4.5 + Math.log1p(degree) * 1.8, 4.5, 13);
+    nodePositions.set([position.x, position.y, position.z], index * 3);
+    nodeColors.set([color.r, color.g, color.b], index * 3);
+    nodeSizes[index] = size;
+    state.nodeIndexById.set(node.id, index);
+  });
+
+  const nodeGeometry = new THREE.BufferGeometry();
+  nodeGeometry.setAttribute('position', new THREE.BufferAttribute(nodePositions, 3));
+  nodeGeometry.setAttribute('color', new THREE.BufferAttribute(nodeColors, 3));
+  nodeGeometry.setAttribute('size', new THREE.BufferAttribute(nodeSizes, 1));
+
+  const nodeMaterial = new THREE.PointsMaterial({
+    size: 7.2,
+    sizeAttenuation: false,
+    map: pointTexture,
+    vertexColors: true,
+    transparent: true,
+    opacity: 0.96,
+    alphaTest: 0.08,
+    depthWrite: false
+  });
+  nodePoints = new THREE.Points(nodeGeometry, nodeMaterial);
+  nodePoints.renderOrder = 2;
+  scene.add(nodePoints);
+
+  const edgePositions = new Float32Array(state.visibleEdges.length * 2 * 3);
+  const edgeColors = new Float32Array(state.visibleEdges.length * 2 * 3);
+  state.visibleEdges.forEach((edge, index) => {
+    const source = state.positions.get(edge.source);
+    const target = state.positions.get(edge.target);
+    if (!source || !target) {
+      return;
     }
+    edgePositions.set([source.x, source.y, source.z, target.x, target.y, target.z], index * 6);
+    const sourceNode = state.visibleNodes[state.nodeIndexById.get(edge.source)];
+    const targetNode = state.visibleNodes[state.nodeIndexById.get(edge.target)];
+    const sourceColor = new THREE.Color(colorForCommunity(sourceNode?.community ?? ''));
+    const targetColor = new THREE.Color(colorForCommunity(targetNode?.community ?? ''));
+    edgeColors.set([sourceColor.r, sourceColor.g, sourceColor.b, targetColor.r, targetColor.g, targetColor.b], index * 6);
   });
+
+  const edgeGeometry = new THREE.BufferGeometry();
+  edgeGeometry.setAttribute('position', new THREE.BufferAttribute(edgePositions, 3));
+  edgeGeometry.setAttribute('color', new THREE.BufferAttribute(edgeColors, 3));
+
+  const edgeMaterial = new THREE.LineBasicMaterial({
+    vertexColors: true,
+    transparent: true,
+    opacity: 0.22,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending
+  });
+  edgeLines = new THREE.LineSegments(edgeGeometry, edgeMaterial);
+  edgeLines.renderOrder = 1;
+  scene.add(edgeLines);
+
+  selectedMarker.visible = false;
 }
 
-function projectedBounds() {
-  const points = [];
-  state.positions.forEach((position) => {
-    points.push(projectRawPoint(position));
-  });
-  if (!points.length) {
-    return null;
+function removeGraphObjects() {
+  if (nodePoints) {
+    scene.remove(nodePoints);
+    nodePoints.geometry.dispose();
+    nodePoints.material.dispose();
+    nodePoints = null;
   }
-  return points.reduce((bounds, point) => ({
-    minX: Math.min(bounds.minX, point.x),
-    minY: Math.min(bounds.minY, point.y),
-    maxX: Math.max(bounds.maxX, point.x),
-    maxY: Math.max(bounds.maxY, point.y)
-  }), { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity });
+  if (edgeLines) {
+    scene.remove(edgeLines);
+    edgeLines.geometry.dispose();
+    edgeLines.material.dispose();
+    edgeLines = null;
+  }
 }
 
 function fitCameraToGraph(preset = 'Fit') {
-  state.camera.panX = 0;
-  state.camera.panY = 0;
-  state.camera.offsetX = 0;
-  state.camera.offsetY = 0;
-  state.camera.zoom = 1;
-  const bounds = projectedBounds();
-  if (!bounds) {
-    state.camera.zoom = 1;
+  fitCameraWithTilt(preset, 0.22, 1.46);
+}
+
+function fitCameraWithTilt(preset, zTilt, heightMultiplier) {
+  if (!state.visibleNodes.length || !state.positions.size) {
     state.cameraPreset = preset;
-    requestDraw();
+    requestRender();
     return;
   }
 
-  const graphWidth = Math.max(bounds.maxX - bounds.minX, 120);
-  const graphHeight = Math.max(bounds.maxY - bounds.minY, 120);
-  const zoomX = state.width / (graphWidth * 1.16);
-  const zoomY = state.height / (graphHeight * 1.16);
-  state.camera.offsetX = (bounds.minX + bounds.maxX) / 2;
-  state.camera.offsetY = (bounds.minY + bounds.maxY) / 2;
-  state.camera.zoom = clamp(Math.min(zoomX, zoomY), 0.08, 2.8);
+  const bounds = boundsForVisibleNodes();
+  const width = Math.max(bounds.maxX - bounds.minX, 120);
+  const depth = Math.max(bounds.maxZ - bounds.minZ, 120);
+  const radius = Math.max(width, depth);
+  const centerX = (bounds.minX + bounds.maxX) / 2;
+  const centerZ = (bounds.minZ + bounds.maxZ) / 2;
+
+  controls.target.set(centerX, 0, centerZ);
+  camera.position.set(centerX, radius * heightMultiplier, centerZ + radius * zTilt);
+  camera.lookAt(controls.target);
+  camera.zoom = clamp(Math.min(stage.clientWidth / (width * 1.18), stage.clientHeight / (depth * 1.18)), 0.08, 6);
+  camera.updateProjectionMatrix();
+  controls.update();
+
   state.cameraPreset = preset;
   updateHud();
-  requestDraw();
+  requestRender();
 }
 
-function drawGraph() {
-  context.clearRect(0, 0, state.width, state.height);
-  if (!state.visibleNodes.length || !state.positions.size) {
-    state.lastFrameStatus = 'Waiting for layout';
-    updateHud();
-    return;
-  }
-
-  updateProjectionCache();
-  if (!state.projected.size) {
-    state.lastFrameStatus = 'Waiting for projection';
-    updateHud();
-    return;
-  }
-
-  if (!projectedGraphIsInViewport() && state.cameraPreset !== 'Auto fit') {
-    fitCameraToGraph('Auto fit');
-    return;
-  }
-
-  drawDOMGraph();
-  drawSVGGraph();
-  state.lastFrameStatus = 'Visible';
-
-  context.save();
-  context.lineCap = 'round';
-  context.lineJoin = 'round';
-
-  state.visibleEdges.forEach((edge) => {
-    const source = state.projected.get(edge.source);
-    const target = state.projected.get(edge.target);
-    if (!source || !target) {
-      return;
+function boundsForVisibleNodes() {
+  return state.visibleNodes.reduce((bounds, node) => {
+    const position = state.positions.get(node.id);
+    if (!position) {
+      return bounds;
     }
-    const alpha = 0.26 + clamp((source.depth + target.depth) / 900, -0.04, 0.12);
-    context.beginPath();
-    context.moveTo(source.x, source.y);
-    context.lineTo(target.x, target.y);
-    context.strokeStyle = `rgba(145, 162, 207, ${alpha})`;
-    context.lineWidth = 0.85;
-    context.stroke();
-  });
-
-  Array.from(state.projected.values())
-    .sort((left, right) => left.depth - right.depth)
-    .forEach((item) => {
-      const color = colorForCommunity(item.node.community);
-      const radius = clamp(4.8 + item.depth / 140, 3.8, 8.4);
-      const haloRadius = radius * 3.2;
-      const gradient = context.createRadialGradient(item.x, item.y, 0, item.x, item.y, haloRadius);
-      gradient.addColorStop(0, color);
-      gradient.addColorStop(0.58, colorWithAlpha(color, 0.7));
-      gradient.addColorStop(1, colorWithAlpha(color, 0));
-      context.fillStyle = gradient;
-      context.globalAlpha = 0.95;
-      context.beginPath();
-      context.arc(item.x, item.y, haloRadius, 0, Math.PI * 2);
-      context.fill();
-      context.fillStyle = color;
-      context.globalAlpha = 0.98;
-      context.beginPath();
-      context.arc(item.x, item.y, radius, 0, Math.PI * 2);
-      context.fill();
-    });
-
-  if (state.selectedNode) {
-    const selected = state.projected.get(state.selectedNode.id);
-    if (selected) {
-      context.globalAlpha = 1;
-      context.beginPath();
-      context.arc(selected.x, selected.y, 10, 0, Math.PI * 2);
-      context.strokeStyle = 'rgba(244, 246, 255, 0.9)';
-      context.lineWidth = 2;
-      context.stroke();
-    }
-  }
-
-  context.restore();
-}
-
-function drawDOMGraph() {
-  if (!graphDOM) {
-    state.domElementCount = 0;
-    return;
-  }
-
-  const fragment = document.createDocumentFragment();
-  let elementCount = 0;
-
-  state.visibleEdges.forEach((edge) => {
-    const source = state.projected.get(edge.source);
-    const target = state.projected.get(edge.target);
-    if (!source || !target) {
-      return;
-    }
-
-    const dx = target.x - source.x;
-    const dy = target.y - source.y;
-    const length = Math.hypot(dx, dy);
-    if (!Number.isFinite(length) || length <= 0.1) {
-      return;
-    }
-
-    const alpha = 0.24 + clamp((source.depth + target.depth) / 900, -0.04, 0.12);
-    const edgeElement = document.createElement('div');
-    edgeElement.className = 'dom-edge';
-    edgeElement.style.left = `${formatNumber(source.x)}px`;
-    edgeElement.style.top = `${formatNumber(source.y)}px`;
-    edgeElement.style.width = `${formatNumber(length)}px`;
-    edgeElement.style.background = `rgba(145, 162, 207, ${formatNumber(alpha)})`;
-    edgeElement.style.transform = `rotate(${Math.atan2(dy, dx)}rad)`;
-    fragment.appendChild(edgeElement);
-    elementCount += 1;
-  });
-
-  Array.from(state.projected.values())
-    .sort((left, right) => left.depth - right.depth)
-    .forEach((item) => {
-      const color = colorForCommunity(item.node.community);
-      const radius = clamp(4.8 + item.depth / 140, 3.8, 8.4);
-      const size = radius * 2;
-      const nodeElement = document.createElement('div');
-      nodeElement.className = 'dom-node';
-      nodeElement.style.left = `${formatNumber(item.x - radius)}px`;
-      nodeElement.style.top = `${formatNumber(item.y - radius)}px`;
-      nodeElement.style.width = `${formatNumber(size)}px`;
-      nodeElement.style.height = `${formatNumber(size)}px`;
-      nodeElement.style.background = color;
-      nodeElement.style.boxShadow = `0 0 ${formatNumber(radius * 4.4)}px ${colorWithAlpha(color, 0.32)}`;
-      fragment.appendChild(nodeElement);
-      elementCount += 1;
-    });
-
-  if (state.selectedNode) {
-    const selected = state.projected.get(state.selectedNode.id);
-    if (selected) {
-      const selectedElement = document.createElement('div');
-      selectedElement.className = 'dom-selected-node';
-      selectedElement.style.left = `${formatNumber(selected.x - 10)}px`;
-      selectedElement.style.top = `${formatNumber(selected.y - 10)}px`;
-      selectedElement.style.width = '20px';
-      selectedElement.style.height = '20px';
-      fragment.appendChild(selectedElement);
-      elementCount += 1;
-    }
-  }
-
-  state.domElementCount = elementCount;
-  while (graphDOM.firstChild) {
-    graphDOM.removeChild(graphDOM.firstChild);
-  }
-  graphDOM.appendChild(fragment);
-  updateHud();
-}
-
-function projectedGraphIsInViewport() {
-  const margin = 48;
-  let visibleCount = 0;
-  state.projected.forEach((item) => {
-    if (
-      item.x >= -margin &&
-      item.x <= state.width + margin &&
-      item.y >= -margin &&
-      item.y <= state.height + margin
-    ) {
-      visibleCount += 1;
-    }
-  });
-  state.visibleProjectedNodeCount = visibleCount;
-  return visibleCount >= Math.min(12, Math.max(1, Math.floor(state.visibleNodes.length * 0.02)));
-}
-
-function drawSVGGraph() {
-  if (!svg) {
-    state.svgElementCount = 0;
-    return;
-  }
-  svg.setAttribute('viewBox', `0 0 ${state.width} ${state.height}`);
-  svg.setAttribute('width', String(state.width));
-  svg.setAttribute('height', String(state.height));
-
-  const edgesGroup = createSVGElement('g', { class: 'graph-edges' });
-  const nodesGroup = createSVGElement('g', { class: 'graph-nodes' });
-  let elementCount = 0;
-
-  state.visibleEdges.forEach((edge) => {
-    const source = state.projected.get(edge.source);
-    const target = state.projected.get(edge.target);
-    if (!source || !target) {
-      return;
-    }
-    const alpha = 0.24 + clamp((source.depth + target.depth) / 900, -0.04, 0.12);
-    edgesGroup.appendChild(createSVGElement('line', {
-      x1: formatNumber(source.x),
-      y1: formatNumber(source.y),
-      x2: formatNumber(target.x),
-      y2: formatNumber(target.y),
-      stroke: 'rgb(145, 162, 207)',
-      'stroke-opacity': formatNumber(alpha),
-      'stroke-width': '0.85',
-      'stroke-linecap': 'round'
-    }));
-    elementCount += 1;
-  });
-
-  Array.from(state.projected.values())
-    .sort((left, right) => left.depth - right.depth)
-    .forEach((item) => {
-      const color = colorForCommunity(item.node.community);
-      const radius = clamp(4.8 + item.depth / 140, 3.8, 8.4);
-      nodesGroup.appendChild(createSVGElement('circle', {
-        cx: formatNumber(item.x),
-        cy: formatNumber(item.y),
-        r: formatNumber(radius * 2.2),
-        fill: color,
-        'fill-opacity': '0.16'
-      }));
-      elementCount += 1;
-      nodesGroup.appendChild(createSVGElement('circle', {
-        cx: formatNumber(item.x),
-        cy: formatNumber(item.y),
-        r: formatNumber(radius),
-        fill: color,
-        'fill-opacity': '0.96'
-      }));
-      elementCount += 1;
-    });
-
-  if (state.selectedNode) {
-    const selected = state.projected.get(state.selectedNode.id);
-    if (selected) {
-      nodesGroup.appendChild(createSVGElement('circle', {
-        cx: formatNumber(selected.x),
-        cy: formatNumber(selected.y),
-        r: '10',
-        fill: 'none',
-        stroke: 'rgba(244, 246, 255, 0.9)',
-        'stroke-width': '2'
-      }));
-      elementCount += 1;
-    }
-  }
-
-  state.svgElementCount = elementCount;
-  while (svg.firstChild) {
-    svg.removeChild(svg.firstChild);
-  }
-  svg.appendChild(edgesGroup);
-  svg.appendChild(nodesGroup);
-  updateHud();
-}
-
-function clearSVGGraph() {
-  if (svg) {
-    while (svg.firstChild) {
-      svg.removeChild(svg.firstChild);
-    }
-  }
-  state.svgElementCount = 0;
-}
-
-function clearDOMGraph() {
-  if (graphDOM) {
-    while (graphDOM.firstChild) {
-      graphDOM.removeChild(graphDOM.firstChild);
-    }
-  }
-  state.domElementCount = 0;
-}
-
-function createSVGElement(name, attributes = {}) {
-  const element = document.createElementNS('http://www.w3.org/2000/svg', name);
-  Object.entries(attributes).forEach(([key, value]) => {
-    element.setAttribute(key, value);
-  });
-  return element;
-}
-
-function formatNumber(value) {
-  return Number.isFinite(value) ? value.toFixed(2) : '0';
-}
-
-function requestDraw() {
-  if (state.animationFrame) {
-    return;
-  }
-  state.animationFrame = requestAnimationFrame(() => {
-    state.animationFrame = null;
-    drawGraph();
-  });
+    return {
+      minX: Math.min(bounds.minX, position.x),
+      maxX: Math.max(bounds.maxX, position.x),
+      minZ: Math.min(bounds.minZ, position.z),
+      maxZ: Math.max(bounds.maxZ, position.z)
+    };
+  }, { minX: Infinity, maxX: -Infinity, minZ: Infinity, maxZ: -Infinity });
 }
 
 function resize() {
   const rect = stage.getBoundingClientRect();
   const width = Math.max(Math.floor(rect.width), 1);
   const height = Math.max(Math.floor(rect.height), 1);
-  const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
-  const backingWidth = Math.max(Math.floor(width * pixelRatio), 1);
-  const backingHeight = Math.max(Math.floor(height * pixelRatio), 1);
-  const didResize = (
-    state.width !== width ||
-    state.height !== height ||
-    state.pixelRatio !== pixelRatio ||
-    canvas.width !== backingWidth ||
-    canvas.height !== backingHeight
-  );
 
-  state.width = width;
-  state.height = height;
-  state.pixelRatio = pixelRatio;
+  renderer.setSize(width, height, false);
+  camera.left = -width / 2;
+  camera.right = width / 2;
+  camera.top = height / 2;
+  camera.bottom = -height / 2;
+  camera.updateProjectionMatrix();
 
-  if (didResize) {
-    canvas.width = backingWidth;
-    canvas.height = backingHeight;
-    canvas.style.width = `${width}px`;
-    canvas.style.height = `${height}px`;
-    context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
-  }
-
-  if (didResize && state.graph) {
+  if (state.graph) {
     fitCameraToGraph(state.cameraPreset || 'Fit');
   } else {
-    requestDraw();
+    requestRender();
   }
+}
+
+function render() {
+  controls.update();
+  renderer.render(scene, camera);
+  renderVisualOverlay();
+  updateVisibleProjectedNodeCount();
+  state.lastFrameStatus = state.visibleProjectedNodeCount > 0 ? 'Visible' : 'Waiting for view';
+  updateHud();
+}
+
+function renderVisualOverlay() {
+  if (!graphVisual) {
+    return;
+  }
+
+  const rect = stage.getBoundingClientRect();
+  const width = Math.max(rect.width, 1);
+  const height = Math.max(rect.height, 1);
+  graphVisual.setAttribute('viewBox', `0 0 ${width} ${height}`);
+  graphVisual.replaceChildren();
+
+  if (!state.visibleNodes.length || !state.positions.size) {
+    return;
+  }
+
+  camera.updateMatrixWorld();
+  const projected = new Map();
+  const vector = new THREE.Vector3();
+  let projectedNodeCount = 0;
+
+  state.visibleNodes.forEach((node) => {
+    const position = state.positions.get(node.id);
+    if (!position) {
+      return;
+    }
+    vector.set(position.x, position.y, position.z).project(camera);
+    if (vector.z < -1 || vector.z > 1) {
+      return;
+    }
+    const x = (vector.x * 0.5 + 0.5) * width;
+    const y = (-vector.y * 0.5 + 0.5) * height;
+    projected.set(node.id, {
+      x,
+      y,
+      z: vector.z,
+      node
+    });
+    if (x >= 0 && x <= width && y >= 0 && y <= height) {
+      projectedNodeCount += 1;
+    }
+  });
+
+  state.visibleProjectedNodeCount = projectedNodeCount;
+  const fragment = document.createDocumentFragment();
+
+  state.visibleEdges.forEach((edge) => {
+    const source = projected.get(edge.source);
+    const target = projected.get(edge.target);
+    if (!source || !target) {
+      return;
+    }
+    const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    line.setAttribute('class', 'visual-edge');
+    line.setAttribute('x1', source.x.toFixed(1));
+    line.setAttribute('y1', source.y.toFixed(1));
+    line.setAttribute('x2', target.x.toFixed(1));
+    line.setAttribute('y2', target.y.toFixed(1));
+    line.setAttribute('stroke', colorForCommunity(source.node.community));
+    line.setAttribute('stroke-width', '0.55');
+    line.setAttribute('opacity', '0.2');
+    fragment.appendChild(line);
+  });
+
+  const degreeMap = buildDegreeMap(state.visibleEdges);
+  state.visibleNodes.forEach((node) => {
+    const point = projected.get(node.id);
+    if (!point) {
+      return;
+    }
+    const degree = degreeMap.get(node.id) ?? 0;
+    const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+    const isSelected = state.selectedNode?.id === node.id;
+    circle.setAttribute('class', 'visual-node');
+    circle.setAttribute('cx', point.x.toFixed(1));
+    circle.setAttribute('cy', point.y.toFixed(1));
+    circle.setAttribute('r', String(isSelected ? 5.2 : clamp(2.1 + Math.log1p(degree) * 0.55, 2.1, 5.4)));
+    circle.setAttribute('fill', colorForCommunity(node.community));
+    circle.setAttribute('opacity', isSelected ? '1' : '0.95');
+    if (isSelected) {
+      circle.setAttribute('stroke', '#f4f6ff');
+      circle.setAttribute('stroke-width', '1.8');
+    }
+    fragment.appendChild(circle);
+  });
+
+  graphVisual.appendChild(fragment);
+}
+
+function requestRender() {
+  if (state.animationFrame) {
+    return;
+  }
+  state.animationFrame = requestAnimationFrame(() => {
+    state.animationFrame = null;
+    render();
+  });
+}
+
+function updateVisibleProjectedNodeCount() {
+  if (graphVisual?.childElementCount) {
+    return;
+  }
+  if (!state.visibleNodes.length) {
+    state.visibleProjectedNodeCount = 0;
+    return;
+  }
+
+  const vector = new THREE.Vector3();
+  let visibleCount = 0;
+  state.visibleNodes.forEach((node) => {
+    const position = state.positions.get(node.id);
+    if (!position) {
+      return;
+    }
+    vector.set(position.x, position.y, position.z).project(camera);
+    if (vector.x >= -1 && vector.x <= 1 && vector.y >= -1 && vector.y <= 1 && vector.z >= -1 && vector.z <= 1) {
+      visibleCount += 1;
+    }
+  });
+  state.visibleProjectedNodeCount = visibleCount;
 }
 
 function renderSidebar() {
@@ -782,9 +728,10 @@ function updateHud() {
   const lensLabel = state.lens === 'all'
     ? 'All'
     : (state.lens === 'graphify' ? 'Graphify' : 'Obsidian');
-  const visualCount = state.svgElementCount + state.domElementCount;
-  const visualLabel = visualCount > 0 ? `visual ${visualCount}` : 'visual 0';
-  const base = `${state.visibleNodes.length} nodes · ${state.visibleEdges.length} edges · ${lensLabel} · ${state.cameraPreset} · ${visualLabel} · in view ${state.visibleProjectedNodeCount} · ${state.lastFrameStatus}`;
+  const renderLabel = renderer?.info?.render
+    ? `draw ${renderer.info.render.calls}`
+    : 'draw 0';
+  const base = `${state.visibleNodes.length} nodes · ${state.visibleEdges.length} edges · ${lensLabel} · ${state.cameraPreset} · ${renderLabel} · in view ${state.visibleProjectedNodeCount} · ${state.lastFrameStatus}`;
   hud.textContent = state.lastDiagnostic ? `${base} · ${state.lastDiagnostic}` : base;
   hud.hidden = false;
 }
@@ -792,41 +739,51 @@ function updateHud() {
 function selectNode(node, focusCamera = false) {
   state.selectedNode = node;
   renderNodeInfo(node);
+  positionSelectedMarker(node);
   if (focusCamera) {
     focusNode(node);
   }
-  requestDraw();
+  requestRender();
+}
+
+function positionSelectedMarker(node) {
+  const position = state.positions.get(node?.id);
+  if (!position) {
+    selectedMarker.visible = false;
+    return;
+  }
+  selectedMarker.position.set(position.x, position.y, position.z);
+  selectedMarker.visible = true;
 }
 
 function focusNode(node) {
-  const point = state.projected.get(node.id);
-  if (!point) {
+  const position = state.positions.get(node.id);
+  if (!position) {
     return;
   }
-  state.camera.panX += state.width / 2 - point.x;
-  state.camera.panY += state.height / 2 - point.y;
-  state.camera.zoom = clamp(Math.max(state.camera.zoom, 1.5), 0.08, 5);
+  controls.target.set(position.x, position.y, position.z);
+  camera.zoom = clamp(Math.max(camera.zoom, 1.5), 0.08, 8);
+  camera.updateProjectionMatrix();
+  controls.update();
   state.cameraPreset = 'Node focus';
   updateHud();
-  requestDraw();
+  requestRender();
 }
 
 function nodeAtEvent(event) {
-  const rect = stage.getBoundingClientRect();
-  const x = event.clientX - rect.left;
-  const y = event.clientY - rect.top;
-  updateProjectionCache();
-  let best = null;
-  let bestDistance = Infinity;
-  state.projected.forEach((item) => {
-    const radius = clamp(8 + item.depth / 120, 6, 16);
-    const distance = Math.hypot(item.x - x, item.y - y);
-    if (distance < radius && distance < bestDistance) {
-      best = item.node;
-      bestDistance = distance;
-    }
-  });
-  return best;
+  if (!nodePoints) {
+    return null;
+  }
+  const rect = renderer.domElement.getBoundingClientRect();
+  state.pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+  state.pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+  state.raycaster.params.Points.threshold = Math.max(8, 12 / Math.max(camera.zoom, 0.2));
+  state.raycaster.setFromCamera(state.pointer, camera);
+  const intersections = state.raycaster.intersectObject(nodePoints, false);
+  if (!intersections.length) {
+    return null;
+  }
+  return state.visibleNodes[intersections[0].index] ?? null;
 }
 
 function resetCamera() {
@@ -834,21 +791,18 @@ function resetCamera() {
 }
 
 function zoomCamera(multiplier) {
-  state.camera.zoom = clamp(state.camera.zoom * multiplier, 0.08, 5);
+  camera.zoom = clamp(camera.zoom * multiplier, 0.08, 8);
+  camera.updateProjectionMatrix();
   state.cameraPreset = multiplier > 1 ? 'Zoom in' : 'Zoom out';
   updateHud();
-  requestDraw();
+  requestRender();
 }
 
 function topView() {
-  state.camera.yaw = 0;
-  state.camera.tilt = 0;
-  fitCameraToGraph('Top view');
+  fitCameraWithTilt('Top view', 0.001, 1.55);
 }
 
 function resetTilt() {
-  state.camera.yaw = -0.54;
-  state.camera.tilt = 0.58;
   fitCameraToGraph('Reset tilt');
 }
 
@@ -861,20 +815,8 @@ function colorForCommunity(name) {
   return community?.color ?? palette[0];
 }
 
-function colorWithAlpha(hex, alpha) {
-  const color = hex.replace('#', '');
-  const value = parseInt(color, 16);
-  const r = (value >> 16) & 255;
-  const g = (value >> 8) & 255;
-  const b = value & 255;
-  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-}
-
 function reportDiagnostic(message, showsOverlay = false) {
   const text = String(message || '3D renderer failed');
-  if (text.startsWith('Graph data unavailable') && state.graph) {
-    return;
-  }
   state.lastDiagnostic = text;
   updateHud();
   if (showsOverlay) {
@@ -903,6 +845,51 @@ function sendNodeAction(action, node) {
   });
 }
 
+function wireEvents() {
+  renderer?.domElement?.addEventListener('pointermove', (event) => {
+    const node = nodeAtEvent(event);
+    if (node !== state.hoveredNode) {
+      state.hoveredNode = node;
+      stage.style.cursor = node ? 'pointer' : 'grab';
+    }
+  });
+
+  renderer?.domElement?.addEventListener('click', (event) => {
+    const node = nodeAtEvent(event);
+    if (node) {
+      selectNode(node);
+    }
+  });
+
+  renderer?.domElement?.addEventListener('dblclick', (event) => {
+    const node = nodeAtEvent(event);
+    if (node) {
+      sendNodeAction('openNode', node);
+    }
+  });
+
+  search.addEventListener('input', renderSearchResults);
+  window.addEventListener('resize', resize);
+  new ResizeObserver(resize).observe(stage);
+
+  window.addEventListener('error', (event) => {
+    reportDiagnostic(event.message || '3D renderer failed', true);
+  });
+
+  window.addEventListener('unhandledrejection', (event) => {
+    reportDiagnostic(event.reason?.message || '3D renderer failed', true);
+  });
+
+  renderer?.domElement?.addEventListener('webglcontextlost', (event) => {
+    event.preventDefault();
+    reportDiagnostic('WebGL context lost', true);
+  });
+}
+
+function isBrainBarWebKitScheme() {
+  return window.location.protocol === 'brainbar3d:';
+}
+
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, Number.isFinite(value) ? value : min));
 }
@@ -925,133 +912,61 @@ function escapeHTML(value) {
     .replaceAll("'", '&#039;');
 }
 
-window.brainBarLoadGraph = (payload, lens = 'all') => {
-  try {
-    state.graph = normalizeGraph(payload);
+function createPointTexture() {
+  const textureCanvas = document.createElement('canvas');
+  textureCanvas.width = 64;
+  textureCanvas.height = 64;
+  const textureContext = textureCanvas.getContext('2d');
+  const gradient = textureContext.createRadialGradient(32, 32, 0, 32, 32, 31);
+  gradient.addColorStop(0, 'rgba(255,255,255,1)');
+  gradient.addColorStop(0.58, 'rgba(255,255,255,0.94)');
+  gradient.addColorStop(1, 'rgba(255,255,255,0)');
+  textureContext.fillStyle = gradient;
+  textureContext.beginPath();
+  textureContext.arc(32, 32, 31, 0, Math.PI * 2);
+  textureContext.fill();
+  const texture = new THREE.CanvasTexture(textureCanvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+
+function installWindowAPI() {
+  window.brainBarLoadGraph = (payload, lens = 'all') => {
+    try {
+      state.graph = normalizeGraph(payload);
+      state.lens = lens;
+      state.selectedNode = null;
+      prepareCommunities(state.graph);
+      applyLens(true);
+    } catch (error) {
+      reportDiagnostic(error.message || '3D graph data could not be loaded', true);
+    }
+  };
+
+  window.brainBarApplyGraphLens = (lens) => {
     state.lens = lens;
     state.selectedNode = null;
-    prepareCommunities(state.graph);
     applyLens(true);
-  } catch (error) {
-    reportDiagnostic(error.message || '3D graph data could not be loaded', true);
-  }
-};
-
-window.brainBarApplyGraphLens = (lens) => {
-  state.lens = lens;
-  state.selectedNode = null;
-  applyLens(true);
-};
-
-window.brainBarResetCamera = resetCamera;
-window.brainBarZoom = zoomCamera;
-window.brainBarTopView = topView;
-window.brainBarResetTilt = resetTilt;
-window.brainBarRendererDiagnostics = () => ({
-  nodes: state.visibleNodes.length,
-  edges: state.visibleEdges.length,
-  lens: state.lens,
-  communities: state.communities.length,
-  cameraPreset: state.cameraPreset,
-  cameraZoom: state.camera.zoom,
-  canvasWidth: canvas.width,
-  canvasHeight: canvas.height,
-  svgElementCount: state.svgElementCount,
-  domElementCount: state.domElementCount,
-  domChildCount: graphDOM?.children.length ?? 0,
-  visibleProjectedNodeCount: state.visibleProjectedNodeCount,
-  stageWidth: state.width,
-  stageHeight: state.height,
-  diagnostic: state.lastDiagnostic
-});
-
-stage.addEventListener('mousedown', (event) => {
-  state.drag = {
-    x: event.clientX,
-    y: event.clientY,
-    panX: state.camera.panX,
-    panY: state.camera.panY,
-    moved: false
   };
-});
 
-window.addEventListener('mousemove', (event) => {
-  if (!state.drag) {
-    const node = nodeAtEvent(event);
-    if (node !== state.hoveredNode) {
-      state.hoveredNode = node;
-      stage.style.cursor = node ? 'pointer' : 'grab';
-    }
-    return;
-  }
-  const dx = event.clientX - state.drag.x;
-  const dy = event.clientY - state.drag.y;
-  state.drag.moved = state.drag.moved || Math.hypot(dx, dy) > 3;
-  state.camera.panX = state.drag.panX + dx;
-  state.camera.panY = state.drag.panY + dy;
-  state.cameraPreset = 'Manual';
-  updateHud();
-  requestDraw();
-});
-
-window.addEventListener('mouseup', (event) => {
-  if (!state.drag) {
-    return;
-  }
-  const moved = state.drag.moved;
-  state.drag = null;
-  stage.style.cursor = 'grab';
-  if (!moved) {
-    const node = nodeAtEvent(event);
-    if (node) {
-      selectNode(node);
-    }
-  }
-});
-
-stage.addEventListener('dblclick', (event) => {
-  const node = nodeAtEvent(event);
-  if (node) {
-    sendNodeAction('openNode', node);
-  }
-});
-
-stage.addEventListener('wheel', (event) => {
-  event.preventDefault();
-  zoomCamera(event.deltaY < 0 ? 1.12 : 0.9);
-}, { passive: false });
-
-search.addEventListener('input', renderSearchResults);
-window.addEventListener('resize', resize);
-new ResizeObserver(resize).observe(stage);
-
-window.addEventListener('error', (event) => {
-  reportDiagnostic(event.message || '3D renderer failed', true);
-});
-
-window.addEventListener('unhandledrejection', (event) => {
-  reportDiagnostic(event.reason?.message || '3D renderer failed', true);
-});
-
-resize();
-
-if (window.__brainBarGraphJSON) {
-  window.brainBarLoadGraph(window.__brainBarGraphJSON, window.__brainBarPendingGraphLens || 'all');
-} else if (!isBrainBarWebKitScheme()) {
-  fetch('./graph.json')
-    .then((response) => {
-      if (!response.ok && response.status !== 0) {
-        throw new Error(`Graph data unavailable (${response.status})`);
-      }
-      return response.json();
-    })
-    .then((payload) => {
-      window.__brainBarGraphJSON = payload;
-      window.brainBarLoadGraph(payload, window.__brainBarPendingGraphLens || 'all');
-    })
-    .catch((error) => {
-      reportDiagnostic(error.message || 'Graph data unavailable', true);
-    });
-} else {
-  updateHud();
+  window.brainBarResetCamera = resetCamera;
+  window.brainBarZoom = zoomCamera;
+  window.brainBarTopView = topView;
+  window.brainBarResetTilt = resetTilt;
+  window.brainBarRendererDiagnostics = () => ({
+    nodes: state.visibleNodes.length,
+    edges: state.visibleEdges.length,
+    lens: state.lens,
+    communities: state.communities.length,
+    cameraPreset: state.cameraPreset,
+    cameraZoom: camera?.zoom ?? 0,
+    drawCalls: renderer?.info?.render?.calls ?? 0,
+    triangles: renderer?.info?.render?.triangles ?? 0,
+    points: renderer?.info?.render?.points ?? 0,
+    lines: renderer?.info?.render?.lines ?? 0,
+    visibleProjectedNodeCount: state.visibleProjectedNodeCount,
+    stageWidth: stage.clientWidth,
+    stageHeight: stage.clientHeight,
+    diagnostic: state.lastDiagnostic
+  });
 }
