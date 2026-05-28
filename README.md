@@ -188,9 +188,9 @@ The visual styling is applied at runtime by BrainBar through WebKit. The origina
 
 ## Focus Window
 
-Use Actions > Graph > Open Focus Window to open a larger resizable graph window. It shares the same configuration and state as the menu bar popover, but gives the graph more room for inspection.
+Use the Focus Window toolbar button to open a larger resizable graph window. It shares the same configuration and state as the menu bar popover, but gives the graph more room for inspection.
 
-The Focus Window also includes an experimental `2D / 3D` view switch. `2D` keeps the standard embedded Graphify view. `3D` opens a BrainBar-owned WebGL renderer with orbit, zoom, reset camera, Source Lens filtering, node inspection, and Open Note support.
+The Focus Window also includes an experimental `2D / 3D Beta` view switch. `2D` keeps the standard embedded Graphify view. `3D Beta` opens a BrainBar-owned Canvas renderer with controlled depth projection, zoom, fit, top view, reset tilt, Source Lens filtering, node inspection, and Open Note support.
 
 The 3D renderer is bundled locally and does not use a CDN. It reads the same local `graph.json` metadata as the 2D Source Lens, and it does not rewrite Graphify output files. See [Experimental 3D Focus Graph](docs/experimental-3d-focus-graph.md) for architecture notes and stability criteria.
 

@@ -10,7 +10,6 @@
     <main id="app">
       <section id="stage" aria-label="3D graph">
         <canvas id="graph-canvas"></canvas>
-        <canvas id="graph-fallback" aria-hidden="true"></canvas>
         <div id="hud" aria-live="polite" hidden></div>
         <div id="overlay" hidden></div>
       </section>
@@ -46,6 +45,6 @@
         showBootError(event.reason?.message || '3D graph failed to load');
       });
     </script>
-    <script type="module" src="./graph3d.js"></script>
+    <script src="./graph3d.js"></script>
   </body>
 </html>

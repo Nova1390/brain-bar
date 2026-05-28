@@ -2,7 +2,7 @@
 
 BrainBar v0.4 explores a custom `3D Beta` graph mode for the Focus Window. The stable product path remains the embedded 2D Graphify graph; the 3D view is a separate experiment for controlled spatial exploration and visual research.
 
-Current status: the 3D renderer is quarantined from the visible Focus Window UI until it can load and stay visible reliably on real vault graphs. The branch keeps the renderer code and technical notes for follow-up work, but the installed app should use the stable 2D graph path by default.
+Current status: the 3D renderer is visible again in the Focus Window as `3D Beta`. The installed app still opens the Focus Window in the stable 2D mode by default, and the popover remains 2D-only.
 
 ## Why Focus Window Only
 
@@ -14,7 +14,7 @@ The 3D graph needs room for camera controls, node inspection, and depth cues. Ke
 
 The 3D mode is a preview surface, not the primary graph view. It should be easy to try, easy to leave, and safe to remove or reshape before a stable release. If the 3D graph is less readable than the 2D graph on a real vault, BrainBar should keep the 2D graph as the default experience.
 
-At this stage the 3D toggle should remain hidden from the production Focus Window. Re-enabling it requires a focused renderer fix and visual QA pass.
+At this stage the 3D toggle can remain visible only if the renderer loads a complete graph, keeps it visible after resizing, and preserves the stable 2D path.
 
 Experimental mode must:
 
@@ -34,7 +34,6 @@ The renderer uses local bundled assets:
 - `Graph3D/index.html`
 - `Graph3D/graph3d.css`
 - `Graph3D/graph3d.js`
-- vendored Three.js runtime files
 
 No CDN or runtime network access is required.
 
@@ -55,15 +54,15 @@ The 3D renderer reads nodes and edges from the injected `graph.json` payload. It
 
 ## Layout And Rendering
 
-The 3D view is custom BrainBar behavior on top of Three.js:
+The 3D view is custom BrainBar behavior rendered through a local Canvas renderer with controlled 2.5D projection:
 
 - communities become spatial clusters;
 - node positions are deterministic for stable reloads;
 - depth is controlled and deterministic rather than random;
-- edges use lightweight WebGL line geometry;
+- edges use lightweight canvas line drawing;
 - nodes are rendered as compact colored points;
-- the default camera is a readable top-down view;
-- camera tilt is constrained so the graph cannot become an edge-on stripe field;
+- the default camera fits the full graph;
+- tilt is preset-driven, not free-orbit, so the graph cannot become an edge-on stripe field;
 - camera controls support zoom, fit, top view, and reset tilt;
 - a small HUD reports node count, edge count, current lens, camera preset, and renderer diagnostics;
 - styling follows BrainBar's dark native-premium visual direction.
@@ -103,7 +102,7 @@ When the 3D experiment is enabled, the Focus Window should expose graph navigati
 
 The stable 2D view should not depend on the 3D viewport command model. The 2D graph should stay as close as possible to the proven embedded Graphify viewer while the 3D view remains experimental.
 
-The 3D camera is intentionally controlled rather than a free orbit. Left-drag pans, scroll/pinch zooms, and right-drag allows only a limited tilt. This is a product constraint, not a renderer limitation: readable graph inspection matters more than unrestricted 3D movement.
+The 3D camera is intentionally controlled rather than a free orbit. Drag pans, scroll/pinch zooms, and the native toolbar exposes fit, top view, and reset tilt. This is a product constraint, not a renderer limitation: readable graph inspection matters more than unrestricted 3D movement.
 
 ## Promotion Criteria
 

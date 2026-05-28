@@ -1,9 +1,5 @@
-import * as THREE from './vendor/three.module.min.js';
-import { OrbitControls } from './vendor/OrbitControls.js';
-
 const canvas = document.getElementById('graph-canvas');
-const fallbackCanvas = document.getElementById('graph-fallback');
-const fallbackContext = fallbackCanvas?.getContext('2d') ?? null;
+const context = canvas.getContext('2d', { alpha: true });
 const stage = document.getElementById('stage');
 const overlay = document.getElementById('overlay');
 const search = document.getElementById('search');
@@ -12,12 +8,6 @@ const nodeInfo = document.getElementById('node-info');
 const legend = document.getElementById('legend');
 const stats = document.getElementById('stats');
 const hud = document.getElementById('hud');
-
-const TOP_POLAR_ANGLE = Math.PI / 2;
-const MAX_TILT = 0.42;
-const CAMERA_DISTANCE = 980;
-const EDGE_TARGET_DISTANCE = 38;
-const MAX_DEPTH = 72;
 
 const palette = [
   '#5b8cc5', '#ff9f2d', '#ef5f61', '#7bc8c1', '#5fb156', '#f2d34b',
@@ -33,103 +23,26 @@ const state = {
   visibleNodes: [],
   visibleEdges: [],
   positions: new Map(),
-  desiredDepths: new Map(),
+  projected: new Map(),
   selectedNode: null,
-  hoveredIndex: null,
+  hoveredNode: null,
   animationFrame: null,
-  fitFrame: null,
-  resizeFrame: null,
-  cameraPreset: 'Top view',
+  pixelRatio: 1,
+  width: 1,
+  height: 1,
   lastDiagnostic: '',
-  fallbackWidth: 1,
-  fallbackHeight: 1,
-  fallbackPixelRatio: 1
+  cameraPreset: 'Fit',
+  camera: {
+    yaw: -0.54,
+    tilt: 0.58,
+    zoom: 1,
+    offsetX: 0,
+    offsetY: 0,
+    panX: 0,
+    panY: 0
+  },
+  drag: null
 };
-
-const scene = new THREE.Scene();
-scene.fog = new THREE.FogExp2(0x060912, 0.0009);
-
-const cameraFrustum = 900;
-const camera = new THREE.OrthographicCamera(
-  -cameraFrustum / 2,
-  cameraFrustum / 2,
-  cameraFrustum / 2,
-  -cameraFrustum / 2,
-  0.1,
-  5000
-);
-camera.position.set(0, 0, 980);
-
-const renderer = new THREE.WebGLRenderer({
-  canvas,
-  antialias: true,
-  alpha: false,
-  powerPreference: 'high-performance'
-});
-renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-renderer.setClearColor(0x060912, 1);
-
-const controls = new OrbitControls(camera, renderer.domElement);
-controls.enableDamping = false;
-controls.enableRotate = false;
-controls.rotateSpeed = 0.65;
-controls.zoomSpeed = 0.72;
-controls.panSpeed = 0.55;
-controls.minZoom = 0.08;
-controls.maxZoom = 5.2;
-controls.minPolarAngle = TOP_POLAR_ANGLE - MAX_TILT;
-controls.maxPolarAngle = TOP_POLAR_ANGLE + MAX_TILT;
-controls.screenSpacePanning = true;
-controls.mouseButtons = {
-  LEFT: THREE.MOUSE.PAN,
-  MIDDLE: THREE.MOUSE.DOLLY,
-  RIGHT: THREE.MOUSE.PAN
-};
-controls.touches = {
-  ONE: THREE.TOUCH.PAN,
-  TWO: THREE.TOUCH.DOLLY_PAN
-};
-controls.addEventListener('start', () => {
-  state.cameraPreset = 'Manual';
-  updateHud();
-});
-
-const raycaster = new THREE.Raycaster();
-raycaster.params.Points.threshold = 14;
-const pointer = new THREE.Vector2();
-
-let nodesMesh = null;
-let edgesMesh = null;
-let selectedMesh = null;
-const nodeTexture = createNodeTexture();
-
-function reportDiagnostic(message, showsOverlay = false) {
-  const text = String(message || '3D renderer failed');
-  state.lastDiagnostic = text;
-  updateHud();
-
-  if (showsOverlay) {
-    showOverlay(text);
-  }
-
-  if (window.webkit?.messageHandlers?.brainBarGraphDiagnostic) {
-    window.webkit.messageHandlers.brainBarGraphDiagnostic.postMessage({
-      message: text,
-      lens: state.lens,
-      nodes: state.visibleNodes.length,
-      edges: state.visibleEdges.length,
-      cameraPreset: state.cameraPreset
-    });
-  }
-}
-
-window.addEventListener('error', (event) => {
-  reportDiagnostic(event.message || '3D renderer failed', true);
-});
-
-window.addEventListener('unhandledrejection', (event) => {
-  reportDiagnostic(event.reason?.message || '3D renderer failed', true);
-});
 
 function normalizeGraph(payload) {
   if (!payload) {
@@ -140,11 +53,12 @@ function normalizeGraph(payload) {
   const rawEdges = Array.isArray(payload.links) ? payload.links : (Array.isArray(payload.edges) ? payload.edges : []);
   const nodes = rawNodes.map((node, index) => {
     const id = String(node.id ?? node.label ?? node.name ?? index);
+    const community = node.community_name ?? node.community ?? node.group ?? node.cluster ?? 'Community 0';
     return {
       ...node,
       id,
       label: String(node.label ?? node.name ?? id),
-      community: String(node.community ?? node.group ?? node.cluster ?? 'Community 0'),
+      community: String(community).startsWith('Community') ? String(community) : `Community ${community}`,
       sourceFile: node.source_file ?? node._source_file ?? node.sourceFile ?? ''
     };
   });
@@ -172,7 +86,18 @@ function endpointId(value) {
   return String(value ?? '');
 }
 
-function applyLens() {
+function prepareCommunities(graph) {
+  const counts = new Map();
+  graph.nodes.forEach((node) => {
+    counts.set(node.community, (counts.get(node.community) ?? 0) + 1);
+  });
+  state.communities = Array.from(counts.entries())
+    .map(([name, count], index) => ({ name, count, color: palette[index % palette.length], index }))
+    .sort((left, right) => right.count - left.count || left.name.localeCompare(right.name));
+  state.communityEnabled = new Set(state.communities.map((community) => community.name));
+}
+
+function applyLens(fit = true) {
   try {
     const graph = state.graph ?? { nodes: [], edges: [] };
     let lensEdges = graph.edges;
@@ -192,112 +117,36 @@ function applyLens() {
       ? graph.nodes
       : graph.nodes.filter((node) => connectedIds.has(node.id));
 
-    const enabledCommunities = state.communityEnabled;
-    state.visibleNodes = lensNodes.filter((node) => enabledCommunities.has(node.community));
+    state.visibleNodes = lensNodes.filter((node) => state.communityEnabled.has(node.community));
     const visibleIds = new Set(state.visibleNodes.map((node) => node.id));
     state.visibleEdges = lensEdges.filter((edge) => visibleIds.has(edge.source) && visibleIds.has(edge.target));
 
-    renderGraph();
+    calculateLayout();
+    if (fit) {
+      fitCameraToGraph('Fit');
+    }
     renderSidebar();
     updateOverlay();
     state.lastDiagnostic = '';
     updateHud();
+    requestDraw();
   } catch (error) {
     reportDiagnostic(error.message || '3D graph render failed', true);
   }
 }
 
 function isObsidianEdge(edge) {
-  return edge.context === 'obsidian_wikilink' || edge.relation === 'obsidian_wikilink';
-}
-
-function prepareCommunities(graph) {
-  const counts = new Map();
-  graph.nodes.forEach((node) => {
-    counts.set(node.community, (counts.get(node.community) ?? 0) + 1);
-  });
-  state.communities = Array.from(counts.entries())
-    .map(([name, count], index) => ({ name, count, color: palette[index % palette.length], index }))
-    .sort((left, right) => right.count - left.count || left.name.localeCompare(right.name));
-  state.communityEnabled = new Set(state.communities.map((community) => community.name));
-}
-
-function renderGraph() {
-  disposeObject(nodesMesh);
-  disposeObject(edgesMesh);
-  disposeObject(selectedMesh);
-  nodesMesh = null;
-  edgesMesh = null;
-  selectedMesh = null;
-
-  calculateLayout();
-
-  const nodePositions = new Float32Array(state.visibleNodes.length * 3);
-  const nodeColors = new Float32Array(state.visibleNodes.length * 3);
-  state.visibleNodes.forEach((node, index) => {
-    const position = state.positions.get(node.id) ?? new THREE.Vector3();
-    nodePositions[index * 3] = position.x;
-    nodePositions[index * 3 + 1] = position.y;
-    nodePositions[index * 3 + 2] = position.z;
-    const color = new THREE.Color(colorForCommunity(node.community));
-    nodeColors[index * 3] = color.r;
-    nodeColors[index * 3 + 1] = color.g;
-    nodeColors[index * 3 + 2] = color.b;
-  });
-
-  const nodeGeometry = new THREE.BufferGeometry();
-  nodeGeometry.setAttribute('position', new THREE.BufferAttribute(nodePositions, 3));
-  nodeGeometry.setAttribute('color', new THREE.BufferAttribute(nodeColors, 3));
-  const nodeMaterial = new THREE.PointsMaterial({
-    size: 7.2,
-    sizeAttenuation: false,
-    map: nodeTexture,
-    alphaTest: 0.08,
-    vertexColors: true,
-    transparent: true,
-    opacity: 0.96,
-    depthTest: false,
-    depthWrite: false
-  });
-  nodesMesh = new THREE.Points(nodeGeometry, nodeMaterial);
-  nodesMesh.renderOrder = 2;
-  scene.add(nodesMesh);
-
-  const edgePositions = new Float32Array(state.visibleEdges.length * 6);
-  state.visibleEdges.forEach((edge, index) => {
-    const source = state.positions.get(edge.source) ?? new THREE.Vector3();
-    const target = state.positions.get(edge.target) ?? new THREE.Vector3();
-    edgePositions[index * 6] = source.x;
-    edgePositions[index * 6 + 1] = source.y;
-    edgePositions[index * 6 + 2] = source.z;
-    edgePositions[index * 6 + 3] = target.x;
-    edgePositions[index * 6 + 4] = target.y;
-    edgePositions[index * 6 + 5] = target.z;
-  });
-  const edgeGeometry = new THREE.BufferGeometry();
-  edgeGeometry.setAttribute('position', new THREE.BufferAttribute(edgePositions, 3));
-  const edgeMaterial = new THREE.LineBasicMaterial({
-    color: 0x8c9ec8,
-    transparent: true,
-    opacity: 0.16,
-    depthTest: false,
-    depthWrite: false
-  });
-  edgesMesh = new THREE.LineSegments(edgeGeometry, edgeMaterial);
-  edgesMesh.renderOrder = 1;
-  scene.add(edgesMesh);
-
-  updateSelectedMarker();
-  scheduleFitCamera('Fit');
-  updateHud();
+  const values = [edge.context, edge.relation, edge.label, edge.title]
+    .filter(Boolean)
+    .map((value) => String(value).toLowerCase());
+  return values.some((value) => value === 'obsidian_wikilink' || value.includes('obsidian_wikilink'));
 }
 
 function calculateLayout() {
   state.positions = new Map();
-  state.desiredDepths = new Map();
-  const communityMap = new Map(state.communities.map((community, index) => [community.name, index]));
+  const communityIndex = new Map(state.communities.map((community, index) => [community.name, index]));
   const communityCount = Math.max(state.communities.length, 1);
-  const clusterRadius = Math.min(480, 120 + Math.sqrt(communityCount) * 58);
+  const clusterRadius = Math.min(640, 150 + Math.sqrt(communityCount) * 70);
   const nodesByCommunity = new Map();
   const degreeMap = buildDegreeMap(state.visibleEdges);
 
@@ -308,65 +157,23 @@ function calculateLayout() {
   });
 
   nodesByCommunity.forEach((nodes, communityName) => {
-    const communityIndex = communityMap.get(communityName) ?? 0;
-    const center = pointOnDisc(communityIndex, communityCount).multiplyScalar(clusterRadius);
-    const localRadius = Math.max(22, Math.min(96, Math.sqrt(nodes.length) * 7.5));
-    nodes.forEach((node, index) => {
+    const index = communityIndex.get(communityName) ?? 0;
+    const center = pointOnDisc(index, communityCount, clusterRadius);
+    const localRadius = Math.max(26, Math.min(132, Math.sqrt(nodes.length) * 9));
+    nodes.forEach((node, localIndex) => {
       const seed = hashString(node.id);
-      const angle = index * 2.399963 + (seed % 100) * 0.01;
-      const distance = localRadius * Math.sqrt((index + 0.5) / Math.max(nodes.length, 1));
-      const z = depthForNode(node, communityIndex, index, degreeMap);
-      state.desiredDepths.set(node.id, z);
-      state.positions.set(node.id, new THREE.Vector3(
-        center.x + Math.cos(angle) * distance,
-        center.y + Math.sin(angle) * distance,
+      const angle = localIndex * 2.399963 + (seed % 100) * 0.01;
+      const distance = localRadius * Math.sqrt((localIndex + 0.5) / Math.max(nodes.length, 1));
+      const z = depthForNode(node, index, localIndex, degreeMap);
+      state.positions.set(node.id, {
+        x: center.x + Math.cos(angle) * distance,
+        y: center.y + Math.sin(angle) * distance,
         z
-      ));
+      });
     });
   });
 
-  relaxLayout(nodesByCommunity, communityMap, clusterRadius);
-}
-
-function relaxLayout(nodesByCommunity, communityMap, clusterRadius) {
-  const visibleIds = new Set(state.visibleNodes.map((node) => node.id));
-  const edgeIterations = Math.min(48, Math.max(18, state.visibleEdges.length / 22));
-
-  for (let iteration = 0; iteration < edgeIterations; iteration += 1) {
-    state.visibleEdges.forEach((edge) => {
-      if (!visibleIds.has(edge.source) || !visibleIds.has(edge.target)) {
-        return;
-      }
-      const source = state.positions.get(edge.source);
-      const target = state.positions.get(edge.target);
-      const deltaX = target.x - source.x;
-      const deltaY = target.y - source.y;
-      const length = Math.max(Math.hypot(deltaX, deltaY), 0.001);
-      const force = (length - EDGE_TARGET_DISTANCE) * 0.0048;
-      const offsetX = (deltaX / length) * force;
-      const offsetY = (deltaY / length) * force;
-      source.x += offsetX;
-      source.y += offsetY;
-      target.x -= offsetX;
-      target.y -= offsetY;
-    });
-
-    if (iteration % 4 === 0) {
-      separateLocalNodes(nodesByCommunity);
-    }
-
-    nodesByCommunity.forEach((nodes, communityName) => {
-      const communityIndex = communityMap.get(communityName) ?? 0;
-      const center = pointOnDisc(communityIndex, Math.max(state.communities.length, 1)).multiplyScalar(clusterRadius);
-      nodes.forEach((node) => {
-        const position = state.positions.get(node.id);
-        position.x += (center.x - position.x) * 0.004;
-        position.y += (center.y - position.y) * 0.004;
-        const desiredDepth = state.desiredDepths.get(node.id) ?? 0;
-        position.z = THREE.MathUtils.lerp(position.z, desiredDepth, 0.08);
-      });
-    });
-  }
+  relaxLayout(nodesByCommunity);
 }
 
 function buildDegreeMap(edges) {
@@ -381,50 +188,249 @@ function buildDegreeMap(edges) {
 function depthForNode(node, communityIndex, localIndex, degreeMap) {
   const seed = hashString(`${node.id}:${node.community}`);
   const degree = degreeMap.get(node.id) ?? 0;
-  const hubLift = Math.min(34, Math.log1p(degree) * 8);
-  const communityBand = ((communityIndex % 9) - 4) * 5;
-  const localWave = Math.sin((localIndex + 1) * 1.618 + (seed % 97)) * 8;
-  return THREE.MathUtils.clamp(communityBand + hubLift + localWave, -MAX_DEPTH, MAX_DEPTH);
+  const hubLift = Math.min(54, Math.log1p(degree) * 11);
+  const communityBand = ((communityIndex % 11) - 5) * 8;
+  const localWave = Math.sin((localIndex + 1) * 1.618 + (seed % 97)) * 15;
+  return clamp(communityBand + hubLift + localWave, -110, 130);
+}
+
+function relaxLayout(nodesByCommunity) {
+  const visibleIds = new Set(state.visibleNodes.map((node) => node.id));
+  const iterations = Math.min(36, Math.max(14, Math.floor(state.visibleEdges.length / 38)));
+  for (let iteration = 0; iteration < iterations; iteration += 1) {
+    state.visibleEdges.forEach((edge) => {
+      if (!visibleIds.has(edge.source) || !visibleIds.has(edge.target)) {
+        return;
+      }
+      const source = state.positions.get(edge.source);
+      const target = state.positions.get(edge.target);
+      const dx = target.x - source.x;
+      const dy = target.y - source.y;
+      const length = Math.max(Math.hypot(dx, dy), 0.001);
+      const force = (length - 52) * 0.0036;
+      const ox = (dx / length) * force;
+      const oy = (dy / length) * force;
+      source.x += ox;
+      source.y += oy;
+      target.x -= ox;
+      target.y -= oy;
+    });
+
+    if (iteration % 5 === 0) {
+      separateLocalNodes(nodesByCommunity);
+    }
+  }
 }
 
 function separateLocalNodes(nodesByCommunity) {
-  const minDistance = 8.5;
+  const minDistance = 9.5;
   nodesByCommunity.forEach((nodes) => {
     for (let leftIndex = 0; leftIndex < nodes.length; leftIndex += 1) {
       const left = state.positions.get(nodes[leftIndex].id);
       for (let rightIndex = leftIndex + 1; rightIndex < nodes.length; rightIndex += 1) {
         const right = state.positions.get(nodes[rightIndex].id);
-        const deltaX = right.x - left.x;
-        const deltaY = right.y - left.y;
-        const distance = Math.max(Math.hypot(deltaX, deltaY), 0.001);
+        const dx = right.x - left.x;
+        const dy = right.y - left.y;
+        const distance = Math.max(Math.hypot(dx, dy), 0.001);
         if (distance >= minDistance) {
           continue;
         }
-        const push = (minDistance - distance) * 0.28;
-        const offsetX = (deltaX / distance) * push;
-        const offsetY = (deltaY / distance) * push;
-        left.x -= offsetX;
-        left.y -= offsetY;
-        right.x += offsetX;
-        right.y += offsetY;
+        const push = (minDistance - distance) * 0.3;
+        const ox = dx === 0 && dy === 0 ? push : (dx / distance) * push;
+        const oy = dx === 0 && dy === 0 ? 0 : (dy / distance) * push;
+        left.x -= ox;
+        left.y -= oy;
+        right.x += ox;
+        right.y += oy;
       }
     }
   });
 }
 
-function pointOnDisc(index, count) {
+function pointOnDisc(index, count, radius) {
   if (count <= 1) {
-    return new THREE.Vector3(0, 0, 0);
+    return { x: 0, y: 0 };
   }
   const goldenAngle = Math.PI * (3 - Math.sqrt(5));
-  const radius = Math.sqrt((index + 0.5) / count);
+  const localRadius = Math.sqrt((index + 0.5) / count) * radius;
   const angle = index * goldenAngle;
-  return new THREE.Vector3(Math.cos(angle) * radius, Math.sin(angle) * radius, 0);
+  return {
+    x: Math.cos(angle) * localRadius,
+    y: Math.sin(angle) * localRadius
+  };
 }
 
-function colorForCommunity(name) {
-  const community = state.communities.find((item) => item.name === name);
-  return community?.color ?? palette[0];
+function projectPoint(position) {
+  const raw = projectRawPoint(position);
+  return {
+    x: state.width / 2 + (raw.x - state.camera.offsetX) * state.camera.zoom + state.camera.panX,
+    y: state.height / 2 + (raw.y - state.camera.offsetY) * state.camera.zoom + state.camera.panY,
+    depth: raw.depth
+  };
+}
+
+function projectRawPoint(position) {
+  const { yaw, tilt } = state.camera;
+  const cosYaw = Math.cos(yaw);
+  const sinYaw = Math.sin(yaw);
+  const cosTilt = Math.cos(tilt);
+  const sinTilt = Math.sin(tilt);
+  const rx = position.x * cosYaw - position.y * sinYaw;
+  const ry = position.x * sinYaw + position.y * cosYaw;
+  const px = rx;
+  const py = ry * cosTilt - position.z * sinTilt;
+  const depth = ry * sinTilt + position.z * cosTilt;
+  return {
+    x: px,
+    y: py,
+    depth
+  };
+}
+
+function updateProjectionCache() {
+  state.projected = new Map();
+  state.visibleNodes.forEach((node) => {
+    const position = state.positions.get(node.id);
+    if (position) {
+      state.projected.set(node.id, { ...projectPoint(position), node });
+    }
+  });
+}
+
+function projectedBounds() {
+  const points = [];
+  state.positions.forEach((position) => {
+    points.push(projectRawPoint(position));
+  });
+  if (!points.length) {
+    return null;
+  }
+  return points.reduce((bounds, point) => ({
+    minX: Math.min(bounds.minX, point.x),
+    minY: Math.min(bounds.minY, point.y),
+    maxX: Math.max(bounds.maxX, point.x),
+    maxY: Math.max(bounds.maxY, point.y)
+  }), { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity });
+}
+
+function fitCameraToGraph(preset = 'Fit') {
+  state.camera.panX = 0;
+  state.camera.panY = 0;
+  state.camera.offsetX = 0;
+  state.camera.offsetY = 0;
+  state.camera.zoom = 1;
+  const bounds = projectedBounds();
+  if (!bounds) {
+    state.camera.zoom = 1;
+    state.cameraPreset = preset;
+    requestDraw();
+    return;
+  }
+
+  const graphWidth = Math.max(bounds.maxX - bounds.minX, 120);
+  const graphHeight = Math.max(bounds.maxY - bounds.minY, 120);
+  const zoomX = state.width / (graphWidth * 1.16);
+  const zoomY = state.height / (graphHeight * 1.16);
+  state.camera.offsetX = (bounds.minX + bounds.maxX) / 2;
+  state.camera.offsetY = (bounds.minY + bounds.maxY) / 2;
+  state.camera.zoom = clamp(Math.min(zoomX, zoomY), 0.08, 2.8);
+  state.cameraPreset = preset;
+  updateHud();
+  requestDraw();
+}
+
+function drawGraph() {
+  context.clearRect(0, 0, state.width, state.height);
+  if (!state.visibleNodes.length || !state.positions.size) {
+    return;
+  }
+
+  updateProjectionCache();
+
+  context.save();
+  context.lineCap = 'round';
+  context.lineJoin = 'round';
+
+  state.visibleEdges.forEach((edge) => {
+    const source = state.projected.get(edge.source);
+    const target = state.projected.get(edge.target);
+    if (!source || !target) {
+      return;
+    }
+    const alpha = 0.12 + clamp((source.depth + target.depth) / 900, -0.04, 0.08);
+    context.beginPath();
+    context.moveTo(source.x, source.y);
+    context.lineTo(target.x, target.y);
+    context.strokeStyle = `rgba(145, 162, 207, ${alpha})`;
+    context.lineWidth = 0.75;
+    context.stroke();
+  });
+
+  Array.from(state.projected.values())
+    .sort((left, right) => left.depth - right.depth)
+    .forEach((item) => {
+      const color = colorForCommunity(item.node.community);
+      const radius = clamp(2.5 + item.depth / 150, 1.9, 5.4);
+      const haloRadius = radius * 2.7;
+      const gradient = context.createRadialGradient(item.x, item.y, 0, item.x, item.y, haloRadius);
+      gradient.addColorStop(0, color);
+      gradient.addColorStop(0.58, colorWithAlpha(color, 0.7));
+      gradient.addColorStop(1, colorWithAlpha(color, 0));
+      context.fillStyle = gradient;
+      context.globalAlpha = 0.95;
+      context.beginPath();
+      context.arc(item.x, item.y, haloRadius, 0, Math.PI * 2);
+      context.fill();
+      context.fillStyle = color;
+      context.globalAlpha = 0.98;
+      context.beginPath();
+      context.arc(item.x, item.y, radius, 0, Math.PI * 2);
+      context.fill();
+    });
+
+  if (state.selectedNode) {
+    const selected = state.projected.get(state.selectedNode.id);
+    if (selected) {
+      context.globalAlpha = 1;
+      context.beginPath();
+      context.arc(selected.x, selected.y, 10, 0, Math.PI * 2);
+      context.strokeStyle = 'rgba(244, 246, 255, 0.9)';
+      context.lineWidth = 2;
+      context.stroke();
+    }
+  }
+
+  context.restore();
+}
+
+function requestDraw() {
+  if (state.animationFrame) {
+    return;
+  }
+  state.animationFrame = requestAnimationFrame(() => {
+    state.animationFrame = null;
+    drawGraph();
+  });
+}
+
+function resize() {
+  const rect = stage.getBoundingClientRect();
+  const width = Math.max(Math.floor(rect.width), 1);
+  const height = Math.max(Math.floor(rect.height), 1);
+  const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+  state.width = width;
+  state.height = height;
+  state.pixelRatio = pixelRatio;
+  canvas.width = Math.max(Math.floor(width * pixelRatio), 1);
+  canvas.height = Math.max(Math.floor(height * pixelRatio), 1);
+  canvas.style.width = `${width}px`;
+  canvas.style.height = `${height}px`;
+  context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+  if (state.graph) {
+    fitCameraToGraph(state.cameraPreset || 'Fit');
+  } else {
+    requestDraw();
+  }
 }
 
 function renderSidebar() {
@@ -447,7 +453,7 @@ function renderNodeInfo(node) {
   nodeInfo.innerHTML = `
     <h3>${escapeHTML(node.label)}</h3>
     ${sourceButton}
-    <p><strong>Type:</strong> ${escapeHTML(node.type ?? 'document')}</p>
+    <p><strong>Type:</strong> ${escapeHTML(node.type ?? node.file_type ?? 'document')}</p>
     <p><strong>Community:</strong> ${escapeHTML(node.community)}</p>
     ${source ? `<p><strong>Source:</strong> ${escapeHTML(source)}</p>` : ''}
     <p><strong>Degree:</strong> ${degreeForNode(node.id)}</p>
@@ -475,7 +481,7 @@ function renderLegend() {
       } else {
         state.communityEnabled.delete(community.name);
       }
-      applyLens();
+      applyLens(false);
     });
     legend.appendChild(row);
   });
@@ -504,46 +510,6 @@ function renderSearchResults() {
     });
 }
 
-function degreeForNode(nodeId) {
-  return state.visibleEdges.filter((edge) => edge.source === nodeId || edge.target === nodeId).length;
-}
-
-function selectNode(node, focusCamera = false) {
-  state.selectedNode = node;
-  renderNodeInfo(node);
-  updateSelectedMarker();
-  if (focusCamera) {
-    focusNode(node);
-  }
-}
-
-function updateSelectedMarker() {
-  disposeObject(selectedMesh);
-  selectedMesh = null;
-  if (!state.selectedNode || !state.positions.has(state.selectedNode.id)) {
-    return;
-  }
-  const color = new THREE.Color(colorForCommunity(state.selectedNode.community));
-  const marker = new THREE.Mesh(
-    new THREE.SphereGeometry(10, 24, 16),
-    new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.96, depthTest: false, depthWrite: false })
-  );
-  marker.position.copy(state.positions.get(state.selectedNode.id));
-  selectedMesh = marker;
-  selectedMesh.renderOrder = 3;
-  scene.add(selectedMesh);
-}
-
-function focusNode(node) {
-  const position = state.positions.get(node.id);
-  if (!position) {
-    return;
-  }
-  placeCameraTopDown(position, Math.min(controls.maxZoom, Math.max(camera.zoom, 1.75)));
-  state.cameraPreset = 'Node focus';
-  updateHud();
-}
-
 function updateOverlay() {
   if (!state.graph || state.graph.nodes.length === 0) {
     showOverlay('Graph data unavailable');
@@ -563,127 +529,6 @@ function showOverlay(message) {
   overlay.hidden = false;
 }
 
-function resetCamera() {
-  fitCameraToGraph(true, 'Fit');
-}
-
-function zoomCamera(multiplier) {
-  placeCameraTopDown(controls.target.clone(), camera.zoom * multiplier);
-  state.cameraPreset = multiplier > 1 ? 'Zoom in' : 'Zoom out';
-  updateHud();
-}
-
-function topView() {
-  fitCameraToGraph(true, 'Top view');
-}
-
-function resetTilt() {
-  const target = controls.target.clone();
-  placeCameraTopDown(target, camera.zoom);
-  state.cameraPreset = 'Reset tilt';
-  updateHud();
-}
-
-function resize() {
-  const rect = stage.getBoundingClientRect();
-  const width = Math.max(rect.width, 1);
-  const height = Math.max(rect.height, 1);
-  renderer.setSize(width, height, false);
-  resizeFallbackCanvas(width, height);
-  const aspect = width / height;
-  camera.left = (-cameraFrustum * aspect) / 2;
-  camera.right = (cameraFrustum * aspect) / 2;
-  camera.top = cameraFrustum / 2;
-  camera.bottom = -cameraFrustum / 2;
-  camera.updateProjectionMatrix();
-  if (state.graph && state.positions.size > 0) {
-    scheduleFitCamera('Fit');
-  }
-}
-
-function resizeFallbackCanvas(width, height) {
-  if (!fallbackCanvas || !fallbackContext) {
-    return;
-  }
-
-  const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
-  state.fallbackWidth = width;
-  state.fallbackHeight = height;
-  state.fallbackPixelRatio = pixelRatio;
-  fallbackCanvas.width = Math.max(Math.floor(width * pixelRatio), 1);
-  fallbackCanvas.height = Math.max(Math.floor(height * pixelRatio), 1);
-  fallbackCanvas.style.width = `${width}px`;
-  fallbackCanvas.style.height = `${height}px`;
-  fallbackContext.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
-}
-
-function scheduleResize() {
-  if (state.resizeFrame) {
-    cancelAnimationFrame(state.resizeFrame);
-  }
-  state.resizeFrame = requestAnimationFrame(() => {
-    state.resizeFrame = null;
-    resize();
-  });
-}
-
-function scheduleFitCamera(preset = 'Fit') {
-  if (state.fitFrame) {
-    cancelAnimationFrame(state.fitFrame);
-  }
-  state.fitFrame = requestAnimationFrame(() => {
-    state.fitFrame = requestAnimationFrame(() => {
-      state.fitFrame = null;
-      fitCameraToGraph(true, preset);
-    });
-  });
-}
-
-function fitCameraToGraph(force = false, preset = 'Fit') {
-  if (!force && state.__cameraFitted) {
-    return;
-  }
-
-  if (state.positions.size === 0) {
-    placeCameraTopDown(new THREE.Vector3(0, 0, 0), 1);
-    state.cameraPreset = preset;
-    state.__cameraFitted = true;
-    updateHud();
-    return;
-  }
-
-  const box = new THREE.Box3();
-  state.positions.forEach((position) => box.expandByPoint(position));
-  const center = new THREE.Vector3();
-  const size = new THREE.Vector3();
-  box.getCenter(center);
-  box.getSize(size);
-
-  const rect = stage.getBoundingClientRect();
-  const viewWidth = Math.max(rect.width, 1);
-  const viewHeight = Math.max(rect.height, 1);
-  const graphWidth = Math.max(size.x, 120);
-  const graphHeight = Math.max(size.y, 120);
-  const zoomX = (cameraFrustum * (viewWidth / viewHeight)) / (graphWidth * 1.18);
-  const zoomY = cameraFrustum / (graphHeight * 1.18);
-
-  placeCameraTopDown(center, THREE.MathUtils.clamp(Math.min(zoomX, zoomY), controls.minZoom, 1.7));
-  state.cameraPreset = preset;
-  state.__cameraFitted = true;
-  updateHud();
-}
-
-function placeCameraTopDown(center, zoom) {
-  controls.target.copy(center);
-  controls.minZoom = 0.08;
-  camera.position.set(center.x, center.y, center.z + CAMERA_DISTANCE);
-  camera.up.set(0, 1, 0);
-  camera.lookAt(center);
-  camera.zoom = THREE.MathUtils.clamp(zoom, controls.minZoom, controls.maxZoom);
-  camera.updateProjectionMatrix();
-  controls.update();
-}
-
 function updateHud() {
   if (!hud) {
     return;
@@ -692,7 +537,6 @@ function updateHud() {
     hud.hidden = true;
     return;
   }
-
   const lensLabel = state.lens === 'all'
     ? 'All'
     : (state.lens === 'graphify' ? 'Graphify' : 'Obsidian');
@@ -701,23 +545,103 @@ function updateHud() {
   hud.hidden = false;
 }
 
-function pointerForEvent(event) {
-  const rect = canvas.getBoundingClientRect();
-  pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-  pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+function selectNode(node, focusCamera = false) {
+  state.selectedNode = node;
+  renderNodeInfo(node);
+  if (focusCamera) {
+    focusNode(node);
+  }
+  requestDraw();
+}
+
+function focusNode(node) {
+  const point = state.projected.get(node.id);
+  if (!point) {
+    return;
+  }
+  state.camera.panX += state.width / 2 - point.x;
+  state.camera.panY += state.height / 2 - point.y;
+  state.camera.zoom = clamp(Math.max(state.camera.zoom, 1.5), 0.08, 5);
+  state.cameraPreset = 'Node focus';
+  updateHud();
+  requestDraw();
 }
 
 function nodeAtEvent(event) {
-  if (!nodesMesh) {
-    return null;
+  const rect = canvas.getBoundingClientRect();
+  const x = event.clientX - rect.left;
+  const y = event.clientY - rect.top;
+  updateProjectionCache();
+  let best = null;
+  let bestDistance = Infinity;
+  state.projected.forEach((item) => {
+    const radius = clamp(8 + item.depth / 120, 6, 16);
+    const distance = Math.hypot(item.x - x, item.y - y);
+    if (distance < radius && distance < bestDistance) {
+      best = item.node;
+      bestDistance = distance;
+    }
+  });
+  return best;
+}
+
+function resetCamera() {
+  fitCameraToGraph('Fit');
+}
+
+function zoomCamera(multiplier) {
+  state.camera.zoom = clamp(state.camera.zoom * multiplier, 0.08, 5);
+  state.cameraPreset = multiplier > 1 ? 'Zoom in' : 'Zoom out';
+  updateHud();
+  requestDraw();
+}
+
+function topView() {
+  state.camera.yaw = 0;
+  state.camera.tilt = 0;
+  fitCameraToGraph('Top view');
+}
+
+function resetTilt() {
+  state.camera.yaw = -0.54;
+  state.camera.tilt = 0.58;
+  fitCameraToGraph('Reset tilt');
+}
+
+function degreeForNode(nodeId) {
+  return state.visibleEdges.filter((edge) => edge.source === nodeId || edge.target === nodeId).length;
+}
+
+function colorForCommunity(name) {
+  const community = state.communities.find((item) => item.name === name);
+  return community?.color ?? palette[0];
+}
+
+function colorWithAlpha(hex, alpha) {
+  const color = hex.replace('#', '');
+  const value = parseInt(color, 16);
+  const r = (value >> 16) & 255;
+  const g = (value >> 8) & 255;
+  const b = value & 255;
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+function reportDiagnostic(message, showsOverlay = false) {
+  const text = String(message || '3D renderer failed');
+  state.lastDiagnostic = text;
+  updateHud();
+  if (showsOverlay) {
+    showOverlay(text);
   }
-  pointerForEvent(event);
-  raycaster.setFromCamera(pointer, camera);
-  const intersections = raycaster.intersectObject(nodesMesh);
-  if (!intersections.length) {
-    return null;
+  if (window.webkit?.messageHandlers?.brainBarGraphDiagnostic) {
+    window.webkit.messageHandlers.brainBarGraphDiagnostic.postMessage({
+      message: text,
+      lens: state.lens,
+      nodes: state.visibleNodes.length,
+      edges: state.visibleEdges.length,
+      cameraPreset: state.cameraPreset
+    });
   }
-  return state.visibleNodes[intersections[0].index] ?? null;
 }
 
 function sendNodeAction(action, node) {
@@ -732,115 +656,8 @@ function sendNodeAction(action, node) {
   });
 }
 
-function disposeObject(object) {
-  if (!object) {
-    return;
-  }
-  scene.remove(object);
-  object.geometry?.dispose();
-  object.material?.dispose();
-}
-
-function createNodeTexture() {
-  const size = 64;
-  const textureCanvas = document.createElement('canvas');
-  textureCanvas.width = size;
-  textureCanvas.height = size;
-  const context = textureCanvas.getContext('2d');
-  const gradient = context.createRadialGradient(32, 28, 2, 32, 32, 30);
-  gradient.addColorStop(0, 'rgba(255,255,255,1)');
-  gradient.addColorStop(0.48, 'rgba(255,255,255,0.95)');
-  gradient.addColorStop(0.72, 'rgba(255,255,255,0.36)');
-  gradient.addColorStop(1, 'rgba(255,255,255,0)');
-  context.fillStyle = gradient;
-  context.beginPath();
-  context.arc(32, 32, 30, 0, Math.PI * 2);
-  context.fill();
-  const texture = new THREE.CanvasTexture(textureCanvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  return texture;
-}
-
-function drawFallbackGraph() {
-  if (!fallbackCanvas || !fallbackContext) {
-    return;
-  }
-
-  const width = state.fallbackWidth;
-  const height = state.fallbackHeight;
-  fallbackContext.clearRect(0, 0, width, height);
-
-  if (!state.visibleNodes.length || !state.positions.size) {
-    return;
-  }
-
-  const projectedNodes = new Map();
-  state.visibleNodes.forEach((node) => {
-    const position = state.positions.get(node.id);
-    if (!position) {
-      return;
-    }
-    const projected = topDownScreenPoint(position, width, height);
-    projectedNodes.set(node.id, {
-      x: projected.x,
-      y: projected.y,
-      z: position.z,
-      node
-    });
-  });
-
-  fallbackContext.save();
-  fallbackContext.lineCap = 'round';
-  fallbackContext.lineJoin = 'round';
-
-  state.visibleEdges.forEach((edge) => {
-    const source = projectedNodes.get(edge.source);
-    const target = projectedNodes.get(edge.target);
-    if (!source || !target) {
-      return;
-    }
-
-    fallbackContext.beginPath();
-    fallbackContext.moveTo(source.x, source.y);
-    fallbackContext.lineTo(target.x, target.y);
-    fallbackContext.strokeStyle = 'rgba(142, 160, 205, 0.18)';
-    fallbackContext.lineWidth = 0.7;
-    fallbackContext.stroke();
-  });
-
-  Array.from(projectedNodes.values())
-    .sort((left, right) => left.z - right.z)
-    .forEach((item) => {
-      const color = colorForCommunity(item.node.community);
-      const depthScale = THREE.MathUtils.clamp(1 + item.z / 180, 0.72, 1.34);
-      const radius = 2.4 * depthScale;
-      fallbackContext.beginPath();
-      fallbackContext.arc(item.x, item.y, radius, 0, Math.PI * 2);
-      fallbackContext.fillStyle = color;
-      fallbackContext.globalAlpha = 0.92;
-      fallbackContext.fill();
-    });
-
-  if (state.selectedNode) {
-    const selected = projectedNodes.get(state.selectedNode.id);
-    if (selected) {
-      fallbackContext.beginPath();
-      fallbackContext.arc(selected.x, selected.y, 8.5, 0, Math.PI * 2);
-      fallbackContext.strokeStyle = 'rgba(244, 246, 255, 0.84)';
-      fallbackContext.lineWidth = 2;
-      fallbackContext.globalAlpha = 1;
-      fallbackContext.stroke();
-    }
-  }
-
-  fallbackContext.restore();
-}
-
-function topDownScreenPoint(position, width, height) {
-  return {
-    x: width / 2 + (position.x - controls.target.x) * camera.zoom,
-    y: height / 2 - (position.y - controls.target.y) * camera.zoom
-  };
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, Number.isFinite(value) ? value : min));
 }
 
 function hashString(value) {
@@ -861,21 +678,13 @@ function escapeHTML(value) {
     .replaceAll("'", '&#039;');
 }
 
-function animate() {
-  controls.update();
-  renderer.render(scene, camera);
-  drawFallbackGraph();
-  state.animationFrame = requestAnimationFrame(animate);
-}
-
 window.brainBarLoadGraph = (payload, lens = 'all') => {
   try {
     state.graph = normalizeGraph(payload);
     state.lens = lens;
     state.selectedNode = null;
-    state.__cameraFitted = false;
     prepareCommunities(state.graph);
-    applyLens();
+    applyLens(true);
   } catch (error) {
     reportDiagnostic(error.message || '3D graph data could not be loaded', true);
   }
@@ -884,8 +693,7 @@ window.brainBarLoadGraph = (payload, lens = 'all') => {
 window.brainBarApplyGraphLens = (lens) => {
   state.lens = lens;
   state.selectedNode = null;
-  state.__cameraFitted = false;
-  applyLens();
+  applyLens(true);
 };
 
 window.brainBarResetCamera = resetCamera;
@@ -898,18 +706,55 @@ window.brainBarRendererDiagnostics = () => ({
   lens: state.lens,
   communities: state.communities.length,
   cameraPreset: state.cameraPreset,
-  cameraZoom: camera.zoom,
+  cameraZoom: state.camera.zoom,
   canvasWidth: canvas.width,
   canvasHeight: canvas.height,
-  stageWidth: Math.round(stage.getBoundingClientRect().width),
-  stageHeight: Math.round(stage.getBoundingClientRect().height),
+  stageWidth: state.width,
+  stageHeight: state.height,
   diagnostic: state.lastDiagnostic
 });
 
-canvas.addEventListener('click', (event) => {
-  const node = nodeAtEvent(event);
-  if (node) {
-    selectNode(node);
+canvas.addEventListener('mousedown', (event) => {
+  state.drag = {
+    x: event.clientX,
+    y: event.clientY,
+    panX: state.camera.panX,
+    panY: state.camera.panY,
+    moved: false
+  };
+});
+
+window.addEventListener('mousemove', (event) => {
+  if (!state.drag) {
+    const node = nodeAtEvent(event);
+    if (node !== state.hoveredNode) {
+      state.hoveredNode = node;
+      canvas.style.cursor = node ? 'pointer' : 'grab';
+    }
+    return;
+  }
+  const dx = event.clientX - state.drag.x;
+  const dy = event.clientY - state.drag.y;
+  state.drag.moved = state.drag.moved || Math.hypot(dx, dy) > 3;
+  state.camera.panX = state.drag.panX + dx;
+  state.camera.panY = state.drag.panY + dy;
+  state.cameraPreset = 'Manual';
+  updateHud();
+  requestDraw();
+});
+
+window.addEventListener('mouseup', (event) => {
+  if (!state.drag) {
+    return;
+  }
+  const moved = state.drag.moved;
+  state.drag = null;
+  canvas.style.cursor = 'grab';
+  if (!moved) {
+    const node = nodeAtEvent(event);
+    if (node) {
+      selectNode(node);
+    }
   }
 });
 
@@ -920,12 +765,24 @@ canvas.addEventListener('dblclick', (event) => {
   }
 });
 
+canvas.addEventListener('wheel', (event) => {
+  event.preventDefault();
+  zoomCamera(event.deltaY < 0 ? 1.12 : 0.9);
+}, { passive: false });
+
 search.addEventListener('input', renderSearchResults);
-window.addEventListener('resize', scheduleResize);
-new ResizeObserver(scheduleResize).observe(stage);
+window.addEventListener('resize', resize);
+new ResizeObserver(resize).observe(stage);
+
+window.addEventListener('error', (event) => {
+  reportDiagnostic(event.message || '3D renderer failed', true);
+});
+
+window.addEventListener('unhandledrejection', (event) => {
+  reportDiagnostic(event.reason?.message || '3D renderer failed', true);
+});
 
 resize();
-animate();
 
 if (window.__brainBarGraphJSON) {
   window.brainBarLoadGraph(window.__brainBarGraphJSON, window.__brainBarPendingGraphLens || 'all');
