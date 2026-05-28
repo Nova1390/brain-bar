@@ -33,6 +33,7 @@ const state = {
   width: 1,
   height: 1,
   lastDiagnostic: '',
+  lastFrameStatus: 'Waiting',
   cameraPreset: 'Fit',
   svgElementCount: 0,
   domElementCount: 0,
@@ -349,14 +350,21 @@ function fitCameraToGraph(preset = 'Fit') {
 
 function drawGraph() {
   context.clearRect(0, 0, state.width, state.height);
-  clearSVGGraph();
-  clearDOMGraph();
   if (!state.visibleNodes.length || !state.positions.size) {
+    state.lastFrameStatus = 'Waiting for layout';
+    updateHud();
     return;
   }
 
   updateProjectionCache();
+  if (!state.projected.size) {
+    state.lastFrameStatus = 'Waiting for projection';
+    updateHud();
+    return;
+  }
+
   drawDOMGraph();
+  state.lastFrameStatus = 'Visible';
 
   context.save();
   context.lineCap = 'round';
@@ -751,7 +759,7 @@ function updateHud() {
     ? 'All'
     : (state.lens === 'graphify' ? 'Graphify' : 'Obsidian');
   const visualLabel = state.domElementCount > 0 ? `visual ${state.domElementCount}` : 'visual 0';
-  const base = `${state.visibleNodes.length} nodes · ${state.visibleEdges.length} edges · ${lensLabel} · ${state.cameraPreset} · ${visualLabel}`;
+  const base = `${state.visibleNodes.length} nodes · ${state.visibleEdges.length} edges · ${lensLabel} · ${state.cameraPreset} · ${visualLabel} · ${state.lastFrameStatus}`;
   hud.textContent = state.lastDiagnostic ? `${base} · ${state.lastDiagnostic}` : base;
   hud.hidden = false;
 }
@@ -925,6 +933,7 @@ window.brainBarRendererDiagnostics = () => ({
   canvasHeight: canvas.height,
   svgElementCount: state.svgElementCount,
   domElementCount: state.domElementCount,
+  domChildCount: graphDOM?.children.length ?? 0,
   stageWidth: state.width,
   stageHeight: state.height,
   diagnostic: state.lastDiagnostic
