@@ -44,10 +44,16 @@ struct GraphShellView: View {
 
             Spacer(minLength: 12)
 
-            GraphActionMenu(model: model, showsFocusButton: mode.showsFocusButton)
+            GraphActionMenu(model: model)
 
             IconButton(systemImage: "gearshape", help: "Settings") {
                 openSettings()
+            }
+
+            if mode.showsFocusButton {
+                IconButton(systemImage: "macwindow", help: "Open Focus Window") {
+                    openFocusWindow()
+                }
             }
 
             IconButton(systemImage: model.isRefreshingGraph ? "hourglass" : "arrow.clockwise", help: "Refresh status") {
@@ -158,6 +164,12 @@ struct GraphShellView: View {
         openWindow(id: "settings")
         BrainBarWindowController.bringSettingsToFront()
     }
+
+    private func openFocusWindow() {
+        openWindow(id: "graph-focus")
+        BrainBarWindowController.bringFocusGraphToFront()
+        BrainBarWindowController.dismissMenuBarWindow()
+    }
 }
 
 struct FocusGraphView: View {
@@ -174,7 +186,6 @@ struct FocusGraphView: View {
 
 private struct GraphActionMenu: View {
     let model: AppModel
-    let showsFocusButton: Bool
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
@@ -201,15 +212,6 @@ private struct GraphActionMenu: View {
                     Label("Open Externally", systemImage: "safari")
                 }
 
-                if showsFocusButton {
-                    Button {
-                        openWindow(id: "graph-focus")
-                        BrainBarWindowController.bringFocusGraphToFront()
-                        BrainBarWindowController.dismissMenuBarWindow()
-                    } label: {
-                        Label("Open Focus Window", systemImage: "macwindow")
-                    }
-                }
             }
 
             Section("Vault") {
