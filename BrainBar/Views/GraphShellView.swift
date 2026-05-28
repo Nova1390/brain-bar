@@ -40,27 +40,9 @@ struct GraphShellView: View {
                     selectedLens: model.graphSourceLens,
                     onSelect: model.setGraphSourceLens
                 )
-
-                if mode == .focus {
-                    GraphViewModeControl(
-                        selectedMode: model.graphViewMode,
-                        onSelect: model.setGraphViewMode
-                    )
-                }
             }
 
             Spacer(minLength: 12)
-
-            if mode == .focus, model.status.graphHtmlExists {
-                GraphViewportControls(
-                    showsTopView: model.graphViewMode == .threeD,
-                    onZoomOut: model.zoomGraphOut,
-                    onZoomIn: model.zoomGraphIn,
-                    onFit: model.fitGraphView,
-                    onTopView: model.resetGraph3DCamera,
-                    onResetTilt: model.resetGraph3DTilt
-                )
-            }
 
             GraphActionMenu(model: model, showsFocusButton: mode.showsFocusButton)
 
@@ -127,26 +109,13 @@ struct GraphShellView: View {
 
     @ViewBuilder
     private func activeGraphView(graphURL: URL, readAccessURL: URL) -> some View {
-        if mode == .focus, model.graphViewMode == .threeD {
-            Graph3DWebView(
-                readAccessURL: readAccessURL,
-                reloadToken: model.graphReloadToken,
-                sourceLens: model.graphSourceLens,
-                resetCameraToken: model.graph3DResetToken,
-                viewportCommand: model.graphViewportCommand,
-                onDiagnostic: model.reportGraphRendererIssue,
-                onOpenNode: model.openGraphNode
-            )
-        } else {
-            GraphWebView(
-                fileURL: graphURL,
-                readAccessURL: readAccessURL,
-                reloadToken: model.graphReloadToken,
-                sourceLens: model.graphSourceLens,
-                viewportCommand: model.graphViewportCommand,
-                onOpenNode: model.openGraphNode
-            )
-        }
+        GraphWebView(
+            fileURL: graphURL,
+            readAccessURL: readAccessURL,
+            reloadToken: model.graphReloadToken,
+            sourceLens: model.graphSourceLens,
+            onOpenNode: model.openGraphNode
+        )
     }
 
     private var footer: some View {

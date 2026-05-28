@@ -2,6 +2,8 @@
 
 BrainBar v0.4 explores a custom `3D Beta` graph mode for the Focus Window. The stable product path remains the embedded 2D Graphify graph; the 3D view is a separate experiment for controlled spatial exploration and visual research.
 
+Current status: the 3D renderer is quarantined from the visible Focus Window UI until it can load and stay visible reliably on real vault graphs. The branch keeps the renderer code and technical notes for follow-up work, but the installed app should use the stable 2D graph path by default.
+
 ## Why Focus Window Only
 
 The menu bar popover is for quick inspection and control. It should open fast, keep actions close, and stay readable on small surfaces.
@@ -11,6 +13,8 @@ The 3D graph needs room for camera controls, node inspection, and depth cues. Ke
 ## What Experimental Means
 
 The 3D mode is a preview surface, not the primary graph view. It should be easy to try, easy to leave, and safe to remove or reshape before a stable release. If the 3D graph is less readable than the 2D graph on a real vault, BrainBar should keep the 2D graph as the default experience.
+
+At this stage the 3D toggle should remain hidden from the production Focus Window. Re-enabling it requires a focused renderer fix and visual QA pass.
 
 Experimental mode must:
 
@@ -89,7 +93,7 @@ The renderer sends only node action metadata back to Swift. Swift remains respon
 
 ## Viewport Controls
 
-The Focus Window exposes graph navigation controls in the native header:
+When the 3D experiment is enabled, the Focus Window should expose graph navigation controls in the native header:
 
 - zoom out;
 - zoom in;
@@ -97,7 +101,7 @@ The Focus Window exposes graph navigation controls in the native header:
 - top view for the 3D renderer;
 - reset tilt for the 3D renderer.
 
-The same viewport command model is shared with the 2D graph, where commands call the existing Graphify/vis-network viewport APIs. This keeps the reliable 2D view pleasant to record and demo while the 3D view remains experimental.
+The stable 2D view should not depend on the 3D viewport command model. The 2D graph should stay as close as possible to the proven embedded Graphify viewer while the 3D view remains experimental.
 
 The 3D camera is intentionally controlled rather than a free orbit. Left-drag pans, scroll/pinch zooms, and right-drag allows only a limited tilt. This is a product constraint, not a renderer limitation: readable graph inspection matters more than unrestricted 3D movement.
 
