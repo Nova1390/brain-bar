@@ -2,6 +2,8 @@ import * as THREE from './vendor/three.module.min.js';
 import { OrbitControls } from './vendor/OrbitControls.js';
 
 const canvas = document.getElementById('graph-canvas');
+const fallbackCanvas = document.getElementById('graph-fallback');
+const fallbackContext = fallbackCanvas?.getContext('2d') ?? null;
 const stage = document.getElementById('stage');
 const overlay = document.getElementById('overlay');
 const search = document.getElementById('search');
@@ -38,7 +40,10 @@ const state = {
   fitFrame: null,
   resizeFrame: null,
   cameraPreset: 'Top view',
-  lastDiagnostic: ''
+  lastDiagnostic: '',
+  fallbackWidth: 1,
+  fallbackHeight: 1,
+  fallbackPixelRatio: 1
 };
 
 const scene = new THREE.Scene();
@@ -584,6 +589,7 @@ function resize() {
   const width = Math.max(rect.width, 1);
   const height = Math.max(rect.height, 1);
   renderer.setSize(width, height, false);
+  resizeFallbackCanvas(width, height);
   const aspect = width / height;
   camera.left = (-cameraFrustum * aspect) / 2;
   camera.right = (cameraFrustum * aspect) / 2;
@@ -593,6 +599,22 @@ function resize() {
   if (state.graph && state.positions.size > 0) {
     scheduleFitCamera('Fit');
   }
+}
+
+function resizeFallbackCanvas(width, height) {
+  if (!fallbackCanvas || !fallbackContext) {
+    return;
+  }
+
+  const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+  state.fallbackWidth = width;
+  state.fallbackHeight = height;
+  state.fallbackPixelRatio = pixelRatio;
+  fallbackCanvas.width = Math.max(Math.floor(width * pixelRatio), 1);
+  fallbackCanvas.height = Math.max(Math.floor(height * pixelRatio), 1);
+  fallbackCanvas.style.width = `${width}px`;
+  fallbackCanvas.style.height = `${height}px`;
+  fallbackContext.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
 }
 
 function scheduleResize() {
@@ -739,6 +761,86 @@ function createNodeTexture() {
   return texture;
 }
 
+function drawFallbackGraph() {
+  if (!fallbackCanvas || !fallbackContext) {
+    return;
+  }
+
+  const width = state.fallbackWidth;
+  const height = state.fallbackHeight;
+  fallbackContext.clearRect(0, 0, width, height);
+
+  if (!state.visibleNodes.length || !state.positions.size) {
+    return;
+  }
+
+  camera.updateMatrixWorld();
+
+  const projectedNodes = new Map();
+  state.visibleNodes.forEach((node) => {
+    const position = state.positions.get(node.id);
+    if (!position) {
+      return;
+    }
+    const projected = position.clone().project(camera);
+    if (projected.z < -1 || projected.z > 1) {
+      return;
+    }
+    projectedNodes.set(node.id, {
+      x: (projected.x * 0.5 + 0.5) * width,
+      y: (-projected.y * 0.5 + 0.5) * height,
+      z: position.z,
+      node
+    });
+  });
+
+  fallbackContext.save();
+  fallbackContext.lineCap = 'round';
+  fallbackContext.lineJoin = 'round';
+
+  state.visibleEdges.forEach((edge) => {
+    const source = projectedNodes.get(edge.source);
+    const target = projectedNodes.get(edge.target);
+    if (!source || !target) {
+      return;
+    }
+
+    fallbackContext.beginPath();
+    fallbackContext.moveTo(source.x, source.y);
+    fallbackContext.lineTo(target.x, target.y);
+    fallbackContext.strokeStyle = 'rgba(142, 160, 205, 0.18)';
+    fallbackContext.lineWidth = 0.7;
+    fallbackContext.stroke();
+  });
+
+  Array.from(projectedNodes.values())
+    .sort((left, right) => left.z - right.z)
+    .forEach((item) => {
+      const color = colorForCommunity(item.node.community);
+      const depthScale = THREE.MathUtils.clamp(1 + item.z / 180, 0.72, 1.34);
+      const radius = 2.4 * depthScale;
+      fallbackContext.beginPath();
+      fallbackContext.arc(item.x, item.y, radius, 0, Math.PI * 2);
+      fallbackContext.fillStyle = color;
+      fallbackContext.globalAlpha = 0.92;
+      fallbackContext.fill();
+    });
+
+  if (state.selectedNode) {
+    const selected = projectedNodes.get(state.selectedNode.id);
+    if (selected) {
+      fallbackContext.beginPath();
+      fallbackContext.arc(selected.x, selected.y, 8.5, 0, Math.PI * 2);
+      fallbackContext.strokeStyle = 'rgba(244, 246, 255, 0.84)';
+      fallbackContext.lineWidth = 2;
+      fallbackContext.globalAlpha = 1;
+      fallbackContext.stroke();
+    }
+  }
+
+  fallbackContext.restore();
+}
+
 function hashString(value) {
   let hash = 2166136261;
   for (let index = 0; index < value.length; index += 1) {
@@ -760,6 +862,7 @@ function escapeHTML(value) {
 function animate() {
   controls.update();
   renderer.render(scene, camera);
+  drawFallbackGraph();
   state.animationFrame = requestAnimationFrame(animate);
 }
 
