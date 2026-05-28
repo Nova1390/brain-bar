@@ -236,6 +236,7 @@ private struct GraphActionMenu: View {
                     Button {
                         openWindow(id: "graph-focus")
                         BrainBarWindowController.bringFocusGraphToFront()
+                        BrainBarWindowController.dismissMenuBarWindow()
                     } label: {
                         Label("Open Focus Window", systemImage: "macwindow")
                     }

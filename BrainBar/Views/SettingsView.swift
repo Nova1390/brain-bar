@@ -92,10 +92,13 @@ struct SettingsView: View {
     }
 
     private func chooseVault() {
+        NSApplication.shared.activate(ignoringOtherApps: true)
+        BrainBarWindowController.bringSettingsToFront()
         let panel = NSOpenPanel()
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
+        panel.level = .modalPanel
         if panel.runModal() == .OK, let url = panel.url {
             draft.vaultPath = url.path
         }

@@ -34,6 +34,7 @@ const state = {
   selectedNode: null,
   hoveredIndex: null,
   animationFrame: null,
+  fitFrame: null,
   cameraPreset: 'Top view',
   lastDiagnostic: ''
 };
@@ -276,7 +277,7 @@ function renderGraph() {
   scene.add(edgesMesh);
 
   updateSelectedMarker();
-  fitCameraToGraph();
+  scheduleFitCamera('Fit');
   updateHud();
 }
 
@@ -555,9 +556,7 @@ function resetCamera() {
 }
 
 function zoomCamera(multiplier) {
-  camera.zoom = THREE.MathUtils.clamp(camera.zoom * multiplier, controls.minZoom, controls.maxZoom);
-  camera.updateProjectionMatrix();
-  controls.update();
+  placeCameraTopDown(controls.target.clone(), camera.zoom * multiplier);
   state.cameraPreset = multiplier > 1 ? 'Zoom in' : 'Zoom out';
   updateHud();
 }
@@ -584,6 +583,21 @@ function resize() {
   camera.top = cameraFrustum / 2;
   camera.bottom = -cameraFrustum / 2;
   camera.updateProjectionMatrix();
+  if (state.graph && state.positions.size > 0) {
+    scheduleFitCamera('Fit');
+  }
+}
+
+function scheduleFitCamera(preset = 'Fit') {
+  if (state.fitFrame) {
+    cancelAnimationFrame(state.fitFrame);
+  }
+  state.fitFrame = requestAnimationFrame(() => {
+    state.fitFrame = requestAnimationFrame(() => {
+      state.fitFrame = null;
+      fitCameraToGraph(true, preset);
+    });
+  });
 }
 
 function fitCameraToGraph(force = false, preset = 'Fit') {
