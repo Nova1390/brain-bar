@@ -40,7 +40,7 @@ body {
 #graph-canvas {
   position: absolute;
   inset: 0;
-  display: block;
+  display: none;
   width: 100%;
   height: 100%;
   outline: none;
@@ -67,6 +67,10 @@ body {
   overflow: hidden;
   z-index: 3;
   pointer-events: none;
+  contain: layout paint;
+  transform: translateZ(0);
+  opacity: 1;
+  visibility: visible;
 }
 
 .graph-edges,
@@ -90,7 +94,6 @@ body {
 .dom-node,
 .dom-selected-node {
   border-radius: 50%;
-  transform: translate(-50%, -50%);
 }
 
 .dom-selected-node {

@@ -34,6 +34,7 @@ const state = {
   height: 1,
   lastDiagnostic: '',
   lastFrameStatus: 'Waiting',
+  visibleProjectedNodeCount: 0,
   cameraPreset: 'Fit',
   svgElementCount: 0,
   domElementCount: 0,
@@ -363,7 +364,13 @@ function drawGraph() {
     return;
   }
 
+  if (!projectedGraphIsInViewport() && state.cameraPreset !== 'Auto fit') {
+    fitCameraToGraph('Auto fit');
+    return;
+  }
+
   drawDOMGraph();
+  drawSVGGraph();
   state.lastFrameStatus = 'Visible';
 
   context.save();
@@ -376,7 +383,7 @@ function drawGraph() {
     if (!source || !target) {
       return;
     }
-    const alpha = 0.18 + clamp((source.depth + target.depth) / 900, -0.05, 0.10);
+    const alpha = 0.26 + clamp((source.depth + target.depth) / 900, -0.04, 0.12);
     context.beginPath();
     context.moveTo(source.x, source.y);
     context.lineTo(target.x, target.y);
@@ -389,8 +396,8 @@ function drawGraph() {
     .sort((left, right) => left.depth - right.depth)
     .forEach((item) => {
       const color = colorForCommunity(item.node.community);
-      const radius = clamp(3.2 + item.depth / 150, 2.4, 6.2);
-      const haloRadius = radius * 2.7;
+      const radius = clamp(4.8 + item.depth / 140, 3.8, 8.4);
+      const haloRadius = radius * 3.2;
       const gradient = context.createRadialGradient(item.x, item.y, 0, item.x, item.y, haloRadius);
       gradient.addColorStop(0, color);
       gradient.addColorStop(0.58, colorWithAlpha(color, 0.7));
@@ -445,7 +452,7 @@ function drawDOMGraph() {
       return;
     }
 
-    const alpha = 0.18 + clamp((source.depth + target.depth) / 900, -0.05, 0.10);
+    const alpha = 0.24 + clamp((source.depth + target.depth) / 900, -0.04, 0.12);
     const edgeElement = document.createElement('div');
     edgeElement.className = 'dom-edge';
     edgeElement.style.left = `${formatNumber(source.x)}px`;
@@ -461,16 +468,16 @@ function drawDOMGraph() {
     .sort((left, right) => left.depth - right.depth)
     .forEach((item) => {
       const color = colorForCommunity(item.node.community);
-      const radius = clamp(3.2 + item.depth / 150, 2.4, 6.2);
+      const radius = clamp(4.8 + item.depth / 140, 3.8, 8.4);
       const size = radius * 2;
       const nodeElement = document.createElement('div');
       nodeElement.className = 'dom-node';
-      nodeElement.style.left = `${formatNumber(item.x)}px`;
-      nodeElement.style.top = `${formatNumber(item.y)}px`;
+      nodeElement.style.left = `${formatNumber(item.x - radius)}px`;
+      nodeElement.style.top = `${formatNumber(item.y - radius)}px`;
       nodeElement.style.width = `${formatNumber(size)}px`;
       nodeElement.style.height = `${formatNumber(size)}px`;
       nodeElement.style.background = color;
-      nodeElement.style.boxShadow = `0 0 ${formatNumber(radius * 3.8)}px ${colorWithAlpha(color, 0.22)}`;
+      nodeElement.style.boxShadow = `0 0 ${formatNumber(radius * 4.4)}px ${colorWithAlpha(color, 0.32)}`;
       fragment.appendChild(nodeElement);
       elementCount += 1;
     });
@@ -480,8 +487,8 @@ function drawDOMGraph() {
     if (selected) {
       const selectedElement = document.createElement('div');
       selectedElement.className = 'dom-selected-node';
-      selectedElement.style.left = `${formatNumber(selected.x)}px`;
-      selectedElement.style.top = `${formatNumber(selected.y)}px`;
+      selectedElement.style.left = `${formatNumber(selected.x - 10)}px`;
+      selectedElement.style.top = `${formatNumber(selected.y - 10)}px`;
       selectedElement.style.width = '20px';
       selectedElement.style.height = '20px';
       fragment.appendChild(selectedElement);
@@ -495,6 +502,23 @@ function drawDOMGraph() {
   }
   graphDOM.appendChild(fragment);
   updateHud();
+}
+
+function projectedGraphIsInViewport() {
+  const margin = 48;
+  let visibleCount = 0;
+  state.projected.forEach((item) => {
+    if (
+      item.x >= -margin &&
+      item.x <= state.width + margin &&
+      item.y >= -margin &&
+      item.y <= state.height + margin
+    ) {
+      visibleCount += 1;
+    }
+  });
+  state.visibleProjectedNodeCount = visibleCount;
+  return visibleCount >= Math.min(12, Math.max(1, Math.floor(state.visibleNodes.length * 0.02)));
 }
 
 function drawSVGGraph() {
@@ -516,7 +540,7 @@ function drawSVGGraph() {
     if (!source || !target) {
       return;
     }
-    const alpha = 0.18 + clamp((source.depth + target.depth) / 900, -0.05, 0.10);
+    const alpha = 0.24 + clamp((source.depth + target.depth) / 900, -0.04, 0.12);
     edgesGroup.appendChild(createSVGElement('line', {
       x1: formatNumber(source.x),
       y1: formatNumber(source.y),
@@ -534,7 +558,7 @@ function drawSVGGraph() {
     .sort((left, right) => left.depth - right.depth)
     .forEach((item) => {
       const color = colorForCommunity(item.node.community);
-      const radius = clamp(3.2 + item.depth / 150, 2.4, 6.2);
+      const radius = clamp(4.8 + item.depth / 140, 3.8, 8.4);
       nodesGroup.appendChild(createSVGElement('circle', {
         cx: formatNumber(item.x),
         cy: formatNumber(item.y),
@@ -758,8 +782,9 @@ function updateHud() {
   const lensLabel = state.lens === 'all'
     ? 'All'
     : (state.lens === 'graphify' ? 'Graphify' : 'Obsidian');
-  const visualLabel = state.domElementCount > 0 ? `visual ${state.domElementCount}` : 'visual 0';
-  const base = `${state.visibleNodes.length} nodes · ${state.visibleEdges.length} edges · ${lensLabel} · ${state.cameraPreset} · ${visualLabel} · ${state.lastFrameStatus}`;
+  const visualCount = state.svgElementCount + state.domElementCount;
+  const visualLabel = visualCount > 0 ? `visual ${visualCount}` : 'visual 0';
+  const base = `${state.visibleNodes.length} nodes · ${state.visibleEdges.length} edges · ${lensLabel} · ${state.cameraPreset} · ${visualLabel} · in view ${state.visibleProjectedNodeCount} · ${state.lastFrameStatus}`;
   hud.textContent = state.lastDiagnostic ? `${base} · ${state.lastDiagnostic}` : base;
   hud.hidden = false;
 }
@@ -934,6 +959,7 @@ window.brainBarRendererDiagnostics = () => ({
   svgElementCount: state.svgElementCount,
   domElementCount: state.domElementCount,
   domChildCount: graphDOM?.children.length ?? 0,
+  visibleProjectedNodeCount: state.visibleProjectedNodeCount,
   stageWidth: state.width,
   stageHeight: state.height,
   diagnostic: state.lastDiagnostic
