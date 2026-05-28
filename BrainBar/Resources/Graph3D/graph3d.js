@@ -44,6 +44,10 @@ const state = {
   drag: null
 };
 
+function isBrainBarWebKitScheme() {
+  return window.location.protocol === 'brainbar3d:';
+}
+
 function normalizeGraph(payload) {
   if (!payload) {
     return { nodes: [], edges: [] };
@@ -357,12 +361,12 @@ function drawGraph() {
     if (!source || !target) {
       return;
     }
-    const alpha = 0.12 + clamp((source.depth + target.depth) / 900, -0.04, 0.08);
+    const alpha = 0.18 + clamp((source.depth + target.depth) / 900, -0.05, 0.10);
     context.beginPath();
     context.moveTo(source.x, source.y);
     context.lineTo(target.x, target.y);
     context.strokeStyle = `rgba(145, 162, 207, ${alpha})`;
-    context.lineWidth = 0.75;
+    context.lineWidth = 0.85;
     context.stroke();
   });
 
@@ -370,7 +374,7 @@ function drawGraph() {
     .sort((left, right) => left.depth - right.depth)
     .forEach((item) => {
       const color = colorForCommunity(item.node.community);
-      const radius = clamp(2.5 + item.depth / 150, 1.9, 5.4);
+      const radius = clamp(3.2 + item.depth / 150, 2.4, 6.2);
       const haloRadius = radius * 2.7;
       const gradient = context.createRadialGradient(item.x, item.y, 0, item.x, item.y, haloRadius);
       gradient.addColorStop(0, color);
@@ -628,6 +632,9 @@ function colorWithAlpha(hex, alpha) {
 
 function reportDiagnostic(message, showsOverlay = false) {
   const text = String(message || '3D renderer failed');
+  if (text.startsWith('Graph data unavailable') && state.graph) {
+    return;
+  }
   state.lastDiagnostic = text;
   updateHud();
   if (showsOverlay) {
@@ -786,10 +793,10 @@ resize();
 
 if (window.__brainBarGraphJSON) {
   window.brainBarLoadGraph(window.__brainBarGraphJSON, window.__brainBarPendingGraphLens || 'all');
-} else {
+} else if (!isBrainBarWebKitScheme()) {
   fetch('./graph.json')
     .then((response) => {
-      if (!response.ok) {
+      if (!response.ok && response.status !== 0) {
         throw new Error(`Graph data unavailable (${response.status})`);
       }
       return response.json();
@@ -801,4 +808,6 @@ if (window.__brainBarGraphJSON) {
     .catch((error) => {
       reportDiagnostic(error.message || 'Graph data unavailable', true);
     });
+} else {
+  updateHud();
 }
