@@ -422,15 +422,29 @@ function resize() {
   const width = Math.max(Math.floor(rect.width), 1);
   const height = Math.max(Math.floor(rect.height), 1);
   const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+  const backingWidth = Math.max(Math.floor(width * pixelRatio), 1);
+  const backingHeight = Math.max(Math.floor(height * pixelRatio), 1);
+  const didResize = (
+    state.width !== width ||
+    state.height !== height ||
+    state.pixelRatio !== pixelRatio ||
+    canvas.width !== backingWidth ||
+    canvas.height !== backingHeight
+  );
+
   state.width = width;
   state.height = height;
   state.pixelRatio = pixelRatio;
-  canvas.width = Math.max(Math.floor(width * pixelRatio), 1);
-  canvas.height = Math.max(Math.floor(height * pixelRatio), 1);
-  canvas.style.width = `${width}px`;
-  canvas.style.height = `${height}px`;
-  context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
-  if (state.graph) {
+
+  if (didResize) {
+    canvas.width = backingWidth;
+    canvas.height = backingHeight;
+    canvas.style.width = `${width}px`;
+    canvas.style.height = `${height}px`;
+    context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+  }
+
+  if (didResize && state.graph) {
     fitCameraToGraph(state.cameraPreset || 'Fit');
   } else {
     requestDraw();
