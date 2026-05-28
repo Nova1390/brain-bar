@@ -1,6 +1,7 @@
 const canvas = document.getElementById('graph-canvas');
-const context = canvas.getContext('2d', { alpha: true });
+const context = canvas.getContext('2d', { alpha: true, willReadFrequently: false });
 const svg = document.getElementById('graph-svg');
+const graphDOM = document.getElementById('graph-dom');
 const stage = document.getElementById('stage');
 const overlay = document.getElementById('overlay');
 const search = document.getElementById('search');
@@ -33,6 +34,8 @@ const state = {
   height: 1,
   lastDiagnostic: '',
   cameraPreset: 'Fit',
+  svgElementCount: 0,
+  domElementCount: 0,
   camera: {
     yaw: -0.54,
     tilt: 0.58,
@@ -347,12 +350,13 @@ function fitCameraToGraph(preset = 'Fit') {
 function drawGraph() {
   context.clearRect(0, 0, state.width, state.height);
   clearSVGGraph();
+  clearDOMGraph();
   if (!state.visibleNodes.length || !state.positions.size) {
     return;
   }
 
   updateProjectionCache();
-  drawSVGGraph();
+  drawDOMGraph();
 
   context.save();
   context.lineCap = 'round';
@@ -410,17 +414,93 @@ function drawGraph() {
   context.restore();
 }
 
+function drawDOMGraph() {
+  if (!graphDOM) {
+    state.domElementCount = 0;
+    return;
+  }
+
+  const fragment = document.createDocumentFragment();
+  let elementCount = 0;
+
+  state.visibleEdges.forEach((edge) => {
+    const source = state.projected.get(edge.source);
+    const target = state.projected.get(edge.target);
+    if (!source || !target) {
+      return;
+    }
+
+    const dx = target.x - source.x;
+    const dy = target.y - source.y;
+    const length = Math.hypot(dx, dy);
+    if (!Number.isFinite(length) || length <= 0.1) {
+      return;
+    }
+
+    const alpha = 0.18 + clamp((source.depth + target.depth) / 900, -0.05, 0.10);
+    const edgeElement = document.createElement('div');
+    edgeElement.className = 'dom-edge';
+    edgeElement.style.left = `${formatNumber(source.x)}px`;
+    edgeElement.style.top = `${formatNumber(source.y)}px`;
+    edgeElement.style.width = `${formatNumber(length)}px`;
+    edgeElement.style.background = `rgba(145, 162, 207, ${formatNumber(alpha)})`;
+    edgeElement.style.transform = `rotate(${Math.atan2(dy, dx)}rad)`;
+    fragment.appendChild(edgeElement);
+    elementCount += 1;
+  });
+
+  Array.from(state.projected.values())
+    .sort((left, right) => left.depth - right.depth)
+    .forEach((item) => {
+      const color = colorForCommunity(item.node.community);
+      const radius = clamp(3.2 + item.depth / 150, 2.4, 6.2);
+      const size = radius * 2;
+      const nodeElement = document.createElement('div');
+      nodeElement.className = 'dom-node';
+      nodeElement.style.left = `${formatNumber(item.x)}px`;
+      nodeElement.style.top = `${formatNumber(item.y)}px`;
+      nodeElement.style.width = `${formatNumber(size)}px`;
+      nodeElement.style.height = `${formatNumber(size)}px`;
+      nodeElement.style.background = color;
+      nodeElement.style.boxShadow = `0 0 ${formatNumber(radius * 3.8)}px ${colorWithAlpha(color, 0.22)}`;
+      fragment.appendChild(nodeElement);
+      elementCount += 1;
+    });
+
+  if (state.selectedNode) {
+    const selected = state.projected.get(state.selectedNode.id);
+    if (selected) {
+      const selectedElement = document.createElement('div');
+      selectedElement.className = 'dom-selected-node';
+      selectedElement.style.left = `${formatNumber(selected.x)}px`;
+      selectedElement.style.top = `${formatNumber(selected.y)}px`;
+      selectedElement.style.width = '20px';
+      selectedElement.style.height = '20px';
+      fragment.appendChild(selectedElement);
+      elementCount += 1;
+    }
+  }
+
+  state.domElementCount = elementCount;
+  while (graphDOM.firstChild) {
+    graphDOM.removeChild(graphDOM.firstChild);
+  }
+  graphDOM.appendChild(fragment);
+  updateHud();
+}
+
 function drawSVGGraph() {
   if (!svg) {
+    state.svgElementCount = 0;
     return;
   }
   svg.setAttribute('viewBox', `0 0 ${state.width} ${state.height}`);
   svg.setAttribute('width', String(state.width));
   svg.setAttribute('height', String(state.height));
 
-  const fragment = document.createDocumentFragment();
   const edgesGroup = createSVGElement('g', { class: 'graph-edges' });
   const nodesGroup = createSVGElement('g', { class: 'graph-nodes' });
+  let elementCount = 0;
 
   state.visibleEdges.forEach((edge) => {
     const source = state.projected.get(edge.source);
@@ -439,6 +519,7 @@ function drawSVGGraph() {
       'stroke-width': '0.85',
       'stroke-linecap': 'round'
     }));
+    elementCount += 1;
   });
 
   Array.from(state.projected.values())
@@ -453,6 +534,7 @@ function drawSVGGraph() {
         fill: color,
         'fill-opacity': '0.16'
       }));
+      elementCount += 1;
       nodesGroup.appendChild(createSVGElement('circle', {
         cx: formatNumber(item.x),
         cy: formatNumber(item.y),
@@ -460,6 +542,7 @@ function drawSVGGraph() {
         fill: color,
         'fill-opacity': '0.96'
       }));
+      elementCount += 1;
     });
 
   if (state.selectedNode) {
@@ -473,18 +556,35 @@ function drawSVGGraph() {
         stroke: 'rgba(244, 246, 255, 0.9)',
         'stroke-width': '2'
       }));
+      elementCount += 1;
     }
   }
 
-  fragment.appendChild(edgesGroup);
-  fragment.appendChild(nodesGroup);
-  svg.replaceChildren(fragment);
+  state.svgElementCount = elementCount;
+  while (svg.firstChild) {
+    svg.removeChild(svg.firstChild);
+  }
+  svg.appendChild(edgesGroup);
+  svg.appendChild(nodesGroup);
+  updateHud();
 }
 
 function clearSVGGraph() {
   if (svg) {
-    svg.replaceChildren();
+    while (svg.firstChild) {
+      svg.removeChild(svg.firstChild);
+    }
   }
+  state.svgElementCount = 0;
+}
+
+function clearDOMGraph() {
+  if (graphDOM) {
+    while (graphDOM.firstChild) {
+      graphDOM.removeChild(graphDOM.firstChild);
+    }
+  }
+  state.domElementCount = 0;
 }
 
 function createSVGElement(name, attributes = {}) {
@@ -650,7 +750,8 @@ function updateHud() {
   const lensLabel = state.lens === 'all'
     ? 'All'
     : (state.lens === 'graphify' ? 'Graphify' : 'Obsidian');
-  const base = `${state.visibleNodes.length} nodes · ${state.visibleEdges.length} edges · ${lensLabel} · ${state.cameraPreset}`;
+  const visualLabel = state.domElementCount > 0 ? `visual ${state.domElementCount}` : 'visual 0';
+  const base = `${state.visibleNodes.length} nodes · ${state.visibleEdges.length} edges · ${lensLabel} · ${state.cameraPreset} · ${visualLabel}`;
   hud.textContent = state.lastDiagnostic ? `${base} · ${state.lastDiagnostic}` : base;
   hud.hidden = false;
 }
@@ -678,7 +779,7 @@ function focusNode(node) {
 }
 
 function nodeAtEvent(event) {
-  const rect = canvas.getBoundingClientRect();
+  const rect = stage.getBoundingClientRect();
   const x = event.clientX - rect.left;
   const y = event.clientY - rect.top;
   updateProjectionCache();
@@ -822,12 +923,14 @@ window.brainBarRendererDiagnostics = () => ({
   cameraZoom: state.camera.zoom,
   canvasWidth: canvas.width,
   canvasHeight: canvas.height,
+  svgElementCount: state.svgElementCount,
+  domElementCount: state.domElementCount,
   stageWidth: state.width,
   stageHeight: state.height,
   diagnostic: state.lastDiagnostic
 });
 
-canvas.addEventListener('mousedown', (event) => {
+stage.addEventListener('mousedown', (event) => {
   state.drag = {
     x: event.clientX,
     y: event.clientY,
@@ -842,7 +945,7 @@ window.addEventListener('mousemove', (event) => {
     const node = nodeAtEvent(event);
     if (node !== state.hoveredNode) {
       state.hoveredNode = node;
-      canvas.style.cursor = node ? 'pointer' : 'grab';
+      stage.style.cursor = node ? 'pointer' : 'grab';
     }
     return;
   }
@@ -862,7 +965,7 @@ window.addEventListener('mouseup', (event) => {
   }
   const moved = state.drag.moved;
   state.drag = null;
-  canvas.style.cursor = 'grab';
+  stage.style.cursor = 'grab';
   if (!moved) {
     const node = nodeAtEvent(event);
     if (node) {
@@ -871,14 +974,14 @@ window.addEventListener('mouseup', (event) => {
   }
 });
 
-canvas.addEventListener('dblclick', (event) => {
+stage.addEventListener('dblclick', (event) => {
   const node = nodeAtEvent(event);
   if (node) {
     sendNodeAction('openNode', node);
   }
 });
 
-canvas.addEventListener('wheel', (event) => {
+stage.addEventListener('wheel', (event) => {
   event.preventDefault();
   zoomCamera(event.deltaY < 0 ? 1.12 : 0.9);
 }, { passive: false });
