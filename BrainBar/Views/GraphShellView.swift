@@ -67,7 +67,7 @@ struct GraphShellView: View {
 
             if mode.isFocus, model.status.graphHtmlExists {
                 GraphViewportControls(
-                    showsTopView: model.graphViewMode == .threeD,
+                    showsTopView: model.graphViewMode == .threeD && usesExperimental3DRenderer,
                     onZoomOut: model.zoomGraphOut,
                     onZoomIn: model.zoomGraphIn,
                     onFit: model.fitGraphView,
@@ -147,7 +147,7 @@ struct GraphShellView: View {
 
     @ViewBuilder
     private func activeGraphView(graphURL: URL, readAccessURL: URL) -> some View {
-        if mode.isFocus, model.graphViewMode == .threeD {
+        if mode.isFocus, model.graphViewMode == .threeD && usesExperimental3DRenderer {
             Graph3DWebView(
                 readAccessURL: readAccessURL,
                 reloadToken: model.graphReloadToken,
@@ -158,14 +158,25 @@ struct GraphShellView: View {
                 onOpenNode: model.openGraphNode
             )
         } else {
-            GraphWebView(
-                fileURL: graphURL,
-                readAccessURL: readAccessURL,
-                reloadToken: model.graphReloadToken,
-                sourceLens: model.graphSourceLens,
-                onOpenNode: model.openGraphNode
-            )
+            ZStack(alignment: .topLeading) {
+                GraphWebView(
+                    fileURL: graphURL,
+                    readAccessURL: readAccessURL,
+                    reloadToken: model.graphReloadToken,
+                    sourceLens: model.graphSourceLens,
+                    onOpenNode: model.openGraphNode
+                )
+
+                if mode.isFocus, model.graphViewMode == .threeD {
+                    ThreeDFallbackBadge()
+                        .padding(12)
+                }
+            }
         }
+    }
+
+    private var usesExperimental3DRenderer: Bool {
+        false
     }
 
     private var footer: some View {
@@ -466,6 +477,22 @@ private struct GraphViewportControls: View {
             }
         }
         .padding(.horizontal, 2)
+    }
+}
+
+private struct ThreeDFallbackBadge: View {
+    var body: some View {
+        Label("3D Beta paused", systemImage: "pause.circle")
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(.secondary.opacity(0.9))
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .background(.thinMaterial, in: Capsule())
+            .overlay {
+                Capsule()
+                    .stroke(.white.opacity(0.08), lineWidth: 1)
+            }
+            .help("Using the stable graph renderer while the experimental 3D renderer is under review.")
     }
 }
 
