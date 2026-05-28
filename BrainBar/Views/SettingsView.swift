@@ -98,8 +98,16 @@ struct SettingsView: View {
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
-        panel.level = .modalPanel
-        if panel.runModal() == .OK, let url = panel.url {
+        panel.level = .floating
+
+        if let settingsWindow = BrainBarWindowController.settingsWindow() {
+            panel.beginSheetModal(for: settingsWindow) { response in
+                guard response == .OK, let url = panel.url else {
+                    return
+                }
+                draft.vaultPath = url.path
+            }
+        } else if panel.runModal() == .OK, let url = panel.url {
             draft.vaultPath = url.path
         }
     }

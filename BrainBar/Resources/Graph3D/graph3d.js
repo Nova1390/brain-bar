@@ -2,6 +2,7 @@ import * as THREE from './vendor/three.module.min.js';
 import { OrbitControls } from './vendor/OrbitControls.js';
 
 const canvas = document.getElementById('graph-canvas');
+const stage = document.getElementById('stage');
 const overlay = document.getElementById('overlay');
 const search = document.getElementById('search');
 const searchResults = document.getElementById('search-results');
@@ -35,6 +36,7 @@ const state = {
   hoveredIndex: null,
   animationFrame: null,
   fitFrame: null,
+  resizeFrame: null,
   cameraPreset: 'Top view',
   lastDiagnostic: ''
 };
@@ -573,7 +575,7 @@ function resetTilt() {
 }
 
 function resize() {
-  const rect = canvas.parentElement.getBoundingClientRect();
+  const rect = stage.getBoundingClientRect();
   const width = Math.max(rect.width, 1);
   const height = Math.max(rect.height, 1);
   renderer.setSize(width, height, false);
@@ -586,6 +588,16 @@ function resize() {
   if (state.graph && state.positions.size > 0) {
     scheduleFitCamera('Fit');
   }
+}
+
+function scheduleResize() {
+  if (state.resizeFrame) {
+    cancelAnimationFrame(state.resizeFrame);
+  }
+  state.resizeFrame = requestAnimationFrame(() => {
+    state.resizeFrame = null;
+    resize();
+  });
 }
 
 function scheduleFitCamera(preset = 'Fit') {
@@ -620,7 +632,7 @@ function fitCameraToGraph(force = false, preset = 'Fit') {
   box.getCenter(center);
   box.getSize(size);
 
-  const rect = canvas.parentElement.getBoundingClientRect();
+  const rect = stage.getBoundingClientRect();
   const viewWidth = Math.max(rect.width, 1);
   const viewHeight = Math.max(rect.height, 1);
   const graphWidth = Math.max(size.x, 120);
@@ -775,6 +787,11 @@ window.brainBarRendererDiagnostics = () => ({
   lens: state.lens,
   communities: state.communities.length,
   cameraPreset: state.cameraPreset,
+  cameraZoom: camera.zoom,
+  canvasWidth: canvas.width,
+  canvasHeight: canvas.height,
+  stageWidth: Math.round(stage.getBoundingClientRect().width),
+  stageHeight: Math.round(stage.getBoundingClientRect().height),
   diagnostic: state.lastDiagnostic
 });
 
@@ -793,7 +810,8 @@ canvas.addEventListener('dblclick', (event) => {
 });
 
 search.addEventListener('input', renderSearchResults);
-window.addEventListener('resize', resize);
+window.addEventListener('resize', scheduleResize);
+new ResizeObserver(scheduleResize).observe(stage);
 
 resize();
 animate();

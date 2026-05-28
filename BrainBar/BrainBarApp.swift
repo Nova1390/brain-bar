@@ -18,7 +18,7 @@ struct BrainBarApp: App {
         Window("BrainBar Settings", id: "settings") {
             SettingsView(model: model)
                 .frame(width: 640, height: 640)
-                .background(WindowFrontAnchor(level: .normal))
+                .background(WindowFrontAnchor(level: .floating))
         }
         .windowResizability(.contentSize)
 
@@ -32,7 +32,7 @@ struct BrainBarApp: App {
 
 enum BrainBarWindowController {
     static func bringSettingsToFront() {
-        bringWindowToFront(title: "BrainBar Settings", level: .normal)
+        bringWindowToFront(title: "BrainBar Settings", level: .floating)
     }
 
     static func bringFocusGraphToFront() {
@@ -64,6 +64,11 @@ enum BrainBarWindowController {
                 .filter { $0.title.isEmpty }
                 .forEach { $0.orderOut(nil) }
         }
+    }
+
+    @MainActor
+    static func settingsWindow() -> NSWindow? {
+        NSApplication.shared.windows.first { $0.title == "BrainBar Settings" }
     }
 }
 
