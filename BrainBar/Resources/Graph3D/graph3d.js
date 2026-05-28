@@ -65,12 +65,12 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
 renderer.setClearColor(0x060912, 1);
 
 const controls = new OrbitControls(camera, renderer.domElement);
-controls.enableDamping = true;
-controls.dampingFactor = 0.08;
+controls.enableDamping = false;
+controls.enableRotate = false;
 controls.rotateSpeed = 0.65;
 controls.zoomSpeed = 0.72;
 controls.panSpeed = 0.55;
-controls.minZoom = 0.28;
+controls.minZoom = 0.08;
 controls.maxZoom = 5.2;
 controls.minPolarAngle = TOP_POLAR_ANGLE - MAX_TILT;
 controls.maxPolarAngle = TOP_POLAR_ANGLE + MAX_TILT;
@@ -78,11 +78,11 @@ controls.screenSpacePanning = true;
 controls.mouseButtons = {
   LEFT: THREE.MOUSE.PAN,
   MIDDLE: THREE.MOUSE.DOLLY,
-  RIGHT: THREE.MOUSE.ROTATE
+  RIGHT: THREE.MOUSE.PAN
 };
 controls.touches = {
   ONE: THREE.TOUCH.PAN,
-  TWO: THREE.TOUCH.DOLLY_ROTATE
+  TWO: THREE.TOUCH.DOLLY_PAN
 };
 controls.addEventListener('start', () => {
   state.cameraPreset = 'Manual';
@@ -244,16 +244,18 @@ function renderGraph() {
   nodeGeometry.setAttribute('position', new THREE.BufferAttribute(nodePositions, 3));
   nodeGeometry.setAttribute('color', new THREE.BufferAttribute(nodeColors, 3));
   const nodeMaterial = new THREE.PointsMaterial({
-    size: 8.4,
+    size: 7.2,
     sizeAttenuation: false,
     map: nodeTexture,
     alphaTest: 0.08,
     vertexColors: true,
     transparent: true,
     opacity: 0.96,
+    depthTest: false,
     depthWrite: false
   });
   nodesMesh = new THREE.Points(nodeGeometry, nodeMaterial);
+  nodesMesh.renderOrder = 2;
   scene.add(nodesMesh);
 
   const edgePositions = new Float32Array(state.visibleEdges.length * 6);
@@ -272,10 +274,12 @@ function renderGraph() {
   const edgeMaterial = new THREE.LineBasicMaterial({
     color: 0x8c9ec8,
     transparent: true,
-    opacity: 0.105,
+    opacity: 0.16,
+    depthTest: false,
     depthWrite: false
   });
   edgesMesh = new THREE.LineSegments(edgeGeometry, edgeMaterial);
+  edgesMesh.renderOrder = 1;
   scene.add(edgesMesh);
 
   updateSelectedMarker();
@@ -517,10 +521,11 @@ function updateSelectedMarker() {
   const color = new THREE.Color(colorForCommunity(state.selectedNode.community));
   const marker = new THREE.Mesh(
     new THREE.SphereGeometry(10, 24, 16),
-    new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.96 })
+    new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.96, depthTest: false, depthWrite: false })
   );
   marker.position.copy(state.positions.get(state.selectedNode.id));
   selectedMesh = marker;
+  selectedMesh.renderOrder = 3;
   scene.add(selectedMesh);
 }
 
@@ -648,6 +653,7 @@ function fitCameraToGraph(force = false, preset = 'Fit') {
 
 function placeCameraTopDown(center, zoom) {
   controls.target.copy(center);
+  controls.minZoom = 0.08;
   camera.position.set(center.x, center.y, center.z + CAMERA_DISTANCE);
   camera.up.set(0, 1, 0);
   camera.lookAt(center);
