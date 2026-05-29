@@ -781,6 +781,7 @@ function drawAmbientNodeMotion(width, height) {
 function drawActiveVisualOverlay(hoverTrails, edgeTrails, hoverAmount, width, height) {
   const nodeFocus = buildNodeFocusMap(hoverTrails, edgeTrails);
   const highlightedEdges = buildHighlightedEdges(hoverTrails, edgeTrails, width, height);
+  const labelCandidates = [];
   if (hoverAmount > 0.01) {
     visualContext.save();
     visualContext.lineWidth = 0.72 + hoverAmount * 0.68;
@@ -822,6 +823,7 @@ function drawActiveVisualOverlay(hoverTrails, edgeTrails, hoverAmount, width, he
     const fillColor = isSelected || isHovered || isNeighbor
       ? accentColorForCommunity(node.community)
       : colorForCommunity(node.community);
+    const labelAmount = isSelected ? 1 : Math.max(selfAmount, neighborAmount * 0.82);
 
     if (isSelected || isHovered) {
       visualContext.save();
@@ -847,7 +849,89 @@ function drawActiveVisualOverlay(hoverTrails, edgeTrails, hoverAmount, width, he
       visualContext.strokeStyle = selectedStrokeColor;
       visualContext.stroke();
     }
+
+    if (labelAmount > 0.14) {
+      labelCandidates.push({
+        node,
+        point,
+        radius,
+        amount: labelAmount,
+        isPrimary: isSelected || isHovered,
+        degree,
+        color: accentColorForCommunity(node.community)
+      });
+    }
   });
+
+  drawActiveNodeLabels(labelCandidates, width, height);
+}
+
+function drawActiveNodeLabels(candidates, width, height) {
+  if (!candidates.length) {
+    return;
+  }
+
+  const maxLabels = state.selectedNode ? 16 : 10;
+  const placedLabels = [];
+  const orderedCandidates = candidates
+    .sort((left, right) => {
+      const leftScore = (left.isPrimary ? 100 : 0) + left.amount * 12 + Math.log1p(left.degree);
+      const rightScore = (right.isPrimary ? 100 : 0) + right.amount * 12 + Math.log1p(right.degree);
+      return rightScore - leftScore;
+    })
+    .slice(0, maxLabels * 2);
+
+  visualContext.save();
+  visualContext.textBaseline = 'middle';
+  orderedCandidates.forEach((candidate) => {
+    if (placedLabels.length >= maxLabels) {
+      return;
+    }
+
+    const label = compactNodeLabel(candidate.node.label);
+    const fontSize = candidate.isPrimary ? 12.5 : 11;
+    const alpha = clamp(candidate.amount, 0, 1);
+    visualContext.font = `${candidate.isPrimary ? 700 : 600} ${fontSize}px -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif`;
+    const metrics = visualContext.measureText(label);
+    const horizontalPadding = candidate.isPrimary ? 9 : 7;
+    const labelWidth = metrics.width + horizontalPadding * 2;
+    const labelHeight = candidate.isPrimary ? 24 : 20;
+    const preferredRight = candidate.point.x + candidate.radius + 10 + labelWidth < width - 10;
+    const x = preferredRight
+      ? candidate.point.x + candidate.radius + 10
+      : candidate.point.x - candidate.radius - 10 - labelWidth;
+    const y = clamp(candidate.point.y - candidate.radius - labelHeight * 0.35, 12, height - labelHeight - 12);
+    const box = {
+      x: clamp(x, 10, width - labelWidth - 10),
+      y,
+      width: labelWidth,
+      height: labelHeight
+    };
+
+    if (placedLabels.some((placed) => rectanglesOverlap(placed, box))) {
+      return;
+    }
+    placedLabels.push(box);
+
+    visualContext.save();
+    visualContext.globalAlpha = alpha;
+    if (candidate.isPrimary) {
+      visualContext.shadowColor = 'rgba(214, 226, 255, 0.18)';
+      visualContext.shadowBlur = 12;
+    }
+    roundedRect(visualContext, box.x, box.y, box.width, box.height, 9);
+    visualContext.fillStyle = candidate.isPrimary ? 'rgba(16, 20, 34, 0.82)' : 'rgba(10, 14, 25, 0.62)';
+    visualContext.fill();
+    visualContext.lineWidth = candidate.isPrimary ? 0.9 : 0.65;
+    visualContext.strokeStyle = candidate.color;
+    visualContext.globalAlpha = alpha * (candidate.isPrimary ? 0.62 : 0.38);
+    visualContext.stroke();
+    visualContext.globalAlpha = alpha * (candidate.isPrimary ? 0.96 : 0.72);
+    visualContext.fillStyle = candidate.isPrimary ? '#eef3ff' : '#c4ccdc';
+    visualContext.fillText(label, box.x + horizontalPadding, box.y + box.height / 2);
+    visualContext.restore();
+  });
+  visualContext.restore();
 }
 
 function buildHighlightedEdges(hoverTrails, edgeTrails, width, height) {
@@ -1344,6 +1428,36 @@ function distanceToSegment(point, start, end) {
   const x = start.x + dx * t;
   const y = start.y + dy * t;
   return Math.hypot(point.x - x, point.y - y);
+}
+
+function compactNodeLabel(label) {
+  const normalized = String(label || 'Untitled').replace(/\s+/g, ' ').trim();
+  return normalized.length > 42 ? `${normalized.slice(0, 39)}...` : normalized;
+}
+
+function rectanglesOverlap(left, right) {
+  const padding = 5;
+  return !(
+    left.x + left.width + padding < right.x ||
+    right.x + right.width + padding < left.x ||
+    left.y + left.height + padding < right.y ||
+    right.y + right.height + padding < left.y
+  );
+}
+
+function roundedRect(context, x, y, width, height, radius) {
+  const r = Math.min(radius, width / 2, height / 2);
+  context.beginPath();
+  context.moveTo(x + r, y);
+  context.lineTo(x + width - r, y);
+  context.quadraticCurveTo(x + width, y, x + width, y + r);
+  context.lineTo(x + width, y + height - r);
+  context.quadraticCurveTo(x + width, y + height, x + width - r, y + height);
+  context.lineTo(x + r, y + height);
+  context.quadraticCurveTo(x, y + height, x, y + height - r);
+  context.lineTo(x, y + r);
+  context.quadraticCurveTo(x, y, x + r, y);
+  context.closePath();
 }
 
 function resetCamera() {
