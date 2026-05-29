@@ -428,6 +428,129 @@ private extension GraphWebView {
         overlay.hidden = !message;
       };
 
+      const rebuildEmptyCommunityLegend = () => {
+        try {
+          const legend = document.getElementById('legend');
+          if (!legend || legend.querySelector('.legend-item')) {
+            return;
+          }
+
+          const rawNodes = typeof RAW_NODES !== 'undefined'
+            ? RAW_NODES
+            : (typeof nodesDS !== 'undefined' ? nodesDS.get() : []);
+          if (!Array.isArray(rawNodes) || rawNodes.length === 0) {
+            return;
+          }
+
+          const communities = new Map();
+          rawNodes.forEach((node) => {
+            const cid = node.community ?? node._community ?? node.community_id;
+            if (cid === undefined || cid === null || cid === '') {
+              return;
+            }
+            const key = String(cid);
+            const existing = communities.get(key) || {
+              cid,
+              label: node.community_name || node._community_name || `Community ${key}`,
+              color: node.color?.background || node.color?.border || '#8fa2ff',
+              count: 0
+            };
+            existing.count += 1;
+            communities.set(key, existing);
+          });
+
+          if (communities.size === 0) {
+            return;
+          }
+
+          const updateFallbackSelectAll = () => {
+            const checkbox = document.getElementById('select-all-cb');
+            if (!checkbox) {
+              return;
+            }
+            const boxes = Array.from(document.querySelectorAll('.legend-cb'));
+            const checked = boxes.filter((box) => box.checked).length;
+            checkbox.checked = checked === boxes.length;
+            checkbox.indeterminate = checked > 0 && checked < boxes.length;
+          };
+
+          const setCommunityVisible = (community, visible, item) => {
+            item.classList.toggle('dimmed', !visible);
+            if (typeof nodesDS !== 'undefined') {
+              const updates = rawNodes
+                .filter((node) => String(node.community ?? node._community ?? node.community_id) === String(community.cid))
+                .map((node) => ({ id: node.id, hidden: !visible }));
+              nodesDS.update(updates);
+            }
+            updateFallbackSelectAll();
+            if (typeof network !== 'undefined') {
+              network.redraw();
+            }
+          };
+
+          const sortedCommunities = Array.from(communities.values())
+            .sort((a, b) => b.count - a.count || String(a.label).localeCompare(String(b.label)));
+
+          sortedCommunities.forEach((community) => {
+            const item = document.createElement('div');
+            item.className = 'legend-item';
+
+            const checkbox = document.createElement('input');
+            checkbox.type = 'checkbox';
+            checkbox.className = 'legend-cb';
+            checkbox.checked = true;
+            checkbox.addEventListener('change', (event) => {
+              event.stopPropagation();
+              setCommunityVisible(community, checkbox.checked, item);
+            });
+
+            const dot = document.createElement('div');
+            dot.className = 'legend-dot';
+            dot.style.background = community.color;
+
+            const label = document.createElement('span');
+            label.className = 'legend-label';
+            label.textContent = community.label;
+
+            const count = document.createElement('span');
+            count.className = 'legend-count';
+            count.textContent = String(community.count);
+
+            item.append(checkbox, dot, label, count);
+            item.addEventListener('click', (event) => {
+              if (event.target === checkbox) {
+                return;
+              }
+              checkbox.checked = !checkbox.checked;
+              checkbox.dispatchEvent(new Event('change'));
+            });
+            legend.appendChild(item);
+          });
+
+          const selectAll = document.getElementById('select-all-cb');
+          if (selectAll && !selectAll.dataset.brainBarFallbackInstalled) {
+            selectAll.dataset.brainBarFallbackInstalled = 'true';
+            selectAll.addEventListener('change', () => {
+              const visible = selectAll.checked;
+              document.querySelectorAll('.legend-cb').forEach((checkbox) => {
+                checkbox.checked = visible;
+              });
+              sortedCommunities.forEach((community) => {
+                const item = Array.from(document.querySelectorAll('.legend-item'))
+                  .find((candidate) => candidate.querySelector('.legend-label')?.textContent === community.label);
+                if (item) {
+                  setCommunityVisible(community, visible, item);
+                }
+              });
+            });
+          }
+
+          updateFallbackSelectAll();
+        } catch (error) {
+          console.debug('BrainBar community legend fallback skipped', error);
+        }
+      };
+
       const ensureGraphLensState = () => {
         try {
           if (typeof nodesDS === 'undefined' || typeof edgesDS === 'undefined') {
@@ -639,6 +762,7 @@ private extension GraphWebView {
 
       const applyBrainBarGraphRuntime = () => {
         applyNetworkTheme();
+        rebuildEmptyCommunityLegend();
         installNodeActionBridge();
         ensureOpenNoteButton();
         const selectedNodeId = typeof network !== 'undefined' ? network.getSelectedNodes()?.[0] : null;

@@ -32,6 +32,44 @@ enum GraphSourceLens: String, CaseIterable, Identifiable, Sendable {
     }
 }
 
+enum GraphViewMode: String, CaseIterable, Identifiable, Sendable {
+    case twoD
+    case threeD
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .twoD:
+            return "2D"
+        case .threeD:
+            return "3D Beta"
+        }
+    }
+
+    var help: String {
+        switch self {
+        case .twoD:
+            return "Show the standard Graphify view"
+        case .threeD:
+            return "Show the experimental controlled 3D focus graph"
+        }
+    }
+}
+
+enum GraphViewportCommandKind: String, Sendable {
+    case fit
+    case zoomIn
+    case zoomOut
+    case topView
+    case resetTilt
+}
+
+struct GraphViewportCommand: Equatable, Sendable {
+    let id: Int
+    let kind: GraphViewportCommandKind
+}
+
 @MainActor
 @Observable
 final class AppModel {
@@ -44,12 +82,16 @@ final class AppModel {
     var errorMessage: String?
     var graphReloadToken = 0
     var graphSourceLens: GraphSourceLens = .all
+    var graphViewMode: GraphViewMode = .twoD
+    var graph3DResetToken = 0
+    var graphViewportCommand: GraphViewportCommand?
 
     @ObservationIgnored private let configurationManager: ConfigurationManager
     @ObservationIgnored private let commandRunner: CommandRunner
     @ObservationIgnored private let vaultStatusService: VaultStatusService
     @ObservationIgnored private let graphServerController: GraphServerController
     @ObservationIgnored private let notificationService: NotificationService
+    @ObservationIgnored private var nextGraphViewportCommandID = 0
 
     var configPath: String {
         configurationManager.configURL.path
@@ -115,6 +157,45 @@ final class AppModel {
 
     func setGraphSourceLens(_ lens: GraphSourceLens) {
         graphSourceLens = lens
+        errorMessage = nil
+    }
+
+    func setGraphViewMode(_ mode: GraphViewMode) {
+        graphViewMode = mode
+        errorMessage = nil
+    }
+
+    func resetGraph3DCamera() {
+        graph3DResetToken += 1
+        sendGraphViewportCommand(.topView)
+    }
+
+    func resetGraph3DTilt() {
+        sendGraphViewportCommand(.resetTilt)
+    }
+
+    func fitGraphView() {
+        sendGraphViewportCommand(.fit)
+    }
+
+    func zoomGraphIn() {
+        sendGraphViewportCommand(.zoomIn)
+    }
+
+    func zoomGraphOut() {
+        sendGraphViewportCommand(.zoomOut)
+    }
+
+    func reportGraphRendererIssue(_ message: String) {
+        guard !message.isEmpty else {
+            return
+        }
+        errorMessage = "3D graph issue: \(message)"
+    }
+
+    private func sendGraphViewportCommand(_ kind: GraphViewportCommandKind) {
+        nextGraphViewportCommandID += 1
+        graphViewportCommand = GraphViewportCommand(id: nextGraphViewportCommandID, kind: kind)
         errorMessage = nil
     }
 

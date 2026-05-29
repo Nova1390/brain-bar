@@ -92,11 +92,22 @@ struct SettingsView: View {
     }
 
     private func chooseVault() {
+        NSApplication.shared.activate(ignoringOtherApps: true)
+        BrainBarWindowController.bringSettingsToFront()
         let panel = NSOpenPanel()
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
-        if panel.runModal() == .OK, let url = panel.url {
+        panel.level = .floating
+
+        if let settingsWindow = BrainBarWindowController.settingsWindow() {
+            panel.beginSheetModal(for: settingsWindow) { response in
+                guard response == .OK, let url = panel.url else {
+                    return
+                }
+                draft.vaultPath = url.path
+            }
+        } else if panel.runModal() == .OK, let url = panel.url {
             draft.vaultPath = url.path
         }
     }

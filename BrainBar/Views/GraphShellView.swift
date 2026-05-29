@@ -6,8 +6,22 @@ struct GraphShellView: View {
         case popover
         case focus
 
+        var isFocus: Bool {
+            switch self {
+            case .popover:
+                return false
+            case .focus:
+                return true
+            }
+        }
+
         var showsFocusButton: Bool {
-            self == .popover
+            switch self {
+            case .popover:
+                return true
+            case .focus:
+                return false
+            }
         }
     }
 
@@ -40,14 +54,38 @@ struct GraphShellView: View {
                     selectedLens: model.graphSourceLens,
                     onSelect: model.setGraphSourceLens
                 )
+
+                if mode.isFocus {
+                    GraphViewModeControl(
+                        selectedMode: model.graphViewMode,
+                        onSelect: model.setGraphViewMode
+                    )
+                }
             }
 
             Spacer(minLength: 12)
 
-            GraphActionMenu(model: model, showsFocusButton: mode.showsFocusButton)
+            if mode.isFocus, model.status.graphHtmlExists {
+                GraphViewportControls(
+                    showsTopView: model.graphViewMode == .threeD && usesExperimental3DRenderer,
+                    onZoomOut: model.zoomGraphOut,
+                    onZoomIn: model.zoomGraphIn,
+                    onFit: model.fitGraphView,
+                    onTopView: model.resetGraph3DCamera,
+                    onResetTilt: model.resetGraph3DTilt
+                )
+            }
+
+            GraphActionMenu(model: model)
 
             IconButton(systemImage: "gearshape", help: "Settings") {
                 openSettings()
+            }
+
+            if mode.showsFocusButton {
+                IconButton(systemImage: "macwindow", help: "Open Focus Window") {
+                    openFocusWindow()
+                }
             }
 
             IconButton(systemImage: model.isRefreshingGraph ? "hourglass" : "arrow.clockwise", help: "Refresh status") {
@@ -84,13 +122,7 @@ struct GraphShellView: View {
                 }
             }
         } else if let graphURL = model.graphFileURL, let readAccessURL = model.graphReadAccessURL {
-            GraphWebView(
-                fileURL: graphURL,
-                readAccessURL: readAccessURL,
-                reloadToken: model.graphReloadToken,
-                sourceLens: model.graphSourceLens,
-                onOpenNode: model.openGraphNode
-            )
+            activeGraphView(graphURL: graphURL, readAccessURL: readAccessURL)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(.black.opacity(0.16))
                 .clipShape(.rect(cornerRadius: 10))
@@ -111,6 +143,40 @@ struct GraphShellView: View {
                 }
             }
         }
+    }
+
+    @ViewBuilder
+    private func activeGraphView(graphURL: URL, readAccessURL: URL) -> some View {
+        if mode.isFocus, model.graphViewMode == .threeD && usesExperimental3DRenderer {
+            Graph3DWebView(
+                readAccessURL: readAccessURL,
+                reloadToken: model.graphReloadToken,
+                sourceLens: model.graphSourceLens,
+                resetCameraToken: model.graph3DResetToken,
+                viewportCommand: model.graphViewportCommand,
+                onDiagnostic: model.reportGraphRendererIssue,
+                onOpenNode: model.openGraphNode
+            )
+        } else {
+            ZStack(alignment: .topLeading) {
+                GraphWebView(
+                    fileURL: graphURL,
+                    readAccessURL: readAccessURL,
+                    reloadToken: model.graphReloadToken,
+                    sourceLens: model.graphSourceLens,
+                    onOpenNode: model.openGraphNode
+                )
+
+                if mode.isFocus, model.graphViewMode == .threeD {
+                    ThreeDFallbackBadge()
+                        .padding(12)
+                }
+            }
+        }
+    }
+
+    private var usesExperimental3DRenderer: Bool {
+        true
     }
 
     private var footer: some View {
@@ -151,7 +217,13 @@ struct GraphShellView: View {
 
     private func openSettings() {
         openWindow(id: "settings")
-        NSApplication.shared.activate(ignoringOtherApps: true)
+        BrainBarWindowController.bringSettingsToFront()
+    }
+
+    private func openFocusWindow() {
+        openWindow(id: "graph-focus")
+        BrainBarWindowController.bringFocusGraphToFront()
+        BrainBarWindowController.dismissMenuBarWindow()
     }
 }
 
@@ -169,7 +241,6 @@ struct FocusGraphView: View {
 
 private struct GraphActionMenu: View {
     let model: AppModel
-    let showsFocusButton: Bool
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
@@ -196,14 +267,6 @@ private struct GraphActionMenu: View {
                     Label("Open Externally", systemImage: "safari")
                 }
 
-                if showsFocusButton {
-                    Button {
-                        openWindow(id: "graph-focus")
-                        NSApplication.shared.activate(ignoringOtherApps: true)
-                    } label: {
-                        Label("Open Focus Window", systemImage: "macwindow")
-                    }
-                }
             }
 
             Section("Vault") {
@@ -298,7 +361,7 @@ private struct GraphActionMenu: View {
 
     private func openSettings() {
         openWindow(id: "settings")
-        NSApplication.shared.activate(ignoringOtherApps: true)
+        BrainBarWindowController.bringSettingsToFront()
     }
 
     private func copyToPasteboard(_ text: String) {
@@ -348,6 +411,88 @@ private struct GraphLensControl: View {
             Capsule()
                 .stroke(.white.opacity(0.06), lineWidth: 1)
         }
+    }
+}
+
+private struct GraphViewModeControl: View {
+    let selectedMode: GraphViewMode
+    let onSelect: (GraphViewMode) -> Void
+
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(GraphViewMode.allCases) { mode in
+                Button {
+                    onSelect(mode)
+                } label: {
+                    Text(mode.label)
+                        .font(.caption.weight(.semibold))
+                        .lineLimit(1)
+                        .frame(minWidth: 34)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 5)
+                        .contentShape(.rect)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(selectedMode == mode ? .primary : .secondary)
+                .background {
+                    if selectedMode == mode {
+                        Capsule()
+                            .fill(.white.opacity(0.12))
+                            .overlay {
+                                Capsule()
+                                    .stroke(.white.opacity(0.08), lineWidth: 1)
+                            }
+                    }
+                }
+                .help(mode.help)
+                .accessibilityLabel(mode.label)
+                .accessibilityHint(mode.help)
+            }
+        }
+        .padding(3)
+        .background(.thinMaterial, in: Capsule())
+        .overlay {
+            Capsule()
+                .stroke(.white.opacity(0.06), lineWidth: 1)
+        }
+    }
+}
+
+private struct GraphViewportControls: View {
+    let showsTopView: Bool
+    let onZoomOut: () -> Void
+    let onZoomIn: () -> Void
+    let onFit: () -> Void
+    let onTopView: () -> Void
+    let onResetTilt: () -> Void
+
+    var body: some View {
+        HStack(spacing: 4) {
+            IconButton(systemImage: "minus.magnifyingglass", help: "Zoom out", action: onZoomOut)
+            IconButton(systemImage: "plus.magnifyingglass", help: "Zoom in", action: onZoomIn)
+            IconButton(systemImage: "arrow.up.left.and.down.right.magnifyingglass", help: "Fit graph", action: onFit)
+            if showsTopView {
+                IconButton(systemImage: "viewfinder", help: "Top view", action: onTopView)
+                IconButton(systemImage: "rotate.3d", help: "Reset tilt", action: onResetTilt)
+            }
+        }
+        .padding(.horizontal, 2)
+    }
+}
+
+private struct ThreeDFallbackBadge: View {
+    var body: some View {
+        Label("3D Beta paused", systemImage: "pause.circle")
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(.secondary.opacity(0.9))
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .background(.thinMaterial, in: Capsule())
+            .overlay {
+                Capsule()
+                    .stroke(.white.opacity(0.08), lineWidth: 1)
+            }
+            .help("Using the stable graph renderer while the experimental 3D renderer is under review.")
     }
 }
 

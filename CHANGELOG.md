@@ -4,6 +4,13 @@ All notable changes to BrainBar are documented here.
 
 ## Unreleased
 
+- Added an experimental custom 3D graph mode for the Focus Window.
+- Added a session-only 2D/3D view switch that leaves the menu bar popover on the standard 2D graph.
+- Added local bundled Three.js renderer assets for offline 3D graph rendering.
+- Added 3D Source Lens support for All, Graphify, and Obsidian graph layers.
+- Added 3D node inspection and Open Note routing through the existing vault-safe source opener.
+- Added documentation for the experimental 3D Focus Graph architecture and promotion criteria.
+
 ## 0.2.0 - 2026-05-27
 
 - Added a dedicated 1280x640 GitHub social preview image.

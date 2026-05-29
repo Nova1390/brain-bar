@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>BrainBar 3D Graph</title>
+    <link rel="stylesheet" href="./graph3d.css">
+  </head>
+  <body>
+    <main id="app">
+      <section id="stage" aria-label="3D graph">
+        <canvas id="graph-visual" aria-hidden="true"></canvas>
+        <div id="hud" aria-live="polite" hidden></div>
+        <div id="overlay" hidden></div>
+      </section>
+      <aside id="sidebar">
+        <div id="search-wrap">
+          <input id="search" type="search" placeholder="Search nodes..." autocomplete="off">
+          <div id="search-results"></div>
+        </div>
+        <section id="info-panel">
+          <h2>Node Info</h2>
+          <div id="node-info">
+            <p class="muted italic">Click a node to inspect it</p>
+          </div>
+        </section>
+        <section id="legend-wrap">
+          <h2>Communities</h2>
+          <div id="legend"></div>
+        </section>
+        <div id="stats"></div>
+      </aside>
+    </main>
+    <script>
+      const showBootError = (message) => {
+        const overlay = document.getElementById('overlay');
+        if (!overlay) return;
+        overlay.textContent = message;
+        overlay.hidden = false;
+      };
+      window.addEventListener('error', (event) => {
+        showBootError(event.message || '3D graph failed to load');
+      });
+      window.addEventListener('unhandledrejection', (event) => {
+        showBootError(event.reason?.message || '3D graph failed to load');
+      });
+    </script>
+    <script type="module" src="./graph3d.js"></script>
+  </body>
+</html>
