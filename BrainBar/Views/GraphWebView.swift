@@ -164,10 +164,10 @@ private extension GraphWebView {
         }
 
         #sidebar {
-          width: min(31vw, 340px) !important;
-          background: rgba(17, 19, 31, 0.80) !important;
+          width: clamp(280px, 25vw, 340px) !important;
+          background: rgba(13, 15, 26, 0.84) !important;
           border-left: 1px solid rgba(255, 255, 255, 0.075) !important;
-          box-shadow: -26px 0 70px rgba(0, 0, 0, 0.28) !important;
+          box-shadow: -28px 0 74px rgba(0, 0, 0, 0.34) !important;
           backdrop-filter: blur(24px) saturate(1.16);
           -webkit-backdrop-filter: blur(24px) saturate(1.16);
         }
@@ -179,8 +179,21 @@ private extension GraphWebView {
           border-color: rgba(255, 255, 255, 0.075) !important;
         }
 
+        #search-wrap {
+          padding: 14px !important;
+        }
+
+        #info-panel,
+        #legend-wrap {
+          padding: 18px 16px !important;
+        }
+
+        #legend-wrap {
+          min-height: 0 !important;
+        }
+
         #search {
-          min-height: 42px !important;
+          min-height: 40px !important;
           padding: 10px 13px !important;
           border: 1px solid rgba(156, 170, 255, 0.24) !important;
           border-radius: 12px !important;
@@ -215,10 +228,19 @@ private extension GraphWebView {
           font-size: 13px !important;
         }
 
+        #stats {
+          padding: 11px 16px !important;
+          background: rgba(8, 10, 18, 0.36) !important;
+          color: rgba(244, 246, 255, 0.62) !important;
+          font-size: 12px !important;
+          font-weight: 650 !important;
+          letter-spacing: 0 !important;
+        }
+
         .legend-item,
         .search-item {
-          min-height: 28px !important;
-          padding: 5px 7px !important;
+          min-height: 25px !important;
+          padding: 4px 6px !important;
           border-radius: 8px !important;
           transition: background 120ms ease, opacity 120ms ease !important;
         }
@@ -293,6 +315,61 @@ private extension GraphWebView {
           background: rgba(152, 169, 255, 0.20);
         }
 
+        .vis-tooltip {
+          display: none !important;
+          visibility: hidden !important;
+          opacity: 0 !important;
+          pointer-events: none !important;
+        }
+
+        #brainbar-graph-tooltip {
+          position: fixed;
+          z-index: 1000;
+          max-width: 260px;
+          padding: 7px 9px;
+          border: 1px solid rgba(244, 246, 255, 0.12);
+          border-radius: 9px;
+          background: rgba(10, 12, 21, 0.84);
+          color: rgba(244, 246, 255, 0.84);
+          font: 650 11px -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+          letter-spacing: 0;
+          line-height: 1.25;
+          box-shadow: 0 16px 46px rgba(0, 0, 0, 0.34);
+          backdrop-filter: blur(16px) saturate(1.12);
+          -webkit-backdrop-filter: blur(16px) saturate(1.12);
+          opacity: 0;
+          transform: translate3d(-50%, -4px, 0);
+          transition: opacity 120ms ease, transform 120ms ease;
+          pointer-events: none;
+        }
+
+        #brainbar-graph-tooltip.visible {
+          opacity: 1;
+          transform: translate3d(-50%, 0, 0);
+        }
+
+        #brainbar-graph-tooltip[hidden] {
+          display: block !important;
+          opacity: 0 !important;
+        }
+
+        #brainbar-graph-tooltip .eyebrow {
+          display: block;
+          margin-bottom: 3px;
+          color: rgba(244, 246, 255, 0.46);
+          font-size: 9px;
+          font-weight: 750;
+          letter-spacing: 0.11em;
+          text-transform: uppercase;
+        }
+
+        #brainbar-graph-tooltip .label {
+          display: block;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
         #brainbar-lens-empty {
           position: fixed;
           left: 50%;
@@ -339,6 +416,88 @@ private extension GraphWebView {
       const edgeTarget = (edge) => edge.to ?? edge.target;
 
       const sourceFileForNode = (node) => node?._source_file || node?.source_file || '';
+
+      const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+
+      const asLabel = (value) => String(value || '').replace(/\\s+/g, ' ').trim();
+
+      const cleanRelationshipLabel = (value) => {
+        const label = asLabel(value)
+          .replace(/\\s*\\[[^\\]]*EXTRACTED[^\\]]*\\]\\s*/gi, ' ')
+          .replace(/_/g, ' ')
+          .replace(/\\s+/g, ' ')
+          .trim();
+        if (!label || /^contains$/i.test(label)) {
+          return '';
+        }
+        return label.length > 64 ? `${label.slice(0, 61)}...` : label;
+      };
+
+      const nodeTooltipLabel = (node) => {
+        const label = asLabel(node?.label || node?.title || node?.id);
+        return label.length > 72 ? `${label.slice(0, 69)}...` : label;
+      };
+
+      const ensurePremiumTooltip = () => {
+        let tooltip = document.getElementById('brainbar-graph-tooltip');
+        if (!tooltip) {
+          tooltip = document.createElement('div');
+          tooltip.id = 'brainbar-graph-tooltip';
+          tooltip.hidden = true;
+          document.body.appendChild(tooltip);
+        }
+        return tooltip;
+      };
+
+      const movePremiumTooltip = (event) => {
+        const tooltip = ensurePremiumTooltip();
+        const x = event?.clientX ?? event?.pageX ?? 0;
+        const y = event?.clientY ?? event?.pageY ?? 0;
+        tooltip.style.left = `${x}px`;
+        tooltip.style.top = `${Math.max(14, y - 38)}px`;
+      };
+
+      const showPremiumTooltip = (eyebrow, label, event) => {
+        const cleanLabel = asLabel(label);
+        if (!cleanLabel) {
+          return;
+        }
+        const tooltip = ensurePremiumTooltip();
+        tooltip.innerHTML = `<span class="eyebrow"></span><span class="label"></span>`;
+        tooltip.querySelector('.eyebrow').textContent = eyebrow;
+        tooltip.querySelector('.label').textContent = cleanLabel;
+        movePremiumTooltip(event);
+        tooltip.hidden = false;
+        requestAnimationFrame(() => tooltip.classList.add('visible'));
+      };
+
+      const hidePremiumTooltip = () => {
+        const tooltip = ensurePremiumTooltip();
+        tooltip.classList.remove('visible');
+        window.clearTimeout(window.__brainBarTooltipHideTimer);
+        window.__brainBarTooltipHideTimer = window.setTimeout(() => {
+          if (!tooltip.classList.contains('visible')) {
+            tooltip.hidden = true;
+          }
+        }, 140);
+      };
+
+      const relationForEdge = (edge, state) => {
+        if (!edge) {
+          return '';
+        }
+        const metadata = state ? metadataForEdge(edge, state) : edge;
+        return cleanRelationshipLabel(
+          metadata?.relation ||
+          metadata?.context ||
+          metadata?.label ||
+          metadata?.title ||
+          edge?.relation ||
+          edge?.context ||
+          edge?.label ||
+          edge?.title
+        );
+      };
 
       const sendNodeAction = (action, node) => {
         if (!node || !window.webkit?.messageHandlers?.brainBarNodeAction) {
@@ -610,6 +769,51 @@ private extension GraphWebView {
         return values.some((value) => value === 'obsidian_wikilink' || value.includes('obsidian_wikilink'));
       };
 
+      const installPremium2DInteraction = () => {
+        if (window.__brainBarPremium2DInteractionInstalled || typeof network === 'undefined') {
+          return;
+        }
+        window.__brainBarPremium2DInteractionInstalled = true;
+
+        document.addEventListener('mousemove', movePremiumTooltip, { passive: true });
+
+        network.on('hoverNode', (params) => {
+          const node = typeof nodesDS !== 'undefined' ? nodesDS.get(params.node) : null;
+          showPremiumTooltip('Node', nodeTooltipLabel(node), params.event?.srcEvent || params.event);
+        });
+
+        network.on('blurNode', () => {
+          hidePremiumTooltip();
+        });
+
+        network.on('hoverEdge', (params) => {
+          const edge = typeof edgesDS !== 'undefined' ? edgesDS.get(params.edge) : null;
+          const relation = relationForEdge(edge, ensureGraphLensState());
+          if (relation) {
+            showPremiumTooltip('Relationship', relation, params.event?.srcEvent || params.event);
+          }
+        });
+
+        network.on('blurEdge', () => {
+          hidePremiumTooltip();
+        });
+
+        network.on('selectNode', (params) => {
+          hidePremiumTooltip();
+          const selectedNodeId = params.nodes?.[0];
+          if (selectedNodeId) {
+            addOpenNoteButton(selectedNodeId);
+          }
+        });
+
+        network.on('deselectNode', () => {
+          hidePremiumTooltip();
+        });
+
+        network.on('dragStart', hidePremiumTooltip);
+        network.on('zoom', hidePremiumTooltip);
+      };
+
       window.brainBarApplyGraphLens = (lens) => {
         const state = ensureGraphLensState();
         if (!state) {
@@ -662,6 +866,7 @@ private extension GraphWebView {
           if (selectedLens !== 'all' && visibleNodeIds.size > 0) {
             network.fit({
               nodes: Array.from(visibleNodeIds),
+              maxZoomLevel: 1.25,
               animation: { duration: 220, easingFunction: 'easeInOutQuad' }
             });
           }
@@ -672,14 +877,20 @@ private extension GraphWebView {
         try {
           if (typeof network !== 'undefined') {
             network.setOptions({
+              interaction: {
+                hover: true,
+                hoverConnectedEdges: true,
+                selectConnectedEdges: true,
+                tooltipDelay: 120
+              },
               nodes: {
                 shape: 'dot',
                 borderWidth: 0,
-                borderWidthSelected: 3,
+                borderWidthSelected: 2,
                 shadow: { enabled: false },
                 scaling: {
-                  min: 6,
-                  max: 24,
+                  min: 5,
+                  max: 20,
                   label: { enabled: false }
                 },
                 font: {
@@ -690,15 +901,17 @@ private extension GraphWebView {
               },
               edges: {
                 color: {
-                  color: 'rgba(145, 158, 181, 0.23)',
-                  highlight: 'rgba(210, 219, 255, 0.74)',
-                  hover: 'rgba(210, 219, 255, 0.56)'
+                  color: 'rgba(132, 148, 178, 0.25)',
+                  highlight: 'rgba(238, 242, 255, 0.84)',
+                  hover: 'rgba(218, 228, 255, 0.70)'
                 },
-                width: 1,
-                selectionWidth: 2,
+                width: 0.9,
+                selectionWidth: 1.8,
+                hoverWidth: 1.5,
                 smooth: {
-                  type: 'dynamic',
-                  roundness: 0.16
+                  enabled: true,
+                  type: 'continuous',
+                  roundness: 0.12
                 },
                 arrows: {
                   to: { enabled: false }
@@ -708,13 +921,30 @@ private extension GraphWebView {
           }
 
           if (typeof nodesDS !== 'undefined') {
+            const degreeByNode = new Map();
+            if (typeof edgesDS !== 'undefined') {
+              edgesDS.get().forEach((edge) => {
+                const source = edgeSource(edge);
+                const target = edgeTarget(edge);
+                if (source !== undefined && source !== null) {
+                  degreeByNode.set(source, (degreeByNode.get(source) || 0) + 1);
+                }
+                if (target !== undefined && target !== null) {
+                  degreeByNode.set(target, (degreeByNode.get(target) || 0) + 1);
+                }
+              });
+            }
             const themedNodes = nodesDS.get().map((node) => {
               const color = node.color || {};
-              const base = color.background || color.border || '#8fa2ff';
+              const base = node._brainBarBaseColor || color.background || color.border || '#8fa2ff';
+              const degree = degreeByNode.get(node.id) || Number(node.value) || 1;
               return {
                 id: node.id,
+                title: '',
+                _brainBarBaseColor: base,
                 borderWidth: 0,
-                borderWidthSelected: 3,
+                borderWidthSelected: 2,
+                size: clamp(3.8 + Math.sqrt(degree) * 1.1, 4.2, 16),
                 color: {
                   background: base,
                   border: base,
@@ -741,12 +971,16 @@ private extension GraphWebView {
           if (typeof edgesDS !== 'undefined') {
             const themedEdges = edgesDS.get().map((edge) => ({
               id: edge.id,
+              title: '',
+              _brainBarBaseWidth: Math.max(0.75, Math.min(edge._brainBarBaseWidth || edge.width || 1, 1.35)),
               color: {
-                color: 'rgba(145, 158, 181, 0.23)',
-                highlight: 'rgba(210, 219, 255, 0.74)',
-                hover: 'rgba(210, 219, 255, 0.56)'
+                color: 'rgba(132, 148, 178, 0.25)',
+                highlight: 'rgba(238, 242, 255, 0.84)',
+                hover: 'rgba(218, 228, 255, 0.70)'
               },
-              width: Math.max(0.7, Math.min(edge.width || 1, 1.6)),
+              width: Math.max(0.75, Math.min(edge._brainBarBaseWidth || edge.width || 1, 1.35)),
+              selectionWidth: 1.8,
+              hoverWidth: 1.5,
               arrows: { to: { enabled: false } }
             }));
             edgesDS.update(themedEdges);
@@ -764,6 +998,7 @@ private extension GraphWebView {
         applyNetworkTheme();
         rebuildEmptyCommunityLegend();
         installNodeActionBridge();
+        installPremium2DInteraction();
         ensureOpenNoteButton();
         const selectedNodeId = typeof network !== 'undefined' ? network.getSelectedNodes()?.[0] : null;
         if (selectedNodeId) {
