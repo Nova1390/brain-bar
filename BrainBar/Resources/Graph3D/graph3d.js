@@ -27,6 +27,9 @@ const accentPalette = [
 const baseEdgeColor = '#6f7f9d';
 const selectedStrokeColor = '#f1f4ff';
 const prefersReducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
+const ambientFrameInterval = 33;
+const ambientLocalAmplitude = 3.2;
+const ambientBreathScale = 0.006;
 
 const pointTexture = createPointTexture();
 
@@ -593,7 +596,7 @@ function renderVisualOverlay() {
       y,
       z: vector.z,
       node
-    }));
+    }, width, height));
     if (x >= 0 && x <= width && y >= 0 && y <= height) {
       projectedNodeCount += 1;
     }
@@ -710,19 +713,22 @@ function depthPresence(projectedZ) {
   return clamp(0.98 - distance * 0.2, 0.78, 0.98);
 }
 
-function ambientProjectedPoint(point) {
+function ambientProjectedPoint(point, width, height) {
   if (prefersReducedMotion || !state.ambientPhase) {
     return point;
   }
   const seed = hashString(point.node.id);
   const phase = state.ambientPhase + (seed % 628) * 0.01;
   const depth = depthPresence(point.z);
-  const interactionDamping = state.hoveredNode || state.selectedNode ? 0.62 : 1;
-  const amplitude = 1.15 * depth * interactionDamping;
+  const interactionDamping = state.hoveredNode || state.selectedNode ? 0.58 : 1;
+  const amplitude = ambientLocalAmplitude * depth * interactionDamping;
+  const centerX = width * 0.5;
+  const centerY = height * 0.5;
+  const breath = Math.sin(state.ambientPhase * 0.52) * ambientBreathScale * interactionDamping;
   return {
     ...point,
-    x: point.x + Math.cos(phase * 0.72) * amplitude,
-    y: point.y + Math.sin(phase * 0.58 + (seed % 97) * 0.013) * amplitude
+    x: point.x + (point.x - centerX) * breath + Math.cos(phase * 0.88) * amplitude,
+    y: point.y + (point.y - centerY) * breath + Math.sin(phase * 0.7 + (seed % 97) * 0.013) * amplitude * 0.72
   };
 }
 
@@ -767,7 +773,7 @@ function ambientMotionTick(timestamp) {
   if (document.hidden || !state.visibleNodes.length) {
     return;
   }
-  if (timestamp - state.lastAmbientTimestamp >= 66) {
+  if (timestamp - state.lastAmbientTimestamp >= ambientFrameInterval) {
     state.lastAmbientTimestamp = timestamp;
     state.ambientPhase = timestamp * 0.001;
     renderVisualOverlay();
