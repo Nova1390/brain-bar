@@ -4,7 +4,7 @@ BrainBar v0.4 explores a custom `3D Beta` graph mode for the Focus Window. The s
 
 Current status: the `3D Beta` control is visible in the Focus Window and uses the experimental renderer. Real-vault QA showed that graph data, layout, camera fitting, and diagnostics could succeed while a pure WebGL canvas still presented a blank paint surface in WebKit. The renderer now uses Three.js for camera/projection/picking and a premium Canvas 2D visual layer for the actual visible graph, so the user is not dependent on WebKit's WebGL compositing path or per-frame SVG DOM churn.
 
-The current visual direction is **Dark Atlas**: calm dark terrain, muted community color, neutral relationship lines, and stronger color only when the user hovers or selects a node.
+The current visual direction is **Dark Atlas**: calm dark terrain, muted community color, neutral relationship lines, and stronger color only when the user hovers or selects a node. Active nodes can show compact fading labels so the graph stays navigable without turning every node into permanent text.
 
 The installed app still opens the Focus Window in the stable 2D mode by default, and the popover remains 2D-only.
 
@@ -64,16 +64,18 @@ The 3D view is custom BrainBar behavior rendered through a local Three.js-powere
 
 - communities become spatial clusters;
 - node positions are deterministic for stable reloads;
-- depth is controlled and deterministic rather than random;
+- depth is controlled and deterministic rather than random, with enough volume that side and underside views do not collapse into a flat stripe;
 - Three.js owns the camera, projection, viewport controls, and node picking;
 - a lightweight Canvas 2D visual layer draws the visible nodes and edges from the projected camera coordinates;
 - the WebGL canvas is kept as an implementation layer rather than the primary visible surface, avoiding a WebKit blank-canvas failure mode seen during QA;
 - nodes are rendered as compact, desaturated points with controlled depth presence;
 - base edges are thin, neutral, translucent, and deterministically curved rather than straight debug lines;
 - community accent color becomes more visible only for hover, selected nodes, neighbors, and active connections;
+- selected nodes lock the active connection set, so hovering another node does not steal focus while a node is selected;
+- active labels fade in with the same interaction intensity as nodes and edges, with collision checks and count limits to avoid text clutter;
 - the visible graph has a subtle low-frequency ambient drift so it feels alive in recordings without moving the camera or running a physics simulation;
 - the default camera fits the full graph;
-- tilt is preset-driven, not free-orbit, so the graph cannot become an edge-on stripe field;
+- orbit is intentionally freer than the stable 2D view, including underside inspection, while fit/top/reset controls keep the user recoverable;
 - camera controls support zoom, fit, top view, and reset tilt;
 - a small HUD reports node count, edge count, current lens, and `3D Beta`; technical diagnostics appear only when useful;
 - styling follows BrainBar's dark native-premium visual direction.
@@ -95,8 +97,11 @@ If a lens has no visible edges, the 3D view shows a compact empty overlay instea
 The 3D view keeps the same navigation contract as the 2D graph:
 
 - click a node to inspect it;
+- click empty graph space to clear the selected node;
 - double-click a node to open its source file;
 - show an Open Note action when the node includes a source file;
+- while a node is selected, keep only that node's active connections highlighted;
+- fade active node labels in and out with the same visual rhythm as the connection highlight;
 - resolve paths through BrainBar's existing vault-safe source opening logic.
 
 The renderer sends only node action metadata back to Swift. Swift remains responsible for validating and opening files.
@@ -113,7 +118,7 @@ When the 3D experiment is enabled, the Focus Window should expose graph navigati
 
 The stable 2D view should not depend on the 3D viewport command model. The 2D graph should stay as close as possible to the proven embedded Graphify viewer while the 3D view remains experimental. If the 3D renderer is paused again, 3D-only controls should not appear.
 
-The 3D camera is intentionally controlled rather than a free orbit. Drag pans, scroll/pinch zooms, and the native toolbar exposes fit, top view, and reset tilt. This is a product constraint, not a renderer limitation: readable graph inspection matters more than unrestricted 3D movement.
+The 3D camera supports freer orbiting than the stable 2D graph, including views from below the graph volume. Drag pans/orbits depending on the active OrbitControls gesture, scroll/pinch zooms toward the cursor, and the native toolbar exposes fit, top view, and reset tilt. This keeps exploration open while preserving a quick recovery path.
 
 ## Promotion Criteria
 
@@ -123,11 +128,13 @@ The 3D mode can become a stable headline feature only if it passes these checks:
 - 3D mode is usable and readable on a graph of roughly 1,000 nodes and 2,000 edges on a modern Mac;
 - Source Lens switching does not reload the whole app;
 - node selection and Open Note work consistently;
+- selected-node highlights remain stable and are not replaced by hover highlights until the selection is cleared;
+- active node labels fade in smoothly, avoid obvious overlap, and stay limited enough to preserve graph readability;
 - hovering a node gradually highlights its connected edges without abrupt on/off flicker;
 - curved edges remain readable and do not turn the graph into a bright line field;
 - default community colors are calm enough for long inspection, with stronger color reserved for interaction;
 - ambient motion remains subtle, respects reduced-motion settings, and does not make node picking feel unstable;
-- camera controls feel predictable and recover easily from bad viewing angles;
+- camera controls allow meaningful side and underside inspection while recovering easily from bad viewing angles;
 - validation passes with public safety, unit tests, and macOS build.
 
 If the 3D mode feels noisy, slow, or less useful than the 2D graph, it should stay experimental or be removed before release.

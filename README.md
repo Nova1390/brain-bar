@@ -29,7 +29,7 @@ It keeps the graph where it belongs: on your machine, inside a compact menu bar 
 - Focus Window for longer graph exploration
 - Experimental 3D Focus Graph mode for spatial exploration in the Focus Window
 - Source lens for switching between all edges, generated Graphify relationships, and native Obsidian wikilinks
-- Node inspection with an Open Note action for jumping from graph node to local source file
+- Node inspection with fading active labels and an Open Note action for jumping from graph node to local source file
 - Graphify refresh from the footer or action menu
 - Vault, Git branch/dirty state, Graphify, and brain-check status
 - Configurable vault path, dashboard path, report path, server port, and commands
@@ -190,7 +190,7 @@ The visual styling is applied at runtime by BrainBar through WebKit. The origina
 
 Use the Focus Window toolbar button to open a larger resizable graph window. It shares the same configuration and state as the menu bar popover, but gives the graph more room for inspection.
 
-The Focus Window also includes an experimental `2D / 3D Beta` view switch. `2D` keeps the standard embedded Graphify view. `3D Beta` opens a BrainBar-owned Canvas renderer with controlled depth projection, zoom, fit, top view, reset tilt, Source Lens filtering, node inspection, and Open Note support.
+The Focus Window also includes an experimental `2D / 3D Beta` view switch. `2D` keeps the standard embedded Graphify view. `3D Beta` opens a BrainBar-owned Canvas renderer with controlled depth projection, freer orbit navigation, zoom, fit, top view, reset tilt, Source Lens filtering, node inspection, fading active labels, and Open Note support.
 
 The 3D renderer is bundled locally and does not use a CDN. It reads the same local `graph.json` metadata as the 2D Source Lens, and it does not rewrite Graphify output files. See [Experimental 3D Focus Graph](docs/experimental-3d-focus-graph.md) for architecture notes and stability criteria.
 
