@@ -4,6 +4,8 @@ import { OrbitControls } from './vendor/OrbitControls.js';
 const stage = document.getElementById('stage');
 const graphVisual = document.getElementById('graph-visual');
 const visualContext = graphVisual?.getContext('2d', { alpha: true });
+const staticVisualLayer = document.createElement('canvas');
+const staticVisualContext = staticVisualLayer.getContext('2d', { alpha: true });
 const overlay = document.getElementById('overlay');
 const search = document.getElementById('search');
 const searchResults = document.getElementById('search-results');
@@ -27,10 +29,10 @@ const accentPalette = [
 const baseEdgeColor = '#6f7f9d';
 const selectedStrokeColor = '#f1f4ff';
 const prefersReducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
-const ambientFrameInterval = 33;
+const ambientFrameInterval = 50;
 const ambientMotionScale = prefersReducedMotion ? 0.45 : 1;
-const ambientLocalAmplitude = 8.5 * ambientMotionScale;
-const ambientBreathScale = 0.018 * ambientMotionScale;
+const ambientLocalAmplitude = 3.4 * ambientMotionScale;
+const ambientBreathScale = 0.014 * ambientMotionScale;
 
 const pointTexture = createPointTexture();
 
@@ -44,6 +46,9 @@ const state = {
   positions: new Map(),
   degreeByNode: new Map(),
   adjacencyByNode: new Map(),
+  edgesByNode: new Map(),
+  projectedPoints: new Map(),
+  visualCacheDirty: true,
   selectedNode: null,
   hoveredNode: null,
   hoverVisualNode: null,
@@ -127,6 +132,7 @@ function initScene() {
   controls.target.set(0, 0, 0);
   controls.addEventListener('change', () => {
     state.cameraPreset = state.cameraPreset === 'Fit' ? 'Manual' : state.cameraPreset;
+    markVisualCacheDirty();
     requestRender();
   });
 
@@ -231,6 +237,7 @@ function applyLens(fit = true) {
     state.hoverVisualNode = null;
     state.hoverTrails = new Map();
     state.hoverIntensity = 0;
+    markVisualCacheDirty();
 
     calculateLayout();
     rebuildMeshes();
@@ -311,6 +318,21 @@ function buildAdjacencyMap(edges) {
     adjacency.get(edge.target).add(edge.source);
   });
   return adjacency;
+}
+
+function buildEdgeMap(edges) {
+  const edgeMap = new Map();
+  edges.forEach((edge) => {
+    if (!edgeMap.has(edge.source)) {
+      edgeMap.set(edge.source, []);
+    }
+    if (!edgeMap.has(edge.target)) {
+      edgeMap.set(edge.target, []);
+    }
+    edgeMap.get(edge.source).push(edge);
+    edgeMap.get(edge.target).push(edge);
+  });
+  return edgeMap;
 }
 
 function depthForNode(node, communityIndex, localIndex, degreeMap) {
@@ -398,6 +420,8 @@ function rebuildMeshes() {
   const degreeMap = buildDegreeMap(state.visibleEdges);
   state.degreeByNode = degreeMap;
   state.adjacencyByNode = buildAdjacencyMap(state.visibleEdges);
+  state.edgesByNode = buildEdgeMap(state.visibleEdges);
+  markVisualCacheDirty();
 
   state.visibleNodes.forEach((node, index) => {
     const position = state.positions.get(node.id) ?? { x: 0, y: 0, z: 0 };
@@ -485,6 +509,7 @@ function fitCameraToGraph(preset = 'Fit') {
 function fitCameraWithTilt(preset, zTilt, heightMultiplier) {
   if (!state.visibleNodes.length || !state.positions.size) {
     state.cameraPreset = preset;
+    markVisualCacheDirty();
     requestRender();
     return;
   }
@@ -504,6 +529,7 @@ function fitCameraWithTilt(preset, zTilt, heightMultiplier) {
   controls.update();
 
   state.cameraPreset = preset;
+  markVisualCacheDirty();
   updateHud();
   requestRender();
 }
@@ -529,6 +555,7 @@ function resize() {
   const height = Math.max(Math.floor(rect.height), 1);
 
   renderer.setSize(width, height, false);
+  markVisualCacheDirty();
   camera.left = -width / 2;
   camera.right = width / 2;
   camera.top = height / 2;
@@ -552,10 +579,31 @@ function render() {
 }
 
 function renderVisualOverlay() {
-  if (!graphVisual || !visualContext) {
+  if (!graphVisual || !visualContext || !staticVisualContext) {
     return;
   }
 
+  const metrics = ensureVisualCanvas();
+  if (!metrics) {
+    return;
+  }
+
+  if (!state.visibleNodes.length || !state.positions.size) {
+    state.visibleProjectedNodeCount = 0;
+    state.projectedPoints = new Map();
+    visualContext.setTransform(metrics.pixelRatio, 0, 0, metrics.pixelRatio, 0, 0);
+    visualContext.clearRect(0, 0, metrics.width, metrics.height);
+    return;
+  }
+
+  if (state.visualCacheDirty) {
+    rebuildStaticVisualLayer(metrics);
+  }
+
+  drawVisualFrame(metrics);
+}
+
+function ensureVisualCanvas() {
   const rect = stage.getBoundingClientRect();
   const width = Math.max(Math.floor(rect.width), 1);
   const height = Math.max(Math.floor(rect.height), 1);
@@ -568,16 +616,19 @@ function renderVisualOverlay() {
     graphVisual.height = backingHeight;
     graphVisual.style.width = `${width}px`;
     graphVisual.style.height = `${height}px`;
+    markVisualCacheDirty();
   }
 
-  visualContext.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
-  visualContext.clearRect(0, 0, width, height);
-
-  if (!state.visibleNodes.length || !state.positions.size) {
-    state.visibleProjectedNodeCount = 0;
-    return;
+  if (staticVisualLayer.width !== backingWidth || staticVisualLayer.height !== backingHeight) {
+    staticVisualLayer.width = backingWidth;
+    staticVisualLayer.height = backingHeight;
+    markVisualCacheDirty();
   }
 
+  return { width, height, pixelRatio };
+}
+
+function rebuildStaticVisualLayer({ width, height, pixelRatio }) {
   camera.updateMatrixWorld();
   const projected = new Map();
   const vector = new THREE.Vector3();
@@ -594,24 +645,24 @@ function renderVisualOverlay() {
     }
     const x = (vector.x * 0.5 + 0.5) * width;
     const y = (-vector.y * 0.5 + 0.5) * height;
-    projected.set(node.id, ambientProjectedPoint({
+    projected.set(node.id, {
       x,
       y,
       z: vector.z,
       node
-    }, width, height));
+    });
     if (x >= 0 && x <= width && y >= 0 && y <= height) {
       projectedNodeCount += 1;
     }
   });
 
   state.visibleProjectedNodeCount = projectedNodeCount;
+  state.projectedPoints = projected;
+  staticVisualContext.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+  staticVisualContext.globalAlpha = 1;
+  staticVisualContext.clearRect(0, 0, width, height);
+
   const baseEdgePath = new Path2D();
-  const highlightedEdges = [];
-  const hoverTrails = updateHoverTrails();
-  const nodeFocus = buildNodeFocusMap(hoverTrails);
-  const activeAmount = hoverTrails.reduce((max, trail) => Math.max(max, trail.intensity), 0);
-  const hoverAmount = smoothstep(activeAmount);
 
   state.visibleEdges.forEach((edge) => {
     const source = projected.get(edge.source);
@@ -620,28 +671,74 @@ function renderVisualOverlay() {
       return;
     }
     addCurvedEdge(baseEdgePath, edge, source, target, 0.74);
-
-    const edgeFocus = edgeFocusFor(edge, hoverTrails);
-    if (edgeFocus.intensity > 0.02) {
-      const highlightedPath = new Path2D();
-      addCurvedEdge(highlightedPath, edge, source, target, 1);
-      highlightedEdges.push({
-        path: highlightedPath,
-        color: accentColorForCommunity(edgeFocus.node.community),
-        intensity: smoothstep(edgeFocus.intensity)
-      });
-    }
   });
 
+  staticVisualContext.save();
+  staticVisualContext.lineWidth = 0.48;
+  staticVisualContext.lineCap = 'round';
+  staticVisualContext.lineJoin = 'round';
+  staticVisualContext.globalAlpha = 0.13;
+  staticVisualContext.strokeStyle = baseEdgeColor;
+  staticVisualContext.stroke(baseEdgePath);
+  staticVisualContext.restore();
+
+  state.visibleNodes.forEach((node) => {
+    const point = projected.get(node.id);
+    if (!point) {
+      return;
+    }
+    const degree = state.degreeByNode.get(node.id) ?? 0;
+    const depth = depthPresence(point.z);
+    const radius = clamp(1.75 + Math.log1p(degree) * 0.5, 1.75, 5.1) * depth;
+    staticVisualContext.beginPath();
+    staticVisualContext.arc(point.x, point.y, radius, 0, Math.PI * 2);
+    staticVisualContext.fillStyle = colorForCommunity(node.community);
+    staticVisualContext.globalAlpha = 0.68 + depth * 0.22;
+    staticVisualContext.fill();
+  });
+
+  state.visualCacheDirty = false;
+}
+
+function drawVisualFrame({ width, height, pixelRatio }) {
+  const hoverTrails = updateHoverTrails();
+  const activeAmount = hoverTrails.reduce((max, trail) => Math.max(max, trail.intensity), 0);
+  const hoverAmount = smoothstep(activeAmount);
+  const centerX = width * 0.5;
+  const centerY = height * 0.5;
+  const breath = state.ambientPhase
+    ? Math.sin(state.ambientPhase * 0.52) * ambientBreathScale
+    : 0;
+
+  visualContext.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+  visualContext.globalAlpha = 1;
+  visualContext.clearRect(0, 0, width, height);
+
   visualContext.save();
-  visualContext.lineWidth = 0.48;
-  visualContext.lineCap = 'round';
-  visualContext.lineJoin = 'round';
-  visualContext.globalAlpha = 0.13 - hoverAmount * 0.045;
-  visualContext.strokeStyle = baseEdgeColor;
-  visualContext.stroke(baseEdgePath);
+  visualContext.translate(centerX, centerY);
+  visualContext.scale(1 + breath, 1 + breath);
+  visualContext.translate(-centerX, -centerY);
+  visualContext.drawImage(staticVisualLayer, 0, 0, width, height);
   visualContext.restore();
 
+  if (hoverAmount > 0.01) {
+    visualContext.save();
+    visualContext.globalAlpha = 0.1 * hoverAmount;
+    visualContext.fillStyle = '#050812';
+    visualContext.fillRect(0, 0, width, height);
+    visualContext.restore();
+  }
+
+  drawActiveVisualOverlay(hoverTrails, hoverAmount, width, height);
+}
+
+function drawActiveVisualOverlay(hoverTrails, hoverAmount, width, height) {
+  const nodeFocus = buildNodeFocusMap(hoverTrails);
+  if (state.selectedNode) {
+    mergeNodeFocus(nodeFocus, state.selectedNode.id, 1, 0);
+  }
+
+  const highlightedEdges = buildHighlightedEdges(hoverTrails, width, height);
   if (hoverAmount > 0.01) {
     visualContext.save();
     visualContext.lineWidth = 0.72 + hoverAmount * 0.68;
@@ -657,16 +754,21 @@ function renderVisualOverlay() {
     visualContext.restore();
   }
 
-  state.visibleNodes.forEach((node) => {
-    const point = projected.get(node.id);
+  nodeFocus.forEach((focusState, nodeId) => {
+    const nodeIndex = state.nodeIndexById.get(nodeId);
+    const node = state.visibleNodes[nodeIndex];
+    const rawPoint = state.projectedPoints.get(nodeId);
+    if (!node || !rawPoint) {
+      return;
+    }
+    const point = ambientProjectedPoint(rawPoint, width, height);
     if (!point) {
       return;
     }
     const degree = state.degreeByNode.get(node.id) ?? 0;
     const isSelected = state.selectedNode?.id === node.id;
-    const focus = nodeFocus.get(node.id) ?? { self: 0, neighbor: 0 };
-    const selfAmount = smoothstep(focus.self);
-    const neighborAmount = smoothstep(focus.neighbor);
+    const selfAmount = smoothstep(focusState.self);
+    const neighborAmount = smoothstep(focusState.neighbor);
     const isHovered = selfAmount > 0.02;
     const isNeighbor = neighborAmount > 0.02;
     const depth = depthPresence(point.z);
@@ -704,6 +806,39 @@ function renderVisualOverlay() {
       visualContext.stroke();
     }
   });
+}
+
+function buildHighlightedEdges(hoverTrails, width, height) {
+  const highlightedEdges = [];
+  const seenEdges = new Set();
+  hoverTrails.forEach((trail) => {
+    const linkedEdges = state.edgesByNode.get(trail.node.id) ?? [];
+    linkedEdges.forEach((edge) => {
+      if (trail.intensity <= 0.02 || seenEdges.has(edge.id)) {
+        return;
+      }
+      const source = state.projectedPoints.get(edge.source);
+      const target = state.projectedPoints.get(edge.target);
+      if (!source || !target) {
+        return;
+      }
+      const highlightedPath = new Path2D();
+      addCurvedEdge(
+        highlightedPath,
+        edge,
+        ambientProjectedPoint(source, width, height),
+        ambientProjectedPoint(target, width, height),
+        1
+      );
+      highlightedEdges.push({
+        path: highlightedPath,
+        color: accentColorForCommunity(trail.node.community),
+        intensity: smoothstep(trail.intensity)
+      });
+      seenEdges.add(edge.id);
+    });
+  });
+  return highlightedEdges;
 }
 
 function addCurvedEdge(path, edge, source, target, strength = 1) {
@@ -785,15 +920,6 @@ function mergeNodeFocus(focus, nodeId, self, neighbor) {
   });
 }
 
-function edgeFocusFor(edge, hoverTrails) {
-  return hoverTrails.reduce((best, trail) => {
-    if (trail.intensity <= best.intensity || (edge.source !== trail.node.id && edge.target !== trail.node.id)) {
-      return best;
-    }
-    return trail;
-  }, { node: null, intensity: 0 });
-}
-
 function updateHoverIntensity() {
   const target = state.hoveredNode ? 1 : 0;
   const delta = target - state.hoverIntensity;
@@ -823,8 +949,12 @@ function requestRender() {
   });
 }
 
+function markVisualCacheDirty() {
+  state.visualCacheDirty = true;
+}
+
 function startAmbientMotion() {
-  if (prefersReducedMotion || state.ambientFrame || !state.visibleNodes.length) {
+  if (state.ambientFrame || !state.visibleNodes.length) {
     return;
   }
   state.ambientFrame = requestAnimationFrame(ambientMotionTick);
@@ -991,6 +1121,7 @@ function focusNode(node) {
   camera.updateProjectionMatrix();
   controls.update();
   state.cameraPreset = 'Node focus';
+  markVisualCacheDirty();
   updateHud();
   requestRender();
 }
@@ -1019,6 +1150,7 @@ function zoomCamera(multiplier) {
   camera.zoom = clamp(camera.zoom * multiplier, 0.08, 8);
   camera.updateProjectionMatrix();
   state.cameraPreset = multiplier > 1 ? 'Zoom in' : 'Zoom out';
+  markVisualCacheDirty();
   updateHud();
   requestRender();
 }
