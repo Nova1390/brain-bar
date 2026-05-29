@@ -28,8 +28,9 @@ const baseEdgeColor = '#6f7f9d';
 const selectedStrokeColor = '#f1f4ff';
 const prefersReducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
 const ambientFrameInterval = 33;
-const ambientLocalAmplitude = 3.2;
-const ambientBreathScale = 0.006;
+const ambientMotionScale = prefersReducedMotion ? 0.45 : 1;
+const ambientLocalAmplitude = 8.5 * ambientMotionScale;
+const ambientBreathScale = 0.018 * ambientMotionScale;
 
 const pointTexture = createPointTexture();
 
@@ -46,6 +47,7 @@ const state = {
   selectedNode: null,
   hoveredNode: null,
   hoverVisualNode: null,
+  hoverTrails: new Map(),
   hoverIntensity: 0,
   lastDiagnostic: '',
   cameraPreset: 'Fit',
@@ -227,6 +229,7 @@ function applyLens(fit = true) {
     state.visibleEdges = lensEdges.filter((edge) => visibleIds.has(edge.source) && visibleIds.has(edge.target));
     state.hoveredNode = null;
     state.hoverVisualNode = null;
+    state.hoverTrails = new Map();
     state.hoverIntensity = 0;
 
     calculateLayout();
@@ -604,10 +607,11 @@ function renderVisualOverlay() {
 
   state.visibleProjectedNodeCount = projectedNodeCount;
   const baseEdgePath = new Path2D();
-  const highlightedEdgePaths = new Map();
-  const hoverNodeId = state.hoverVisualNode?.id;
-  const hoverNeighbors = hoverNodeId ? (state.adjacencyByNode.get(hoverNodeId) ?? new Set()) : new Set();
-  const hoverAmount = smoothstep(state.hoverIntensity);
+  const highlightedEdges = [];
+  const hoverTrails = updateHoverTrails();
+  const nodeFocus = buildNodeFocusMap(hoverTrails);
+  const activeAmount = hoverTrails.reduce((max, trail) => Math.max(max, trail.intensity), 0);
+  const hoverAmount = smoothstep(activeAmount);
 
   state.visibleEdges.forEach((edge) => {
     const source = projected.get(edge.source);
@@ -617,11 +621,15 @@ function renderVisualOverlay() {
     }
     addCurvedEdge(baseEdgePath, edge, source, target, 0.74);
 
-    if (hoverNodeId && (edge.source === hoverNodeId || edge.target === hoverNodeId)) {
-      const color = accentColorForCommunity(source.node.community);
-      const highlightedPath = highlightedEdgePaths.get(color) ?? new Path2D();
+    const edgeFocus = edgeFocusFor(edge, hoverTrails);
+    if (edgeFocus.intensity > 0.02) {
+      const highlightedPath = new Path2D();
       addCurvedEdge(highlightedPath, edge, source, target, 1);
-      highlightedEdgePaths.set(color, highlightedPath);
+      highlightedEdges.push({
+        path: highlightedPath,
+        color: accentColorForCommunity(edgeFocus.node.community),
+        intensity: smoothstep(edgeFocus.intensity)
+      });
     }
   });
 
@@ -639,12 +647,12 @@ function renderVisualOverlay() {
     visualContext.lineWidth = 0.72 + hoverAmount * 0.68;
     visualContext.lineCap = 'round';
     visualContext.lineJoin = 'round';
-    visualContext.globalAlpha = 0.16 + hoverAmount * 0.46;
     visualContext.shadowColor = 'rgba(210, 222, 255, 0.22)';
     visualContext.shadowBlur = 8 * hoverAmount;
-    highlightedEdgePaths.forEach((path, color) => {
-      visualContext.strokeStyle = color;
-      visualContext.stroke(path);
+    highlightedEdges.forEach((edge) => {
+      visualContext.globalAlpha = 0.14 + edge.intensity * 0.5;
+      visualContext.strokeStyle = edge.color;
+      visualContext.stroke(edge.path);
     });
     visualContext.restore();
   }
@@ -656,14 +664,17 @@ function renderVisualOverlay() {
     }
     const degree = state.degreeByNode.get(node.id) ?? 0;
     const isSelected = state.selectedNode?.id === node.id;
-    const isHovered = hoverNodeId === node.id;
-    const isNeighbor = hoverNeighbors.has(node.id);
+    const focus = nodeFocus.get(node.id) ?? { self: 0, neighbor: 0 };
+    const selfAmount = smoothstep(focus.self);
+    const neighborAmount = smoothstep(focus.neighbor);
+    const isHovered = selfAmount > 0.02;
+    const isNeighbor = neighborAmount > 0.02;
     const depth = depthPresence(point.z);
     const baseRadius = (isSelected ? 5.2 : clamp(1.75 + Math.log1p(degree) * 0.5, 1.75, 5.1)) * depth;
-    const radius = baseRadius + (isHovered ? 1.8 * hoverAmount : (isNeighbor ? 0.8 * hoverAmount : 0));
+    const radius = baseRadius + 1.8 * selfAmount + 0.8 * neighborAmount;
     const baseAlpha = 0.68 + depth * 0.22;
-    const dimmedAlpha = hoverNodeId && !isHovered && !isNeighbor ? baseAlpha - 0.46 * hoverAmount : baseAlpha;
-    const alpha = dimmedAlpha + ((isHovered || isNeighbor) ? 0.12 * hoverAmount : 0);
+    const dimmedAlpha = hoverTrails.length && !isHovered && !isNeighbor ? baseAlpha - 0.42 * hoverAmount : baseAlpha;
+    const alpha = dimmedAlpha + ((isHovered || isNeighbor) ? 0.12 * Math.max(selfAmount, neighborAmount) : 0);
     const fillColor = isSelected || isHovered || isNeighbor
       ? accentColorForCommunity(node.community)
       : colorForCommunity(node.community);
@@ -671,11 +682,11 @@ function renderVisualOverlay() {
     if (isSelected || isHovered) {
       visualContext.save();
       visualContext.beginPath();
-      visualContext.arc(point.x, point.y, radius + 2.4 + 3.2 * hoverAmount, 0, Math.PI * 2);
+      visualContext.arc(point.x, point.y, radius + 2.4 + 3.2 * Math.max(selfAmount, 0.55), 0, Math.PI * 2);
       visualContext.fillStyle = accentColorForCommunity(node.community);
-      visualContext.globalAlpha = isHovered ? 0.12 + hoverAmount * 0.16 : 0.1;
+      visualContext.globalAlpha = isHovered ? 0.08 + selfAmount * 0.2 : 0.1;
       visualContext.shadowColor = 'rgba(214, 226, 255, 0.22)';
-      visualContext.shadowBlur = 12 * Math.max(hoverAmount, 0.55);
+      visualContext.shadowBlur = 12 * Math.max(selfAmount, 0.55);
       visualContext.fill();
       visualContext.restore();
     }
@@ -688,7 +699,7 @@ function renderVisualOverlay() {
 
     if (isSelected || isHovered) {
       visualContext.globalAlpha = 1;
-      visualContext.lineWidth = isHovered ? 1.2 + hoverAmount : 1.8;
+      visualContext.lineWidth = isHovered ? 1.2 + selfAmount : 1.8;
       visualContext.strokeStyle = selectedStrokeColor;
       visualContext.stroke();
     }
@@ -714,7 +725,7 @@ function depthPresence(projectedZ) {
 }
 
 function ambientProjectedPoint(point, width, height) {
-  if (prefersReducedMotion || !state.ambientPhase) {
+  if (!state.ambientPhase || ambientMotionScale <= 0) {
     return point;
   }
   const seed = hashString(point.node.id);
@@ -730,6 +741,57 @@ function ambientProjectedPoint(point, width, height) {
     x: point.x + (point.x - centerX) * breath + Math.cos(phase * 0.88) * amplitude,
     y: point.y + (point.y - centerY) * breath + Math.sin(phase * 0.7 + (seed % 97) * 0.013) * amplitude * 0.72
   };
+}
+
+function updateHoverTrails() {
+  const hoveredNode = state.hoveredNode;
+  if (hoveredNode) {
+    const current = state.hoverTrails.get(hoveredNode.id);
+    state.hoverTrails.set(hoveredNode.id, {
+      node: hoveredNode,
+      intensity: current?.intensity ?? 0
+    });
+  }
+
+  state.hoverTrails.forEach((trail, nodeId) => {
+    const target = hoveredNode?.id === nodeId ? 1 : 0;
+    const speed = target > trail.intensity ? 0.24 : 0.075;
+    trail.intensity += (target - trail.intensity) * speed;
+    if (target === 0 && trail.intensity < 0.025) {
+      state.hoverTrails.delete(nodeId);
+    }
+  });
+
+  return Array.from(state.hoverTrails.values());
+}
+
+function buildNodeFocusMap(hoverTrails) {
+  const focus = new Map();
+  hoverTrails.forEach((trail) => {
+    mergeNodeFocus(focus, trail.node.id, trail.intensity, 0);
+    const neighbors = state.adjacencyByNode.get(trail.node.id) ?? new Set();
+    neighbors.forEach((neighborId) => {
+      mergeNodeFocus(focus, neighborId, 0, trail.intensity * 0.78);
+    });
+  });
+  return focus;
+}
+
+function mergeNodeFocus(focus, nodeId, self, neighbor) {
+  const current = focus.get(nodeId) ?? { self: 0, neighbor: 0 };
+  focus.set(nodeId, {
+    self: Math.max(current.self, self),
+    neighbor: Math.max(current.neighbor, neighbor)
+  });
+}
+
+function edgeFocusFor(edge, hoverTrails) {
+  return hoverTrails.reduce((best, trail) => {
+    if (trail.intensity <= best.intensity || (edge.source !== trail.node.id && edge.target !== trail.node.id)) {
+      return best;
+    }
+    return trail;
+  }, { node: null, intensity: 0 });
 }
 
 function updateHoverIntensity() {
