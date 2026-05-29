@@ -31,8 +31,8 @@ const selectedStrokeColor = '#f1f4ff';
 const prefersReducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
 const ambientFrameInterval = 50;
 const ambientMotionScale = prefersReducedMotion ? 0.45 : 1;
-const ambientLocalAmplitude = 3.4 * ambientMotionScale;
-const ambientBreathScale = 0.014 * ambientMotionScale;
+const ambientLocalAmplitude = 2.8 * ambientMotionScale;
+const ambientSampleTarget = 260;
 
 const pointTexture = createPointTexture();
 
@@ -51,8 +51,10 @@ const state = {
   visualCacheDirty: true,
   selectedNode: null,
   hoveredNode: null,
+  hoveredEdge: null,
   hoverVisualNode: null,
   hoverTrails: new Map(),
+  edgeTrails: new Map(),
   hoverIntensity: 0,
   lastDiagnostic: '',
   cameraPreset: 'Fit',
@@ -124,6 +126,7 @@ function initScene() {
   controls.enablePan = true;
   controls.enableZoom = true;
   controls.enableRotate = true;
+  controls.zoomToCursor = true;
   controls.minPolarAngle = 0.08;
   controls.maxPolarAngle = 1.08;
   controls.minZoom = 0.08;
@@ -234,8 +237,10 @@ function applyLens(fit = true) {
     const visibleIds = new Set(state.visibleNodes.map((node) => node.id));
     state.visibleEdges = lensEdges.filter((edge) => visibleIds.has(edge.source) && visibleIds.has(edge.target));
     state.hoveredNode = null;
+    state.hoveredEdge = null;
     state.hoverVisualNode = null;
     state.hoverTrails = new Map();
+    state.edgeTrails = new Map();
     state.hoverIntensity = 0;
     markVisualCacheDirty();
 
@@ -690,11 +695,19 @@ function rebuildStaticVisualLayer({ width, height, pixelRatio }) {
     const degree = state.degreeByNode.get(node.id) ?? 0;
     const depth = depthPresence(point.z);
     const radius = clamp(1.75 + Math.log1p(degree) * 0.5, 1.75, 5.1) * depth;
+    staticVisualContext.save();
+    staticVisualContext.beginPath();
+    staticVisualContext.arc(point.x, point.y, Math.max(radius - 0.35, 1.2), 0, Math.PI * 2);
+    staticVisualContext.fillStyle = colorForCommunity(node.community);
+    staticVisualContext.globalAlpha = 0.035 + depth * 0.015;
+    staticVisualContext.fill();
     staticVisualContext.beginPath();
     staticVisualContext.arc(point.x, point.y, radius, 0, Math.PI * 2);
-    staticVisualContext.fillStyle = colorForCommunity(node.community);
-    staticVisualContext.globalAlpha = 0.68 + depth * 0.22;
-    staticVisualContext.fill();
+    staticVisualContext.strokeStyle = colorForCommunity(node.community);
+    staticVisualContext.globalAlpha = 0.58 + depth * 0.24;
+    staticVisualContext.lineWidth = clamp(0.68 + Math.log1p(degree) * 0.08, 0.68, 1.25);
+    staticVisualContext.stroke();
+    staticVisualContext.restore();
   });
 
   state.visualCacheDirty = false;
@@ -702,24 +715,19 @@ function rebuildStaticVisualLayer({ width, height, pixelRatio }) {
 
 function drawVisualFrame({ width, height, pixelRatio }) {
   const hoverTrails = updateHoverTrails();
-  const activeAmount = hoverTrails.reduce((max, trail) => Math.max(max, trail.intensity), 0);
+  const edgeTrails = updateEdgeTrails();
+  const activeAmount = Math.max(
+    hoverTrails.reduce((max, trail) => Math.max(max, trail.intensity), 0),
+    edgeTrails.reduce((max, trail) => Math.max(max, trail.intensity), 0)
+  );
   const hoverAmount = smoothstep(activeAmount);
-  const centerX = width * 0.5;
-  const centerY = height * 0.5;
-  const breath = state.ambientPhase
-    ? Math.sin(state.ambientPhase * 0.52) * ambientBreathScale
-    : 0;
 
   visualContext.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
   visualContext.globalAlpha = 1;
   visualContext.clearRect(0, 0, width, height);
 
-  visualContext.save();
-  visualContext.translate(centerX, centerY);
-  visualContext.scale(1 + breath, 1 + breath);
-  visualContext.translate(-centerX, -centerY);
   visualContext.drawImage(staticVisualLayer, 0, 0, width, height);
-  visualContext.restore();
+  drawAmbientNodeMotion(width, height);
 
   if (hoverAmount > 0.01) {
     visualContext.save();
@@ -729,16 +737,44 @@ function drawVisualFrame({ width, height, pixelRatio }) {
     visualContext.restore();
   }
 
-  drawActiveVisualOverlay(hoverTrails, hoverAmount, width, height);
+  drawActiveVisualOverlay(hoverTrails, edgeTrails, hoverAmount, width, height);
 }
 
-function drawActiveVisualOverlay(hoverTrails, hoverAmount, width, height) {
-  const nodeFocus = buildNodeFocusMap(hoverTrails);
+function drawAmbientNodeMotion(width, height) {
+  if (!state.ambientPhase || ambientMotionScale <= 0 || !state.projectedPoints.size) {
+    return;
+  }
+  const stride = Math.max(1, Math.ceil(state.visibleNodes.length / ambientSampleTarget));
+  visualContext.save();
+  visualContext.lineWidth = 0.7;
+  state.visibleNodes.forEach((node, index) => {
+    if (index % stride !== 0) {
+      return;
+    }
+    const rawPoint = state.projectedPoints.get(node.id);
+    if (!rawPoint) {
+      return;
+    }
+    const point = ambientProjectedPoint(rawPoint, width, height);
+    const degree = state.degreeByNode.get(node.id) ?? 0;
+    const depth = depthPresence(point.z);
+    const radius = clamp(1.4 + Math.log1p(degree) * 0.38, 1.4, 4.2) * depth;
+    visualContext.beginPath();
+    visualContext.arc(point.x, point.y, radius, 0, Math.PI * 2);
+    visualContext.strokeStyle = colorForCommunity(node.community);
+    visualContext.globalAlpha = 0.13 + depth * 0.04;
+    visualContext.stroke();
+  });
+  visualContext.restore();
+}
+
+function drawActiveVisualOverlay(hoverTrails, edgeTrails, hoverAmount, width, height) {
+  const nodeFocus = buildNodeFocusMap(hoverTrails, edgeTrails);
   if (state.selectedNode) {
     mergeNodeFocus(nodeFocus, state.selectedNode.id, 1, 0);
   }
 
-  const highlightedEdges = buildHighlightedEdges(hoverTrails, width, height);
+  const highlightedEdges = buildHighlightedEdges(hoverTrails, edgeTrails, width, height);
   if (hoverAmount > 0.01) {
     visualContext.save();
     visualContext.lineWidth = 0.72 + hoverAmount * 0.68;
@@ -808,7 +844,7 @@ function drawActiveVisualOverlay(hoverTrails, hoverAmount, width, height) {
   });
 }
 
-function buildHighlightedEdges(hoverTrails, width, height) {
+function buildHighlightedEdges(hoverTrails, edgeTrails, width, height) {
   const highlightedEdges = [];
   const seenEdges = new Set();
   hoverTrails.forEach((trail) => {
@@ -838,20 +874,50 @@ function buildHighlightedEdges(hoverTrails, width, height) {
       seenEdges.add(edge.id);
     });
   });
+  edgeTrails.forEach((trail) => {
+    if (trail.intensity <= 0.02 || seenEdges.has(trail.edge.id)) {
+      return;
+    }
+    const source = state.projectedPoints.get(trail.edge.source);
+    const target = state.projectedPoints.get(trail.edge.target);
+    if (!source || !target) {
+      return;
+    }
+    const highlightedPath = new Path2D();
+    addCurvedEdge(
+      highlightedPath,
+      trail.edge,
+      ambientProjectedPoint(source, width, height),
+      ambientProjectedPoint(target, width, height),
+      1
+    );
+    highlightedEdges.push({
+      path: highlightedPath,
+      color: colorForEdge(trail.edge),
+      intensity: smoothstep(trail.intensity)
+    });
+    seenEdges.add(trail.edge.id);
+  });
   return highlightedEdges;
 }
 
 function addCurvedEdge(path, edge, source, target, strength = 1) {
+  const control = curvedEdgeControl(edge, source, target, strength);
+  path.moveTo(source.x, source.y);
+  path.quadraticCurveTo(control.x, control.y, target.x, target.y);
+}
+
+function curvedEdgeControl(edge, source, target, strength = 1) {
   const dx = target.x - source.x;
   const dy = target.y - source.y;
   const length = Math.max(Math.hypot(dx, dy), 0.001);
   const bendSeed = hashString(edge.id || `${edge.source}:${edge.target}`);
   const sign = bendSeed % 2 === 0 ? 1 : -1;
   const bend = clamp(length * 0.075, 4, 34) * strength * sign;
-  const controlX = (source.x + target.x) / 2 + (-dy / length) * bend;
-  const controlY = (source.y + target.y) / 2 + (dx / length) * bend;
-  path.moveTo(source.x, source.y);
-  path.quadraticCurveTo(controlX, controlY, target.x, target.y);
+  return {
+    x: (source.x + target.x) / 2 + (-dy / length) * bend,
+    y: (source.y + target.y) / 2 + (dx / length) * bend
+  };
 }
 
 function depthPresence(projectedZ) {
@@ -868,13 +934,10 @@ function ambientProjectedPoint(point, width, height) {
   const depth = depthPresence(point.z);
   const interactionDamping = state.hoveredNode || state.selectedNode ? 0.58 : 1;
   const amplitude = ambientLocalAmplitude * depth * interactionDamping;
-  const centerX = width * 0.5;
-  const centerY = height * 0.5;
-  const breath = Math.sin(state.ambientPhase * 0.52) * ambientBreathScale * interactionDamping;
   return {
     ...point,
-    x: point.x + (point.x - centerX) * breath + Math.cos(phase * 0.88) * amplitude,
-    y: point.y + (point.y - centerY) * breath + Math.sin(phase * 0.7 + (seed % 97) * 0.013) * amplitude * 0.72
+    x: point.x + Math.cos(phase * 0.88) * amplitude,
+    y: point.y + Math.sin(phase * 0.7 + (seed % 97) * 0.013) * amplitude * 0.72
   };
 }
 
@@ -900,7 +963,29 @@ function updateHoverTrails() {
   return Array.from(state.hoverTrails.values());
 }
 
-function buildNodeFocusMap(hoverTrails) {
+function updateEdgeTrails() {
+  const hoveredEdge = state.hoveredEdge;
+  if (hoveredEdge) {
+    const current = state.edgeTrails.get(hoveredEdge.id);
+    state.edgeTrails.set(hoveredEdge.id, {
+      edge: hoveredEdge,
+      intensity: current?.intensity ?? 0
+    });
+  }
+
+  state.edgeTrails.forEach((trail, edgeId) => {
+    const target = hoveredEdge?.id === edgeId ? 1 : 0;
+    const speed = target > trail.intensity ? 0.22 : 0.08;
+    trail.intensity += (target - trail.intensity) * speed;
+    if (target === 0 && trail.intensity < 0.025) {
+      state.edgeTrails.delete(edgeId);
+    }
+  });
+
+  return Array.from(state.edgeTrails.values());
+}
+
+function buildNodeFocusMap(hoverTrails, edgeTrails) {
   const focus = new Map();
   hoverTrails.forEach((trail) => {
     mergeNodeFocus(focus, trail.node.id, trail.intensity, 0);
@@ -908,6 +993,10 @@ function buildNodeFocusMap(hoverTrails) {
     neighbors.forEach((neighborId) => {
       mergeNodeFocus(focus, neighborId, 0, trail.intensity * 0.78);
     });
+  });
+  edgeTrails.forEach((trail) => {
+    mergeNodeFocus(focus, trail.edge.source, 0, trail.intensity);
+    mergeNodeFocus(focus, trail.edge.target, 0, trail.intensity);
   });
   return focus;
 }
@@ -921,7 +1010,7 @@ function mergeNodeFocus(focus, nodeId, self, neighbor) {
 }
 
 function updateHoverIntensity() {
-  const target = state.hoveredNode ? 1 : 0;
+  const target = state.hoveredNode || state.hoveredEdge ? 1 : 0;
   const delta = target - state.hoverIntensity;
   if (Math.abs(delta) < 0.012) {
     state.hoverIntensity = target;
@@ -1142,6 +1231,78 @@ function nodeAtEvent(event) {
   return state.visibleNodes[intersections[0].index] ?? null;
 }
 
+function edgeAtEvent(event) {
+  if (!state.projectedPoints.size) {
+    return null;
+  }
+  const rect = renderer.domElement.getBoundingClientRect();
+  const point = {
+    x: event.clientX - rect.left,
+    y: event.clientY - rect.top
+  };
+  const threshold = 8;
+  let bestEdge = null;
+  let bestDistance = threshold;
+
+  state.visibleEdges.forEach((edge) => {
+    const source = state.projectedPoints.get(edge.source);
+    const target = state.projectedPoints.get(edge.target);
+    if (!source || !target) {
+      return;
+    }
+    const padding = threshold + 34;
+    if (
+      point.x < Math.min(source.x, target.x) - padding ||
+      point.x > Math.max(source.x, target.x) + padding ||
+      point.y < Math.min(source.y, target.y) - padding ||
+      point.y > Math.max(source.y, target.y) + padding
+    ) {
+      return;
+    }
+
+    const distance = distanceToCurvedEdge(point, edge, source, target);
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      bestEdge = edge;
+    }
+  });
+
+  return bestEdge;
+}
+
+function distanceToCurvedEdge(point, edge, source, target) {
+  const control = curvedEdgeControl(edge, source, target, 0.74);
+  let minDistance = Infinity;
+  let previous = source;
+  for (let step = 1; step <= 10; step += 1) {
+    const current = pointOnQuadratic(source, control, target, step / 10);
+    minDistance = Math.min(minDistance, distanceToSegment(point, previous, current));
+    previous = current;
+  }
+  return minDistance;
+}
+
+function pointOnQuadratic(source, control, target, t) {
+  const inverse = 1 - t;
+  return {
+    x: inverse * inverse * source.x + 2 * inverse * t * control.x + t * t * target.x,
+    y: inverse * inverse * source.y + 2 * inverse * t * control.y + t * t * target.y
+  };
+}
+
+function distanceToSegment(point, start, end) {
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const lengthSquared = dx * dx + dy * dy;
+  if (lengthSquared === 0) {
+    return Math.hypot(point.x - start.x, point.y - start.y);
+  }
+  const t = clamp(((point.x - start.x) * dx + (point.y - start.y) * dy) / lengthSquared, 0, 1);
+  const x = start.x + dx * t;
+  const y = start.y + dy * t;
+  return Math.hypot(point.x - x, point.y - y);
+}
+
 function resetCamera() {
   fitCameraToGraph('Fit');
 }
@@ -1177,6 +1338,17 @@ function accentColorForCommunity(name) {
   return community?.accentColor ?? accentPalette[0];
 }
 
+function colorForEdge(edge) {
+  const source = nodeForId(edge.source);
+  const target = nodeForId(edge.target);
+  return accentColorForCommunity(source?.community ?? target?.community ?? '');
+}
+
+function nodeForId(nodeId) {
+  const index = state.nodeIndexById.get(nodeId);
+  return Number.isInteger(index) ? state.visibleNodes[index] : null;
+}
+
 function reportDiagnostic(message, showsOverlay = false) {
   const text = String(message || '3D renderer failed');
   state.lastDiagnostic = text;
@@ -1210,24 +1382,27 @@ function sendNodeAction(action, node) {
 function wireEvents() {
   renderer?.domElement?.addEventListener('pointermove', (event) => {
     const node = nodeAtEvent(event);
-    if (node !== state.hoveredNode) {
+    const edge = node ? null : edgeAtEvent(event);
+    if (node !== state.hoveredNode || edge !== state.hoveredEdge) {
       if (node && state.hoveredNode) {
         state.hoverIntensity = Math.min(state.hoverIntensity, 0.35);
       }
       state.hoveredNode = node;
+      state.hoveredEdge = edge;
       if (node) {
         state.hoverVisualNode = node;
       }
-      stage.style.cursor = node ? 'pointer' : 'grab';
+      stage.style.cursor = node ? 'pointer' : (edge ? 'crosshair' : 'grab');
       requestRender();
     }
   });
 
   renderer?.domElement?.addEventListener('pointerleave', () => {
-    if (!state.hoveredNode) {
+    if (!state.hoveredNode && !state.hoveredEdge) {
       return;
     }
     state.hoveredNode = null;
+    state.hoveredEdge = null;
     stage.style.cursor = 'grab';
     requestRender();
   });
