@@ -271,7 +271,7 @@ function calculateLayout() {
   state.positions = new Map();
   const communityIndex = new Map(state.communities.map((community, index) => [community.name, index]));
   const communityCount = Math.max(state.communities.length, 1);
-  const clusterRadius = Math.min(880, 210 + Math.sqrt(communityCount) * 80);
+  const clusterRadius = Math.min(720, 180 + Math.sqrt(communityCount) * 64);
   const nodesByCommunity = new Map();
   const degreeMap = buildDegreeMap(state.visibleEdges);
 
@@ -284,7 +284,7 @@ function calculateLayout() {
   nodesByCommunity.forEach((nodes, communityName) => {
     const index = communityIndex.get(communityName) ?? 0;
     const center = pointOnDisc(index, communityCount, clusterRadius);
-    const localRadius = Math.max(38, Math.min(185, Math.sqrt(nodes.length) * 11.5));
+    const localRadius = Math.max(42, Math.min(170, Math.sqrt(nodes.length) * 11));
     nodes.forEach((node, localIndex) => {
       const seed = hashString(node.id);
       const angle = localIndex * 2.399963 + (seed % 100) * 0.01;
@@ -343,10 +343,11 @@ function buildEdgeMap(edges) {
 function depthForNode(node, communityIndex, localIndex, degreeMap) {
   const seed = hashString(`${node.id}:${node.community}`);
   const degree = degreeMap.get(node.id) ?? 0;
-  const hubLift = Math.min(60, Math.log1p(degree) * 12);
-  const communityBand = ((communityIndex % 13) - 6) * 7;
-  const localWave = Math.sin((localIndex + 1) * 1.618 + (seed % 97)) * 16;
-  return clamp(communityBand + hubLift + localWave, -120, 150);
+  const hubLift = Math.min(130, Math.log1p(degree) * 22);
+  const communityBand = ((communityIndex % 19) - 9) * 13;
+  const organicLayer = (((seed % 1000) / 1000) - 0.5) * 110;
+  const localWave = Math.sin((localIndex + 1) * 1.618 + (seed % 97)) * 42;
+  return clamp(communityBand + organicLayer + localWave + hubLift - 48, -260, 280);
 }
 
 function relaxLayout(nodesByCommunity) {
@@ -524,9 +525,10 @@ function fitCameraWithTilt(preset, zTilt, heightMultiplier) {
   const depth = Math.max(bounds.maxZ - bounds.minZ, 120);
   const radius = Math.max(width, depth);
   const centerX = (bounds.minX + bounds.maxX) / 2;
+  const centerY = (bounds.minY + bounds.maxY) / 2;
   const centerZ = (bounds.minZ + bounds.maxZ) / 2;
 
-  controls.target.set(centerX, 0, centerZ);
+  controls.target.set(centerX, centerY, centerZ);
   camera.position.set(centerX, radius * heightMultiplier, centerZ + radius * zTilt);
   camera.lookAt(controls.target);
   camera.zoom = clamp(Math.min(stage.clientWidth / (width * 1.08), stage.clientHeight / (depth * 1.08)), 0.08, 6);
@@ -548,10 +550,12 @@ function boundsForVisibleNodes() {
     return {
       minX: Math.min(bounds.minX, position.x),
       maxX: Math.max(bounds.maxX, position.x),
+      minY: Math.min(bounds.minY, position.y),
+      maxY: Math.max(bounds.maxY, position.y),
       minZ: Math.min(bounds.minZ, position.z),
       maxZ: Math.max(bounds.maxZ, position.z)
     };
-  }, { minX: Infinity, maxX: -Infinity, minZ: Infinity, maxZ: -Infinity });
+  }, { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity, minZ: Infinity, maxZ: -Infinity });
 }
 
 function resize() {
