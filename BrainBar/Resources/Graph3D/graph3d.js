@@ -3,6 +3,7 @@ import { OrbitControls } from './vendor/OrbitControls.js';
 
 const stage = document.getElementById('stage');
 const graphVisual = document.getElementById('graph-visual');
+const visualContext = graphVisual?.getContext('2d', { alpha: true });
 const overlay = document.getElementById('overlay');
 const search = document.getElementById('search');
 const searchResults = document.getElementById('search-results');
@@ -27,6 +28,7 @@ const state = {
   visibleNodes: [],
   visibleEdges: [],
   positions: new Map(),
+  degreeByNode: new Map(),
   selectedNode: null,
   hoveredNode: null,
   lastDiagnostic: '',
@@ -84,6 +86,7 @@ function initScene() {
   });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   renderer.setClearColor('#060912', 1);
+  renderer.domElement.classList.add('webgl-hit-layer');
   stage.prepend(renderer.domElement);
 
   camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10000);
@@ -346,6 +349,7 @@ function rebuildMeshes() {
   const nodeColors = new Float32Array(state.visibleNodes.length * 3);
   const nodeSizes = new Float32Array(state.visibleNodes.length);
   const degreeMap = buildDegreeMap(state.visibleEdges);
+  state.degreeByNode = degreeMap;
 
   state.visibleNodes.forEach((node, index) => {
     const position = state.positions.get(node.id) ?? { x: 0, y: 0, z: 0 };
@@ -494,23 +498,34 @@ function render() {
   controls.update();
   renderer.render(scene, camera);
   renderVisualOverlay();
-  updateVisibleProjectedNodeCount();
   state.lastFrameStatus = state.visibleProjectedNodeCount > 0 ? 'Visible' : 'Waiting for view';
   updateHud();
 }
 
 function renderVisualOverlay() {
-  if (!graphVisual) {
+  if (!graphVisual || !visualContext) {
     return;
   }
 
   const rect = stage.getBoundingClientRect();
-  const width = Math.max(rect.width, 1);
-  const height = Math.max(rect.height, 1);
-  graphVisual.setAttribute('viewBox', `0 0 ${width} ${height}`);
-  graphVisual.replaceChildren();
+  const width = Math.max(Math.floor(rect.width), 1);
+  const height = Math.max(Math.floor(rect.height), 1);
+  const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+  const backingWidth = Math.max(Math.floor(width * pixelRatio), 1);
+  const backingHeight = Math.max(Math.floor(height * pixelRatio), 1);
+
+  if (graphVisual.width !== backingWidth || graphVisual.height !== backingHeight) {
+    graphVisual.width = backingWidth;
+    graphVisual.height = backingHeight;
+    graphVisual.style.width = `${width}px`;
+    graphVisual.style.height = `${height}px`;
+  }
+
+  visualContext.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+  visualContext.clearRect(0, 0, width, height);
 
   if (!state.visibleNodes.length || !state.positions.size) {
+    state.visibleProjectedNodeCount = 0;
     return;
   }
 
@@ -542,7 +557,7 @@ function renderVisualOverlay() {
   });
 
   state.visibleProjectedNodeCount = projectedNodeCount;
-  const fragment = document.createDocumentFragment();
+  const edgePaths = new Map();
 
   state.visibleEdges.forEach((edge) => {
     const source = projected.get(edge.source);
@@ -550,41 +565,45 @@ function renderVisualOverlay() {
     if (!source || !target) {
       return;
     }
-    const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-    line.setAttribute('class', 'visual-edge');
-    line.setAttribute('x1', source.x.toFixed(1));
-    line.setAttribute('y1', source.y.toFixed(1));
-    line.setAttribute('x2', target.x.toFixed(1));
-    line.setAttribute('y2', target.y.toFixed(1));
-    line.setAttribute('stroke', colorForCommunity(source.node.community));
-    line.setAttribute('stroke-width', '0.55');
-    line.setAttribute('opacity', '0.2');
-    fragment.appendChild(line);
+    const color = colorForCommunity(source.node.community);
+    const path = edgePaths.get(color) ?? new Path2D();
+    path.moveTo(source.x, source.y);
+    path.lineTo(target.x, target.y);
+    edgePaths.set(color, path);
   });
 
-  const degreeMap = buildDegreeMap(state.visibleEdges);
+  visualContext.save();
+  visualContext.lineWidth = 0.55;
+  visualContext.lineCap = 'round';
+  visualContext.globalAlpha = 0.2;
+  edgePaths.forEach((path, color) => {
+    visualContext.strokeStyle = color;
+    visualContext.stroke(path);
+  });
+  visualContext.restore();
+
   state.visibleNodes.forEach((node) => {
     const point = projected.get(node.id);
     if (!point) {
       return;
     }
-    const degree = degreeMap.get(node.id) ?? 0;
-    const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+    const degree = state.degreeByNode.get(node.id) ?? 0;
     const isSelected = state.selectedNode?.id === node.id;
-    circle.setAttribute('class', 'visual-node');
-    circle.setAttribute('cx', point.x.toFixed(1));
-    circle.setAttribute('cy', point.y.toFixed(1));
-    circle.setAttribute('r', String(isSelected ? 5.2 : clamp(2.1 + Math.log1p(degree) * 0.55, 2.1, 5.4)));
-    circle.setAttribute('fill', colorForCommunity(node.community));
-    circle.setAttribute('opacity', isSelected ? '1' : '0.95');
-    if (isSelected) {
-      circle.setAttribute('stroke', '#f4f6ff');
-      circle.setAttribute('stroke-width', '1.8');
-    }
-    fragment.appendChild(circle);
-  });
+    const radius = isSelected ? 5.2 : clamp(2.1 + Math.log1p(degree) * 0.55, 2.1, 5.4);
 
-  graphVisual.appendChild(fragment);
+    visualContext.beginPath();
+    visualContext.arc(point.x, point.y, radius, 0, Math.PI * 2);
+    visualContext.fillStyle = colorForCommunity(node.community);
+    visualContext.globalAlpha = isSelected ? 1 : 0.95;
+    visualContext.fill();
+
+    if (isSelected) {
+      visualContext.globalAlpha = 1;
+      visualContext.lineWidth = 1.8;
+      visualContext.strokeStyle = '#f4f6ff';
+      visualContext.stroke();
+    }
+  });
 }
 
 function requestRender() {
@@ -595,30 +614,6 @@ function requestRender() {
     state.animationFrame = null;
     render();
   });
-}
-
-function updateVisibleProjectedNodeCount() {
-  if (graphVisual?.childElementCount) {
-    return;
-  }
-  if (!state.visibleNodes.length) {
-    state.visibleProjectedNodeCount = 0;
-    return;
-  }
-
-  const vector = new THREE.Vector3();
-  let visibleCount = 0;
-  state.visibleNodes.forEach((node) => {
-    const position = state.positions.get(node.id);
-    if (!position) {
-      return;
-    }
-    vector.set(position.x, position.y, position.z).project(camera);
-    if (vector.x >= -1 && vector.x <= 1 && vector.y >= -1 && vector.y <= 1 && vector.z >= -1 && vector.z <= 1) {
-      visibleCount += 1;
-    }
-  });
-  state.visibleProjectedNodeCount = visibleCount;
 }
 
 function renderSidebar() {
@@ -732,7 +727,10 @@ function updateHud() {
     ? `draw ${renderer.info.render.calls}`
     : 'draw 0';
   const base = `${state.visibleNodes.length} nodes · ${state.visibleEdges.length} edges · ${lensLabel} · ${state.cameraPreset} · ${renderLabel} · in view ${state.visibleProjectedNodeCount} · ${state.lastFrameStatus}`;
-  hud.textContent = state.lastDiagnostic ? `${base} · ${state.lastDiagnostic}` : base;
+  const nextText = state.lastDiagnostic ? `${base} · ${state.lastDiagnostic}` : base;
+  if (hud.textContent !== nextText) {
+    hud.textContent = nextText;
+  }
   hud.hidden = false;
 }
 
