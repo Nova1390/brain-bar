@@ -128,7 +128,7 @@ function initScene() {
   controls.enableRotate = true;
   controls.zoomToCursor = true;
   controls.minPolarAngle = 0.08;
-  controls.maxPolarAngle = 1.08;
+  controls.maxPolarAngle = Math.PI - 0.08;
   controls.minZoom = 0.08;
   controls.maxZoom = 8;
   controls.screenSpacePanning = true;
@@ -271,7 +271,7 @@ function calculateLayout() {
   state.positions = new Map();
   const communityIndex = new Map(state.communities.map((community, index) => [community.name, index]));
   const communityCount = Math.max(state.communities.length, 1);
-  const clusterRadius = Math.min(760, 180 + Math.sqrt(communityCount) * 72);
+  const clusterRadius = Math.min(880, 210 + Math.sqrt(communityCount) * 80);
   const nodesByCommunity = new Map();
   const degreeMap = buildDegreeMap(state.visibleEdges);
 
@@ -284,7 +284,7 @@ function calculateLayout() {
   nodesByCommunity.forEach((nodes, communityName) => {
     const index = communityIndex.get(communityName) ?? 0;
     const center = pointOnDisc(index, communityCount, clusterRadius);
-    const localRadius = Math.max(30, Math.min(150, Math.sqrt(nodes.length) * 10));
+    const localRadius = Math.max(38, Math.min(185, Math.sqrt(nodes.length) * 11.5));
     nodes.forEach((node, localIndex) => {
       const seed = hashString(node.id);
       const angle = localIndex * 2.399963 + (seed % 100) * 0.01;
@@ -362,7 +362,7 @@ function relaxLayout(nodesByCommunity) {
       const dx = target.x - source.x;
       const dz = target.z - source.z;
       const length = Math.max(Math.hypot(dx, dz), 0.001);
-      const force = (length - 58) * 0.003;
+      const force = (length - 68) * 0.003;
       const ox = (dx / length) * force;
       const oz = (dz / length) * force;
       source.x += ox;
@@ -378,7 +378,7 @@ function relaxLayout(nodesByCommunity) {
 }
 
 function separateLocalNodes(nodesByCommunity) {
-  const minDistance = 11;
+  const minDistance = 13;
   nodesByCommunity.forEach((nodes) => {
     for (let leftIndex = 0; leftIndex < nodes.length; leftIndex += 1) {
       const left = state.positions.get(nodes[leftIndex].id);
@@ -529,7 +529,7 @@ function fitCameraWithTilt(preset, zTilt, heightMultiplier) {
   controls.target.set(centerX, 0, centerZ);
   camera.position.set(centerX, radius * heightMultiplier, centerZ + radius * zTilt);
   camera.lookAt(controls.target);
-  camera.zoom = clamp(Math.min(stage.clientWidth / (width * 1.18), stage.clientHeight / (depth * 1.18)), 0.08, 6);
+  camera.zoom = clamp(Math.min(stage.clientWidth / (width * 1.08), stage.clientHeight / (depth * 1.08)), 0.08, 6);
   camera.updateProjectionMatrix();
   controls.update();
 
@@ -717,6 +717,7 @@ function drawVisualFrame({ width, height, pixelRatio }) {
   const hoverTrails = updateHoverTrails();
   const edgeTrails = updateEdgeTrails();
   const activeAmount = Math.max(
+    state.selectedNode ? 1 : 0,
     hoverTrails.reduce((max, trail) => Math.max(max, trail.intensity), 0),
     edgeTrails.reduce((max, trail) => Math.max(max, trail.intensity), 0)
   );
@@ -775,10 +776,6 @@ function drawAmbientNodeMotion(width, height) {
 
 function drawActiveVisualOverlay(hoverTrails, edgeTrails, hoverAmount, width, height) {
   const nodeFocus = buildNodeFocusMap(hoverTrails, edgeTrails);
-  if (state.selectedNode) {
-    mergeNodeFocus(nodeFocus, state.selectedNode.id, 1, 0);
-  }
-
   const highlightedEdges = buildHighlightedEdges(hoverTrails, edgeTrails, width, height);
   if (hoverAmount > 0.01) {
     visualContext.save();
@@ -852,6 +849,31 @@ function drawActiveVisualOverlay(hoverTrails, edgeTrails, hoverAmount, width, he
 function buildHighlightedEdges(hoverTrails, edgeTrails, width, height) {
   const highlightedEdges = [];
   const seenEdges = new Set();
+  if (state.selectedNode) {
+    const linkedEdges = state.edgesByNode.get(state.selectedNode.id) ?? [];
+    linkedEdges.forEach((edge) => {
+      const source = state.projectedPoints.get(edge.source);
+      const target = state.projectedPoints.get(edge.target);
+      if (!source || !target) {
+        return;
+      }
+      const highlightedPath = new Path2D();
+      addCurvedEdge(
+        highlightedPath,
+        edge,
+        ambientProjectedPoint(source, width, height),
+        ambientProjectedPoint(target, width, height),
+        1
+      );
+      highlightedEdges.push({
+        path: highlightedPath,
+        color: accentColorForCommunity(state.selectedNode.community),
+        intensity: 1
+      });
+      seenEdges.add(edge.id);
+    });
+    return highlightedEdges;
+  }
   hoverTrails.forEach((trail) => {
     const linkedEdges = state.edgesByNode.get(trail.node.id) ?? [];
     linkedEdges.forEach((edge) => {
@@ -951,7 +973,7 @@ function ambientProjectedPoint(point, width, height) {
 }
 
 function updateHoverTrails() {
-  const hoveredNode = state.hoveredNode;
+  const hoveredNode = state.selectedNode ? null : state.hoveredNode;
   if (hoveredNode) {
     const current = state.hoverTrails.get(hoveredNode.id);
     state.hoverTrails.set(hoveredNode.id, {
@@ -973,7 +995,7 @@ function updateHoverTrails() {
 }
 
 function updateEdgeTrails() {
-  const hoveredEdge = state.hoveredEdge;
+  const hoveredEdge = state.selectedNode ? null : state.hoveredEdge;
   if (hoveredEdge) {
     const current = state.edgeTrails.get(hoveredEdge.id);
     state.edgeTrails.set(hoveredEdge.id, {
@@ -996,6 +1018,14 @@ function updateEdgeTrails() {
 
 function buildNodeFocusMap(hoverTrails, edgeTrails) {
   const focus = new Map();
+  if (state.selectedNode) {
+    mergeNodeFocus(focus, state.selectedNode.id, 1, 0);
+    const neighbors = state.adjacencyByNode.get(state.selectedNode.id) ?? new Set();
+    neighbors.forEach((neighborId) => {
+      mergeNodeFocus(focus, neighborId, 0, 0.78);
+    });
+    return focus;
+  }
   hoverTrails.forEach((trail) => {
     mergeNodeFocus(focus, trail.node.id, trail.intensity, 0);
     const neighbors = state.adjacencyByNode.get(trail.node.id) ?? new Set();
@@ -1398,7 +1428,7 @@ function wireEvents() {
       }
       state.hoveredNode = node;
       state.hoveredEdge = edge;
-      if (node) {
+      if (node && !state.selectedNode) {
         state.hoverVisualNode = node;
       }
       stage.style.cursor = node ? 'pointer' : (edge ? 'crosshair' : 'grab');
@@ -1420,6 +1450,11 @@ function wireEvents() {
     const node = nodeAtEvent(event);
     if (node) {
       selectNode(node);
+    } else if (state.selectedNode) {
+      state.selectedNode = null;
+      selectedMarker.visible = false;
+      renderNodeInfo(null);
+      requestRender();
     }
   });
 
