@@ -31,8 +31,8 @@ const selectedStrokeColor = '#f1f4ff';
 const prefersReducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
 const ambientFrameInterval = 50;
 const ambientMotionScale = prefersReducedMotion ? 0.45 : 1;
-const ambientLocalAmplitude = 2.8 * ambientMotionScale;
-const ambientSampleTarget = 260;
+const ambientLocalAmplitude = 5.4 * ambientMotionScale;
+const ambientSampleTarget = 520;
 
 const pointTexture = createPointTexture();
 
@@ -679,10 +679,10 @@ function rebuildStaticVisualLayer({ width, height, pixelRatio }) {
   });
 
   staticVisualContext.save();
-  staticVisualContext.lineWidth = 0.48;
+  staticVisualContext.lineWidth = 0.62;
   staticVisualContext.lineCap = 'round';
   staticVisualContext.lineJoin = 'round';
-  staticVisualContext.globalAlpha = 0.13;
+  staticVisualContext.globalAlpha = 0.22;
   staticVisualContext.strokeStyle = baseEdgeColor;
   staticVisualContext.stroke(baseEdgePath);
   staticVisualContext.restore();
@@ -694,7 +694,7 @@ function rebuildStaticVisualLayer({ width, height, pixelRatio }) {
     }
     const degree = state.degreeByNode.get(node.id) ?? 0;
     const depth = depthPresence(point.z);
-    const radius = clamp(1.75 + Math.log1p(degree) * 0.5, 1.75, 5.1) * depth;
+    const radius = nodeRadiusForDegree(degree, depth);
     staticVisualContext.save();
     staticVisualContext.beginPath();
     staticVisualContext.arc(point.x, point.y, Math.max(radius - 0.35, 1.2), 0, Math.PI * 2);
@@ -746,7 +746,7 @@ function drawAmbientNodeMotion(width, height) {
   }
   const stride = Math.max(1, Math.ceil(state.visibleNodes.length / ambientSampleTarget));
   visualContext.save();
-  visualContext.lineWidth = 0.7;
+  visualContext.lineWidth = 0.86;
   state.visibleNodes.forEach((node, index) => {
     if (index % stride !== 0) {
       return;
@@ -758,11 +758,16 @@ function drawAmbientNodeMotion(width, height) {
     const point = ambientProjectedPoint(rawPoint, width, height);
     const degree = state.degreeByNode.get(node.id) ?? 0;
     const depth = depthPresence(point.z);
-    const radius = clamp(1.4 + Math.log1p(degree) * 0.38, 1.4, 4.2) * depth;
+    const radius = nodeRadiusForDegree(degree, depth) * 0.84;
+    visualContext.beginPath();
+    visualContext.arc(point.x, point.y, Math.max(radius - 0.55, 1.2), 0, Math.PI * 2);
+    visualContext.fillStyle = colorForCommunity(node.community);
+    visualContext.globalAlpha = 0.045 + depth * 0.025;
+    visualContext.fill();
     visualContext.beginPath();
     visualContext.arc(point.x, point.y, radius, 0, Math.PI * 2);
     visualContext.strokeStyle = colorForCommunity(node.community);
-    visualContext.globalAlpha = 0.13 + depth * 0.04;
+    visualContext.globalAlpha = 0.24 + depth * 0.08;
     visualContext.stroke();
   });
   visualContext.restore();
@@ -808,7 +813,7 @@ function drawActiveVisualOverlay(hoverTrails, edgeTrails, hoverAmount, width, he
     const isHovered = selfAmount > 0.02;
     const isNeighbor = neighborAmount > 0.02;
     const depth = depthPresence(point.z);
-    const baseRadius = (isSelected ? 5.2 : clamp(1.75 + Math.log1p(degree) * 0.5, 1.75, 5.1)) * depth;
+    const baseRadius = isSelected ? nodeRadiusForDegree(degree, depth) * 1.18 : nodeRadiusForDegree(degree, depth);
     const radius = baseRadius + 1.8 * selfAmount + 0.8 * neighborAmount;
     const baseAlpha = 0.68 + depth * 0.22;
     const dimmedAlpha = hoverTrails.length && !isHovered && !isNeighbor ? baseAlpha - 0.42 * hoverAmount : baseAlpha;
@@ -923,6 +928,10 @@ function curvedEdgeControl(edge, source, target, strength = 1) {
 function depthPresence(projectedZ) {
   const distance = clamp((projectedZ + 1) / 2, 0, 1);
   return clamp(0.98 - distance * 0.2, 0.78, 0.98);
+}
+
+function nodeRadiusForDegree(degree, depth = 1) {
+  return clamp(1.65 + Math.log1p(degree) * 0.9 + Math.sqrt(Math.max(degree, 0)) * 0.12, 1.65, 8.8) * depth;
 }
 
 function ambientProjectedPoint(point, width, height) {
