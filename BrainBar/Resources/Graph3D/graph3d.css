@@ -35,9 +35,22 @@ body {
   overflow: hidden;
   cursor: grab;
   background:
-    radial-gradient(circle at 44% 42%, rgba(116, 139, 255, 0.095), transparent 34%),
-    radial-gradient(circle at 58% 66%, rgba(115, 216, 205, 0.05), transparent 30%),
-    #060912;
+    linear-gradient(135deg, rgba(68, 91, 124, 0.14), transparent 34%),
+    linear-gradient(205deg, rgba(72, 124, 121, 0.07), transparent 42%),
+    linear-gradient(180deg, #050814 0%, #070a13 52%, #05070d 100%);
+}
+
+#stage::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+  background:
+    linear-gradient(90deg, rgba(255, 255, 255, 0.035), transparent 18%, transparent 82%, rgba(255, 255, 255, 0.025)),
+    linear-gradient(180deg, transparent 0%, rgba(0, 0, 0, 0.12) 100%);
+  mix-blend-mode: screen;
+  opacity: 0.18;
 }
 
 #stage canvas.webgl-hit-layer {
@@ -91,6 +104,7 @@ body {
   position: absolute;
   left: 50%;
   top: 50%;
+  z-index: 7;
   transform: translate(-50%, -50%);
   padding: 12px 18px;
   border: 1px solid rgba(255, 255, 255, 0.08);

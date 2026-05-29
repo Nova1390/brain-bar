@@ -13,10 +13,19 @@ const stats = document.getElementById('stats');
 const hud = document.getElementById('hud');
 
 const palette = [
-  '#5b8cc5', '#ff9f2d', '#ef5f61', '#7bc8c1', '#5fb156', '#f2d34b',
-  '#bd82b3', '#ff9aaa', '#a6846b', '#c8c3bd', '#4f79ad', '#f28d25',
-  '#d96068', '#84cbc4', '#62ad59', '#edcf45', '#b67eaa', '#f498a5'
+  '#6f89a9', '#b58a58', '#ad6970', '#70a4a0', '#78976c', '#b8a25d',
+  '#9a7895', '#b7828b', '#927765', '#aaa6a0', '#657e9d', '#a97855',
+  '#a7666d', '#76a29d', '#77916b', '#b09d5a', '#92748c', '#aa7d86'
 ];
+
+const accentPalette = [
+  '#8fb7df', '#f0a35a', '#dc747b', '#8fd1cb', '#8fc07e', '#dec56b',
+  '#c995bf', '#f0a4af', '#bd987c', '#d4cec5', '#7fa2c8', '#df9555',
+  '#cb737a', '#91d0ca', '#8abd7b', '#d7bd67', '#bd91b3', '#e79aa5'
+];
+
+const baseEdgeColor = '#6f7f9d';
+const selectedStrokeColor = '#f1f4ff';
 
 const pointTexture = createPointTexture();
 
@@ -175,7 +184,13 @@ function prepareCommunities(graph) {
     counts.set(node.community, (counts.get(node.community) ?? 0) + 1);
   });
   state.communities = Array.from(counts.entries())
-    .map(([name, count], index) => ({ name, count, color: palette[index % palette.length], index }))
+    .map(([name, count], index) => ({
+      name,
+      count,
+      color: palette[index % palette.length],
+      accentColor: accentPalette[index % accentPalette.length],
+      index
+    }))
     .sort((left, right) => right.count - left.count || left.name.localeCompare(right.name));
   state.communityEnabled = new Set(state.communities.map((community) => community.name));
 }
@@ -580,7 +595,7 @@ function renderVisualOverlay() {
   });
 
   state.visibleProjectedNodeCount = projectedNodeCount;
-  const edgePaths = new Map();
+  const baseEdgePath = new Path2D();
   const highlightedEdgePaths = new Map();
   const hoverNodeId = state.hoverVisualNode?.id;
   const hoverNeighbors = hoverNodeId ? (state.adjacencyByNode.get(hoverNodeId) ?? new Set()) : new Set();
@@ -592,37 +607,33 @@ function renderVisualOverlay() {
     if (!source || !target) {
       return;
     }
-    const color = colorForCommunity(source.node.community);
-    const path = edgePaths.get(color) ?? new Path2D();
-    path.moveTo(source.x, source.y);
-    path.lineTo(target.x, target.y);
-    edgePaths.set(color, path);
+    addCurvedEdge(baseEdgePath, edge, source, target, 0.74);
 
     if (hoverNodeId && (edge.source === hoverNodeId || edge.target === hoverNodeId)) {
+      const color = accentColorForCommunity(source.node.community);
       const highlightedPath = highlightedEdgePaths.get(color) ?? new Path2D();
-      highlightedPath.moveTo(source.x, source.y);
-      highlightedPath.lineTo(target.x, target.y);
+      addCurvedEdge(highlightedPath, edge, source, target, 1);
       highlightedEdgePaths.set(color, highlightedPath);
     }
   });
 
   visualContext.save();
-  visualContext.lineWidth = 0.55;
+  visualContext.lineWidth = 0.48;
   visualContext.lineCap = 'round';
-  visualContext.globalAlpha = 0.2 - hoverAmount * 0.08;
-  edgePaths.forEach((path, color) => {
-    visualContext.strokeStyle = color;
-    visualContext.stroke(path);
-  });
+  visualContext.lineJoin = 'round';
+  visualContext.globalAlpha = 0.13 - hoverAmount * 0.045;
+  visualContext.strokeStyle = baseEdgeColor;
+  visualContext.stroke(baseEdgePath);
   visualContext.restore();
 
   if (hoverAmount > 0.01) {
     visualContext.save();
-    visualContext.lineWidth = 0.8 + hoverAmount * 0.75;
+    visualContext.lineWidth = 0.72 + hoverAmount * 0.68;
     visualContext.lineCap = 'round';
-    visualContext.globalAlpha = 0.18 + hoverAmount * 0.52;
-    visualContext.shadowColor = 'rgba(244, 246, 255, 0.28)';
-    visualContext.shadowBlur = 10 * hoverAmount;
+    visualContext.lineJoin = 'round';
+    visualContext.globalAlpha = 0.16 + hoverAmount * 0.46;
+    visualContext.shadowColor = 'rgba(210, 222, 255, 0.22)';
+    visualContext.shadowBlur = 8 * hoverAmount;
     highlightedEdgePaths.forEach((path, color) => {
       visualContext.strokeStyle = color;
       visualContext.stroke(path);
@@ -639,24 +650,59 @@ function renderVisualOverlay() {
     const isSelected = state.selectedNode?.id === node.id;
     const isHovered = hoverNodeId === node.id;
     const isNeighbor = hoverNeighbors.has(node.id);
-    const baseRadius = isSelected ? 5.2 : clamp(2.1 + Math.log1p(degree) * 0.55, 2.1, 5.4);
+    const depth = depthPresence(point.z);
+    const baseRadius = (isSelected ? 5.2 : clamp(1.75 + Math.log1p(degree) * 0.5, 1.75, 5.1)) * depth;
     const radius = baseRadius + (isHovered ? 1.8 * hoverAmount : (isNeighbor ? 0.8 * hoverAmount : 0));
-    const dimmedAlpha = hoverNodeId && !isHovered && !isNeighbor ? 0.95 - 0.61 * hoverAmount : 0.95;
-    const alpha = dimmedAlpha + ((isHovered || isNeighbor) ? 0.05 * hoverAmount : 0);
+    const baseAlpha = 0.68 + depth * 0.22;
+    const dimmedAlpha = hoverNodeId && !isHovered && !isNeighbor ? baseAlpha - 0.46 * hoverAmount : baseAlpha;
+    const alpha = dimmedAlpha + ((isHovered || isNeighbor) ? 0.12 * hoverAmount : 0);
+    const fillColor = isSelected || isHovered || isNeighbor
+      ? accentColorForCommunity(node.community)
+      : colorForCommunity(node.community);
+
+    if (isSelected || isHovered) {
+      visualContext.save();
+      visualContext.beginPath();
+      visualContext.arc(point.x, point.y, radius + 2.4 + 3.2 * hoverAmount, 0, Math.PI * 2);
+      visualContext.fillStyle = accentColorForCommunity(node.community);
+      visualContext.globalAlpha = isHovered ? 0.12 + hoverAmount * 0.16 : 0.1;
+      visualContext.shadowColor = 'rgba(214, 226, 255, 0.22)';
+      visualContext.shadowBlur = 12 * Math.max(hoverAmount, 0.55);
+      visualContext.fill();
+      visualContext.restore();
+    }
 
     visualContext.beginPath();
     visualContext.arc(point.x, point.y, radius, 0, Math.PI * 2);
-    visualContext.fillStyle = colorForCommunity(node.community);
+    visualContext.fillStyle = fillColor;
     visualContext.globalAlpha = isSelected || isHovered ? 1 : alpha;
     visualContext.fill();
 
     if (isSelected || isHovered) {
       visualContext.globalAlpha = 1;
       visualContext.lineWidth = isHovered ? 1.2 + hoverAmount : 1.8;
-      visualContext.strokeStyle = '#f4f6ff';
+      visualContext.strokeStyle = selectedStrokeColor;
       visualContext.stroke();
     }
   });
+}
+
+function addCurvedEdge(path, edge, source, target, strength = 1) {
+  const dx = target.x - source.x;
+  const dy = target.y - source.y;
+  const length = Math.max(Math.hypot(dx, dy), 0.001);
+  const bendSeed = hashString(edge.id || `${edge.source}:${edge.target}`);
+  const sign = bendSeed % 2 === 0 ? 1 : -1;
+  const bend = clamp(length * 0.075, 4, 34) * strength * sign;
+  const controlX = (source.x + target.x) / 2 + (-dy / length) * bend;
+  const controlY = (source.y + target.y) / 2 + (dx / length) * bend;
+  path.moveTo(source.x, source.y);
+  path.quadraticCurveTo(controlX, controlY, target.x, target.y);
+}
+
+function depthPresence(projectedZ) {
+  const distance = clamp((projectedZ + 1) / 2, 0, 1);
+  return clamp(0.98 - distance * 0.2, 0.78, 0.98);
 }
 
 function updateHoverIntensity() {
@@ -795,11 +841,11 @@ function updateHud() {
   const lensLabel = state.lens === 'all'
     ? 'All'
     : (state.lens === 'graphify' ? 'Graphify' : 'Obsidian');
-  const renderLabel = renderer?.info?.render
-    ? `draw ${renderer.info.render.calls}`
-    : 'draw 0';
-  const base = `${state.visibleNodes.length} nodes · ${state.visibleEdges.length} edges · ${lensLabel} · ${state.cameraPreset} · ${renderLabel} · in view ${state.visibleProjectedNodeCount} · ${state.lastFrameStatus}`;
-  const nextText = state.lastDiagnostic ? `${base} · ${state.lastDiagnostic}` : base;
+  const base = `${state.visibleNodes.length} nodes · ${state.visibleEdges.length} edges · ${lensLabel} · 3D Beta`;
+  const status = state.lastFrameStatus === 'Visible'
+    ? ''
+    : ` · ${state.cameraPreset} · ${state.lastFrameStatus}`;
+  const nextText = state.lastDiagnostic ? `${base} · ${state.lastDiagnostic}` : `${base}${status}`;
   if (hud.textContent !== nextText) {
     hud.textContent = nextText;
   }
@@ -883,6 +929,11 @@ function degreeForNode(nodeId) {
 function colorForCommunity(name) {
   const community = state.communities.find((item) => item.name === name);
   return community?.color ?? palette[0];
+}
+
+function accentColorForCommunity(name) {
+  const community = state.communities.find((item) => item.name === name);
+  return community?.accentColor ?? accentPalette[0];
 }
 
 function reportDiagnostic(message, showsOverlay = false) {

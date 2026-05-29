@@ -2,7 +2,9 @@
 
 BrainBar v0.4 explores a custom `3D Beta` graph mode for the Focus Window. The stable product path remains the embedded 2D Graphify graph; the 3D view is a separate experiment for controlled spatial exploration and visual research.
 
-Current status: the `3D Beta` control is visible in the Focus Window and uses the experimental renderer. Real-vault QA showed that graph data, layout, camera fitting, and diagnostics could succeed while a pure WebGL canvas still presented a blank paint surface in WebKit. The renderer now uses Three.js for camera/projection/picking and a Canvas 2D visual layer for the actual visible graph, so the user is not dependent on WebKit's WebGL compositing path or per-frame SVG DOM churn.
+Current status: the `3D Beta` control is visible in the Focus Window and uses the experimental renderer. Real-vault QA showed that graph data, layout, camera fitting, and diagnostics could succeed while a pure WebGL canvas still presented a blank paint surface in WebKit. The renderer now uses Three.js for camera/projection/picking and a premium Canvas 2D visual layer for the actual visible graph, so the user is not dependent on WebKit's WebGL compositing path or per-frame SVG DOM churn.
+
+The current visual direction is **Dark Atlas**: calm dark terrain, muted community color, neutral relationship lines, and stronger color only when the user hovers or selects a node.
 
 The installed app still opens the Focus Window in the stable 2D mode by default, and the popover remains 2D-only.
 
@@ -66,11 +68,13 @@ The 3D view is custom BrainBar behavior rendered through a local Three.js-powere
 - Three.js owns the camera, projection, viewport controls, and node picking;
 - a lightweight Canvas 2D visual layer draws the visible nodes and edges from the projected camera coordinates;
 - the WebGL canvas is kept as an implementation layer rather than the primary visible surface, avoiding a WebKit blank-canvas failure mode seen during QA;
-- nodes are rendered as compact colored points and edges remain intentionally subdued;
+- nodes are rendered as compact, desaturated points with controlled depth presence;
+- base edges are thin, neutral, translucent, and deterministically curved rather than straight debug lines;
+- community accent color becomes more visible only for hover, selected nodes, neighbors, and active connections;
 - the default camera fits the full graph;
 - tilt is preset-driven, not free-orbit, so the graph cannot become an edge-on stripe field;
 - camera controls support zoom, fit, top view, and reset tilt;
-- a small HUD reports node count, edge count, current lens, camera preset, and renderer diagnostics;
+- a small HUD reports node count, edge count, current lens, and `3D Beta`; technical diagnostics appear only when useful;
 - styling follows BrainBar's dark native-premium visual direction.
 
 The renderer should prioritize clarity over spectacle. It is not meant to look like a generic 3D demo, and it should not be promoted to the main demo path until real-vault screenshots look at least as useful as the 2D view.
@@ -119,6 +123,8 @@ The 3D mode can become a stable headline feature only if it passes these checks:
 - Source Lens switching does not reload the whole app;
 - node selection and Open Note work consistently;
 - hovering a node gradually highlights its connected edges without abrupt on/off flicker;
+- curved edges remain readable and do not turn the graph into a bright line field;
+- default community colors are calm enough for long inspection, with stronger color reserved for interaction;
 - camera controls feel predictable and recover easily from bad viewing angles;
 - validation passes with public safety, unit tests, and macOS build.
 
