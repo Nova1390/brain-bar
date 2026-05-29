@@ -118,6 +118,7 @@ The 3D mode can become a stable headline feature only if it passes these checks:
 - 3D mode is usable and readable on a graph of roughly 1,000 nodes and 2,000 edges on a modern Mac;
 - Source Lens switching does not reload the whole app;
 - node selection and Open Note work consistently;
+- hovering a node gradually highlights its connected edges without abrupt on/off flicker;
 - camera controls feel predictable and recover easily from bad viewing angles;
 - validation passes with public safety, unit tests, and macOS build.
 

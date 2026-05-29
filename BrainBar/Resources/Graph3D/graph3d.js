@@ -29,8 +29,11 @@ const state = {
   visibleEdges: [],
   positions: new Map(),
   degreeByNode: new Map(),
+  adjacencyByNode: new Map(),
   selectedNode: null,
   hoveredNode: null,
+  hoverVisualNode: null,
+  hoverIntensity: 0,
   lastDiagnostic: '',
   cameraPreset: 'Fit',
   lastFrameStatus: 'Waiting',
@@ -200,6 +203,9 @@ function applyLens(fit = true) {
     state.visibleNodes = lensNodes.filter((node) => state.communityEnabled.has(node.community));
     const visibleIds = new Set(state.visibleNodes.map((node) => node.id));
     state.visibleEdges = lensEdges.filter((edge) => visibleIds.has(edge.source) && visibleIds.has(edge.target));
+    state.hoveredNode = null;
+    state.hoverVisualNode = null;
+    state.hoverIntensity = 0;
 
     calculateLayout();
     rebuildMeshes();
@@ -264,6 +270,21 @@ function buildDegreeMap(edges) {
     degreeMap.set(edge.target, (degreeMap.get(edge.target) ?? 0) + 1);
   });
   return degreeMap;
+}
+
+function buildAdjacencyMap(edges) {
+  const adjacency = new Map();
+  edges.forEach((edge) => {
+    if (!adjacency.has(edge.source)) {
+      adjacency.set(edge.source, new Set());
+    }
+    if (!adjacency.has(edge.target)) {
+      adjacency.set(edge.target, new Set());
+    }
+    adjacency.get(edge.source).add(edge.target);
+    adjacency.get(edge.target).add(edge.source);
+  });
+  return adjacency;
 }
 
 function depthForNode(node, communityIndex, localIndex, degreeMap) {
@@ -350,6 +371,7 @@ function rebuildMeshes() {
   const nodeSizes = new Float32Array(state.visibleNodes.length);
   const degreeMap = buildDegreeMap(state.visibleEdges);
   state.degreeByNode = degreeMap;
+  state.adjacencyByNode = buildAdjacencyMap(state.visibleEdges);
 
   state.visibleNodes.forEach((node, index) => {
     const position = state.positions.get(node.id) ?? { x: 0, y: 0, z: 0 };
@@ -497,6 +519,7 @@ function resize() {
 function render() {
   controls.update();
   renderer.render(scene, camera);
+  updateHoverIntensity();
   renderVisualOverlay();
   state.lastFrameStatus = state.visibleProjectedNodeCount > 0 ? 'Visible' : 'Waiting for view';
   updateHud();
@@ -558,6 +581,10 @@ function renderVisualOverlay() {
 
   state.visibleProjectedNodeCount = projectedNodeCount;
   const edgePaths = new Map();
+  const highlightedEdgePaths = new Map();
+  const hoverNodeId = state.hoverVisualNode?.id;
+  const hoverNeighbors = hoverNodeId ? (state.adjacencyByNode.get(hoverNodeId) ?? new Set()) : new Set();
+  const hoverAmount = smoothstep(state.hoverIntensity);
 
   state.visibleEdges.forEach((edge) => {
     const source = projected.get(edge.source);
@@ -570,17 +597,38 @@ function renderVisualOverlay() {
     path.moveTo(source.x, source.y);
     path.lineTo(target.x, target.y);
     edgePaths.set(color, path);
+
+    if (hoverNodeId && (edge.source === hoverNodeId || edge.target === hoverNodeId)) {
+      const highlightedPath = highlightedEdgePaths.get(color) ?? new Path2D();
+      highlightedPath.moveTo(source.x, source.y);
+      highlightedPath.lineTo(target.x, target.y);
+      highlightedEdgePaths.set(color, highlightedPath);
+    }
   });
 
   visualContext.save();
   visualContext.lineWidth = 0.55;
   visualContext.lineCap = 'round';
-  visualContext.globalAlpha = 0.2;
+  visualContext.globalAlpha = 0.2 - hoverAmount * 0.08;
   edgePaths.forEach((path, color) => {
     visualContext.strokeStyle = color;
     visualContext.stroke(path);
   });
   visualContext.restore();
+
+  if (hoverAmount > 0.01) {
+    visualContext.save();
+    visualContext.lineWidth = 0.8 + hoverAmount * 0.75;
+    visualContext.lineCap = 'round';
+    visualContext.globalAlpha = 0.18 + hoverAmount * 0.52;
+    visualContext.shadowColor = 'rgba(244, 246, 255, 0.28)';
+    visualContext.shadowBlur = 10 * hoverAmount;
+    highlightedEdgePaths.forEach((path, color) => {
+      visualContext.strokeStyle = color;
+      visualContext.stroke(path);
+    });
+    visualContext.restore();
+  }
 
   state.visibleNodes.forEach((node) => {
     const point = projected.get(node.id);
@@ -589,21 +637,45 @@ function renderVisualOverlay() {
     }
     const degree = state.degreeByNode.get(node.id) ?? 0;
     const isSelected = state.selectedNode?.id === node.id;
-    const radius = isSelected ? 5.2 : clamp(2.1 + Math.log1p(degree) * 0.55, 2.1, 5.4);
+    const isHovered = hoverNodeId === node.id;
+    const isNeighbor = hoverNeighbors.has(node.id);
+    const baseRadius = isSelected ? 5.2 : clamp(2.1 + Math.log1p(degree) * 0.55, 2.1, 5.4);
+    const radius = baseRadius + (isHovered ? 1.8 * hoverAmount : (isNeighbor ? 0.8 * hoverAmount : 0));
+    const dimmedAlpha = hoverNodeId && !isHovered && !isNeighbor ? 0.95 - 0.61 * hoverAmount : 0.95;
+    const alpha = dimmedAlpha + ((isHovered || isNeighbor) ? 0.05 * hoverAmount : 0);
 
     visualContext.beginPath();
     visualContext.arc(point.x, point.y, radius, 0, Math.PI * 2);
     visualContext.fillStyle = colorForCommunity(node.community);
-    visualContext.globalAlpha = isSelected ? 1 : 0.95;
+    visualContext.globalAlpha = isSelected || isHovered ? 1 : alpha;
     visualContext.fill();
 
-    if (isSelected) {
+    if (isSelected || isHovered) {
       visualContext.globalAlpha = 1;
-      visualContext.lineWidth = 1.8;
+      visualContext.lineWidth = isHovered ? 1.2 + hoverAmount : 1.8;
       visualContext.strokeStyle = '#f4f6ff';
       visualContext.stroke();
     }
   });
+}
+
+function updateHoverIntensity() {
+  const target = state.hoveredNode ? 1 : 0;
+  const delta = target - state.hoverIntensity;
+  if (Math.abs(delta) < 0.012) {
+    state.hoverIntensity = target;
+    if (target === 0) {
+      state.hoverVisualNode = null;
+    }
+    return;
+  }
+  state.hoverIntensity += delta * 0.18;
+  requestRender();
+}
+
+function smoothstep(value) {
+  const x = clamp(value, 0, 1);
+  return x * x * (3 - 2 * x);
 }
 
 function requestRender() {
@@ -847,9 +919,25 @@ function wireEvents() {
   renderer?.domElement?.addEventListener('pointermove', (event) => {
     const node = nodeAtEvent(event);
     if (node !== state.hoveredNode) {
+      if (node && state.hoveredNode) {
+        state.hoverIntensity = Math.min(state.hoverIntensity, 0.35);
+      }
       state.hoveredNode = node;
+      if (node) {
+        state.hoverVisualNode = node;
+      }
       stage.style.cursor = node ? 'pointer' : 'grab';
+      requestRender();
     }
+  });
+
+  renderer?.domElement?.addEventListener('pointerleave', () => {
+    if (!state.hoveredNode) {
+      return;
+    }
+    state.hoveredNode = null;
+    stage.style.cursor = 'grab';
+    requestRender();
   });
 
   renderer?.domElement?.addEventListener('click', (event) => {
