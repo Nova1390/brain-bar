@@ -71,6 +71,7 @@ The 3D view is custom BrainBar behavior rendered through a local Three.js-powere
 - nodes are rendered as compact, desaturated points with controlled depth presence;
 - base edges are thin, neutral, translucent, and deterministically curved rather than straight debug lines;
 - community accent color becomes more visible only for hover, selected nodes, neighbors, and active connections;
+- the visible graph has a subtle low-frequency ambient drift so it feels alive in recordings without moving the camera or running a physics simulation;
 - the default camera fits the full graph;
 - tilt is preset-driven, not free-orbit, so the graph cannot become an edge-on stripe field;
 - camera controls support zoom, fit, top view, and reset tilt;
@@ -125,6 +126,7 @@ The 3D mode can become a stable headline feature only if it passes these checks:
 - hovering a node gradually highlights its connected edges without abrupt on/off flicker;
 - curved edges remain readable and do not turn the graph into a bright line field;
 - default community colors are calm enough for long inspection, with stronger color reserved for interaction;
+- ambient motion remains subtle, respects reduced-motion settings, and does not make node picking feel unstable;
 - camera controls feel predictable and recover easily from bad viewing angles;
 - validation passes with public safety, unit tests, and macOS build.
 

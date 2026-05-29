@@ -26,6 +26,7 @@ const accentPalette = [
 
 const baseEdgeColor = '#6f7f9d';
 const selectedStrokeColor = '#f1f4ff';
+const prefersReducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
 
 const pointTexture = createPointTexture();
 
@@ -50,7 +51,10 @@ const state = {
   pointer: new THREE.Vector2(),
   raycaster: new THREE.Raycaster(),
   nodeIndexById: new Map(),
-  animationFrame: null
+  animationFrame: null,
+  ambientFrame: null,
+  ambientPhase: 0,
+  lastAmbientTimestamp: 0
 };
 
 let renderer;
@@ -232,6 +236,7 @@ function applyLens(fit = true) {
     state.lastDiagnostic = '';
     updateHud();
     requestRender();
+    startAmbientMotion();
   } catch (error) {
     reportDiagnostic(error.message || '3D graph render failed', true);
   }
@@ -583,12 +588,12 @@ function renderVisualOverlay() {
     }
     const x = (vector.x * 0.5 + 0.5) * width;
     const y = (-vector.y * 0.5 + 0.5) * height;
-    projected.set(node.id, {
+    projected.set(node.id, ambientProjectedPoint({
       x,
       y,
       z: vector.z,
       node
-    });
+    }));
     if (x >= 0 && x <= width && y >= 0 && y <= height) {
       projectedNodeCount += 1;
     }
@@ -705,6 +710,22 @@ function depthPresence(projectedZ) {
   return clamp(0.98 - distance * 0.2, 0.78, 0.98);
 }
 
+function ambientProjectedPoint(point) {
+  if (prefersReducedMotion || !state.ambientPhase) {
+    return point;
+  }
+  const seed = hashString(point.node.id);
+  const phase = state.ambientPhase + (seed % 628) * 0.01;
+  const depth = depthPresence(point.z);
+  const interactionDamping = state.hoveredNode || state.selectedNode ? 0.62 : 1;
+  const amplitude = 1.15 * depth * interactionDamping;
+  return {
+    ...point,
+    x: point.x + Math.cos(phase * 0.72) * amplitude,
+    y: point.y + Math.sin(phase * 0.58 + (seed % 97) * 0.013) * amplitude
+  };
+}
+
 function updateHoverIntensity() {
   const target = state.hoveredNode ? 1 : 0;
   const delta = target - state.hoverIntensity;
@@ -732,6 +753,26 @@ function requestRender() {
     state.animationFrame = null;
     render();
   });
+}
+
+function startAmbientMotion() {
+  if (prefersReducedMotion || state.ambientFrame || !state.visibleNodes.length) {
+    return;
+  }
+  state.ambientFrame = requestAnimationFrame(ambientMotionTick);
+}
+
+function ambientMotionTick(timestamp) {
+  state.ambientFrame = null;
+  if (document.hidden || !state.visibleNodes.length) {
+    return;
+  }
+  if (timestamp - state.lastAmbientTimestamp >= 66) {
+    state.lastAmbientTimestamp = timestamp;
+    state.ambientPhase = timestamp * 0.001;
+    renderVisualOverlay();
+  }
+  startAmbientMotion();
 }
 
 function renderSidebar() {
@@ -1007,6 +1048,11 @@ function wireEvents() {
 
   search.addEventListener('input', renderSearchResults);
   window.addEventListener('resize', resize);
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) {
+      startAmbientMotion();
+    }
+  });
   new ResizeObserver(resize).observe(stage);
 
   window.addEventListener('error', (event) => {
