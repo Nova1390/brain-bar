@@ -4,6 +4,9 @@ All notable changes to BrainBar are documented here.
 
 ## Unreleased
 
+- Extracted the 2D graph runtime into bundled JS/CSS resources for easier testing and profiling.
+- Added JS smoke tests for Source Lens filtering, diff-only updates, Open Note payloads, and graph resource availability.
+- Reduced repeated 2D graph work by avoiding automatic fit on lens switch and skipping unchanged hidden-state updates.
 - Added an experimental custom 3D graph mode for the Focus Window.
 - Added a session-only 2D/3D view switch that leaves the menu bar popover on the standard 2D graph.
 - Added local bundled Three.js renderer assets for offline 3D graph rendering.

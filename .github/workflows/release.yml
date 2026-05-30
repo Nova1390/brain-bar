@@ -19,6 +19,12 @@ jobs:
       - name: Public safety check
         run: scripts/check-public-safety.sh
 
+      - name: Graph runtime checks
+        run: |
+          node --check BrainBar/Resources/Graph2D/brainbar-graph-runtime.js
+          node --check BrainBar/Resources/Graph3D/graph3d.js
+          node scripts/test-graph-runtime.mjs
+
       - name: Test
         run: |
           xcodebuild test \

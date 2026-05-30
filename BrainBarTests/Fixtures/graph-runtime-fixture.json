@@ -1,0 +1,47 @@
+{
+  "nodes": [
+    {
+      "id": "a",
+      "label": "Alpha",
+      "community": 0,
+      "source_file": "notes/Alpha.md"
+    },
+    {
+      "id": "b",
+      "label": "Beta",
+      "community": 0,
+      "_source_file": "notes/Beta.md"
+    },
+    {
+      "id": "c",
+      "label": "Gamma",
+      "community": 1,
+      "source_file": "notes/Gamma.md"
+    },
+    {
+      "id": "d",
+      "label": "Delta",
+      "community": 1
+    }
+  ],
+  "edges": [
+    {
+      "id": 0,
+      "from": "a",
+      "to": "b",
+      "relation": "obsidian_wikilink"
+    },
+    {
+      "id": 1,
+      "from": "b",
+      "to": "c",
+      "relation": "semantic_similarity"
+    },
+    {
+      "id": 2,
+      "from": "c",
+      "to": "d",
+      "context": "graphify_inferred"
+    }
+  ]
+}
