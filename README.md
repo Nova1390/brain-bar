@@ -31,6 +31,7 @@ It keeps the graph where it belongs: on your machine, inside a compact menu bar 
 - Source lens for switching between all edges, generated Graphify relationships, and native Obsidian wikilinks
 - Node inspection with fading active labels and an Open Note action for jumping from graph node to local source file
 - Graphify refresh from the footer or action menu
+- Optional generic Review Queue status panel for local inbox/preflight workflows
 - Vault, Git branch/dirty state, Graphify, and brain-check status
 - Configurable vault path, dashboard path, report path, server port, and commands
 - Optional Obsidian URL scheme support
@@ -160,6 +161,14 @@ Default schema:
   "graphReportRelativePath": "graphify-out/GRAPH_REPORT.md",
   "notificationsEnabled": false,
   "projectDashboardRelativePath": "Project Dashboard.md",
+  "reviewQueue": {
+    "backgroundWatcherEnabled": false,
+    "isEnabled": false,
+    "manualCommand": null,
+    "preflightCommand": null,
+    "timeoutSeconds": 10,
+    "watcherIntervalSeconds": 300
+  },
   "serverPort": 8765,
   "useObsidianURLScheme": false,
   "vaultPath": ""
@@ -233,6 +242,68 @@ Brain check arguments: scripts/brain_check.py --strict
 ```
 
 Because BrainBar uses `Process` directly rather than a shell, shell-only syntax such as pipes, redirects, aliases, and inline environment variables is not interpreted. Put that logic in a script, then configure BrainBar to run the script.
+
+## Review Queue
+
+Review Queue is a generic local status panel for workflows that have an inbox, queue, or preflight script. BrainBar does not inspect, interpret, or modify vault content by itself. It only displays the JSON status returned by your configured command and runs optional actions when you explicitly click them.
+
+BrainBar is the dashboard, not the worker. Keep private review logic, file writes, network calls, or mutating workflows inside your own script or CLI.
+
+It supports three levels:
+
+| Level | Behavior |
+| --- | --- |
+| Status Only | Shows pending count, last checked time, optional compact error, and a short item list if the command returns one. |
+| Manual Trigger | Adds an optional Run Action button for a command you explicitly click. |
+| Background Watcher | Opt-in and off by default. It only runs the status/preflight command at a light interval. It never runs the manual action automatically. |
+
+The status command must print JSON to stdout:
+
+```json
+{
+  "pending_count": 2,
+  "items": [
+    { "title": "Draft item", "detail": "Needs manual review" },
+    { "title": "Queued file" }
+  ]
+}
+```
+
+`items` is optional. BrainBar treats item fields as generic display text and does not interpret them. If `pending_count` is `0`, BrainBar stays quiet and simply shows the current status.
+
+For a quick local demo in Settings, use `Use Demo Status`, then `Save & Check`. This fills a status-only command that returns static sample JSON. It does not configure a manual action.
+
+Example config:
+
+```json
+"reviewQueue": {
+  "isEnabled": true,
+  "preflightCommand": {
+    "executable": "python3",
+    "arguments": ["scripts/review_queue_status.py"],
+    "workingDirectory": "vault"
+  },
+  "manualCommand": {
+    "executable": "python3",
+    "arguments": ["scripts/run_review.py"],
+    "workingDirectory": "vault"
+  },
+  "backgroundWatcherEnabled": false,
+  "watcherIntervalSeconds": 300,
+  "timeoutSeconds": 10
+}
+```
+
+For real workflows, prefer a small script:
+
+```text
+Status command executable: python3
+Status command arguments: scripts/review_queue_status.py
+```
+
+The script should print the JSON status to stdout and exit with code `0`. Because Review Queue commands are local `Process` commands, shell-only syntax such as pipes, redirects, aliases, inline environment variables, and complex quoting is not interpreted. Put that logic in a script and point BrainBar at the script.
+
+The background watcher is intentionally conservative: it is disabled by default, uses a minimum interval of 300 seconds, and only runs the status command. Manual action commands never run automatically.
 
 ## Local Server
 

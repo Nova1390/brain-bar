@@ -24,6 +24,7 @@
 		100000000000000000000115 /* Graph3DWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000016 /* Graph3DWebView.swift */; };
 		100000000000000000000116 /* Graph3D in Resources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000017 /* Graph3D */; };
 		100000000000000000000117 /* Graph2D in Resources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000018 /* Graph2D */; };
+		100000000000000000000118 /* ReviewQueueService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000019 /* ReviewQueueService.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -55,6 +56,7 @@
 		100000000000000000000016 /* Graph3DWebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Graph3DWebView.swift; sourceTree = "<group>"; };
 		100000000000000000000017 /* Graph3D */ = {isa = PBXFileReference; lastKnownFileType = folder; path = Graph3D; sourceTree = "<group>"; };
 		100000000000000000000018 /* Graph2D */ = {isa = PBXFileReference; lastKnownFileType = folder; path = Graph2D; sourceTree = "<group>"; };
+		100000000000000000000019 /* ReviewQueueService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReviewQueueService.swift; sourceTree = "<group>"; };
 		100000000000000000000020 /* BrainBar.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BrainBar.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		100000000000000000000021 /* BrainBarTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = BrainBarTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -115,6 +117,7 @@
 				100000000000000000000006 /* VaultStatusService.swift */,
 				100000000000000000000007 /* GraphServerController.swift */,
 				100000000000000000000008 /* NotificationService.swift */,
+				100000000000000000000019 /* ReviewQueueService.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -273,6 +276,7 @@
 				100000000000000000000112 /* GraphWebView.swift in Sources */,
 				100000000000000000000115 /* Graph3DWebView.swift in Sources */,
 				100000000000000000000113 /* GraphShellView.swift in Sources */,
+				100000000000000000000118 /* ReviewQueueService.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

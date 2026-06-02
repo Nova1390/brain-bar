@@ -198,7 +198,20 @@ struct GraphShellView: View {
                 } else {
                     InlineStatus(text: model.lastBrainCheck?.summary ?? "Brain Check not run", systemImage: "checkmark.seal")
                 }
+                if !model.config.reviewQueue.isEnabled {
+                    Button {
+                        openSettings()
+                    } label: {
+                        InlineStatus(text: "Configure Review Queue", systemImage: "tray.full")
+                    }
+                    .buttonStyle(.plain)
+                    .help("Configure Review Queue")
+                }
                 Spacer(minLength: 0)
+            }
+
+            if model.config.reviewQueue.isEnabled {
+                ReviewQueuePanel(model: model, onConfigure: openSettings)
             }
 
             if let error = model.errorMessage, !error.isEmpty {
@@ -306,6 +319,34 @@ private struct GraphActionMenu: View {
             }
 
             Section("Checks") {
+                if model.config.reviewQueue.isEnabled {
+                    Button {
+                        Task {
+                            await model.refreshReviewQueueStatus()
+                        }
+                    } label: {
+                        Label(model.isCheckingReviewQueue ? "Checking Review Queue..." : "Check Review Queue", systemImage: "tray.full")
+                    }
+                    .disabled(model.isCheckingReviewQueue || model.config.reviewQueue.preflightCommand == nil)
+
+                    if model.config.reviewQueue.manualCommand != nil {
+                        Button {
+                            Task {
+                                await model.runReviewQueueAction()
+                            }
+                        } label: {
+                            Label(model.isRunningReviewQueueAction ? "Running Review Queue Action..." : "Run Review Queue Action", systemImage: "play.circle")
+                        }
+                        .disabled(model.isRunningReviewQueueAction)
+                    }
+                } else {
+                    Button {
+                        openSettings()
+                    } label: {
+                        Label("Configure Review Queue", systemImage: "tray.full")
+                    }
+                }
+
                 if model.config.commands.brainCheck == nil {
                     Button {
                         openSettings()
@@ -367,6 +408,111 @@ private struct GraphActionMenu: View {
     private func copyToPasteboard(_ text: String) {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
+    }
+}
+
+private struct ReviewQueuePanel: View {
+    let model: AppModel
+    let onConfigure: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(spacing: 10) {
+                InlineStatus(text: "Review Queue", systemImage: "tray.full")
+                Text(summaryText)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(statusColor)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+
+                if let checkedAt = model.reviewQueueStatus.lastCheckedAt {
+                    Text("checked \(checkedAt.formattedRelative)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+
+                Spacer(minLength: 0)
+
+                if model.config.reviewQueue.preflightCommand == nil {
+                    Button("Configure") {
+                        onConfigure()
+                    }
+                    .buttonStyle(.borderless)
+                    .controlSize(.small)
+                } else {
+                    Button(model.isCheckingReviewQueue ? "Checking..." : "Check") {
+                        Task {
+                            await model.refreshReviewQueueStatus()
+                        }
+                    }
+                    .buttonStyle(.borderless)
+                    .controlSize(.small)
+                    .disabled(model.isCheckingReviewQueue)
+                }
+
+                if model.config.reviewQueue.manualCommand != nil {
+                    Button(model.isRunningReviewQueueAction ? "Running..." : "Run Action") {
+                        Task {
+                            await model.runReviewQueueAction()
+                        }
+                    }
+                    .buttonStyle(.borderless)
+                    .controlSize(.small)
+                    .disabled(model.isRunningReviewQueueAction)
+                }
+            }
+
+            if !model.reviewQueueStatus.items.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(model.reviewQueueStatus.items.prefix(4)) { item in
+                        HStack(spacing: 6) {
+                            Circle()
+                                .fill(.secondary.opacity(0.55))
+                                .frame(width: 4, height: 4)
+                            Text(item.title)
+                                .font(.caption)
+                                .foregroundStyle(.primary.opacity(0.9))
+                                .lineLimit(1)
+                            if let detail = item.detail {
+                                Text(detail)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                            }
+                        }
+                    }
+                }
+                .padding(.leading, 2)
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(.black.opacity(0.12), in: .rect(cornerRadius: 8))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(.white.opacity(0.06), lineWidth: 1)
+        }
+    }
+
+    private var statusColor: Color {
+        if model.config.reviewQueue.preflightCommand == nil {
+            return .secondary
+        }
+        if model.reviewQueueStatus.errorMessage != nil {
+            return .red
+        }
+        if let count = model.reviewQueueStatus.pendingCount, count > 0 {
+            return .orange
+        }
+        return .secondary
+    }
+
+    private var summaryText: String {
+        if model.config.reviewQueue.preflightCommand == nil {
+            return "Status command not configured"
+        }
+        return model.reviewQueueStatus.summary
     }
 }
 

@@ -1,11 +1,12 @@
 import Foundation
 
 struct CommandRunner: Sendable {
-    func run(_ spec: CommandSpec, name: String, vaultURL: URL?) async throws -> CommandResult {
+    func run(_ spec: CommandSpec, name: String, vaultURL: URL?, timeoutSeconds: Int? = nil) async throws -> CommandResult {
         let startedAt = Date()
         let process = Process()
         let stdout = Pipe()
         let stderr = Pipe()
+        let completion = CommandRunCompletion()
 
         if spec.executable.contains("/") {
             process.executableURL = URL(fileURLWithPath: spec.executable)
@@ -29,6 +30,9 @@ struct CommandRunner: Sendable {
 
         return try await withCheckedThrowingContinuation { continuation in
             process.terminationHandler = { process in
+                guard completion.markCompleted() else {
+                    return
+                }
                 let outputData = stdout.fileHandleForReading.readDataToEndOfFile()
                 let errorData = stderr.fileHandleForReading.readDataToEndOfFile()
                 let result = CommandResult(
@@ -44,7 +48,22 @@ struct CommandRunner: Sendable {
 
             do {
                 try process.run()
+                if let timeoutSeconds, timeoutSeconds > 0 {
+                    Task {
+                        try? await Task.sleep(for: .seconds(timeoutSeconds))
+                        guard !Task.isCancelled, completion.markCompleted() else {
+                            return
+                        }
+                        if process.isRunning {
+                            process.terminate()
+                        }
+                        continuation.resume(throwing: BrainBarError.commandTimedOut(name, timeoutSeconds))
+                    }
+                }
             } catch {
+                guard completion.markCompleted() else {
+                    return
+                }
                 continuation.resume(throwing: BrainBarError.processFailed(error.localizedDescription))
             }
         }
@@ -69,5 +88,20 @@ struct CommandRunner: Sendable {
         .joined(separator: ":")
         environment["PATH"] = fallbackPath
         return environment
+    }
+}
+
+private final class CommandRunCompletion: @unchecked Sendable {
+    private let lock = NSLock()
+    private var completed = false
+
+    func markCompleted() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !completed else {
+            return false
+        }
+        completed = true
+        return true
     }
 }

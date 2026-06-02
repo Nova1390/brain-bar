@@ -6,6 +6,7 @@ struct SettingsView: View {
     @State private var draft: SettingsDraft
     @State private var saveMessage: String?
     @State private var saveSucceeded = false
+    @State private var isSavingAndCheckingReviewQueue = false
 
     init(model: AppModel) {
         self.model = model
@@ -57,6 +58,60 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
+            Section("Review Queue") {
+                Toggle("Enable Review Queue", isOn: $draft.reviewQueueEnabled)
+                TextField("Status command executable", text: $draft.reviewQueuePreflightExecutable)
+                    .help("Optional preflight command. It must print JSON and should not modify files.")
+                    .disabled(!draft.reviewQueueEnabled)
+                TextField("Status command arguments", text: $draft.reviewQueuePreflightArguments)
+                    .disabled(!draft.reviewQueueEnabled)
+                Text("BrainBar only reads JSON status. Put private or mutating logic in your own script.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text("Status command must print compact JSON, for example: {\"pending_count\":2,\"items\":[\"Draft\"]}. For real workflows, prefer a small script such as python3 scripts/review_queue_status.py.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                HStack {
+                    Button("Use Demo Status") {
+                        draft.reviewQueueEnabled = true
+                        draft.reviewQueuePreflightExecutable = "/bin/echo"
+                        draft.reviewQueuePreflightArguments = "{\"pending_count\":2,\"items\":[\"First item\",\"Second item\"]}"
+                        draft.reviewQueueBackgroundWatcherEnabled = false
+                    }
+                    .controlSize(.small)
+                    .help("Fills a status-only demo command. It does not configure a manual action.")
+
+                    Spacer()
+
+                    Button(isSavingAndCheckingReviewQueue ? "Checking..." : "Save & Check") {
+                        saveAndCheckReviewQueue()
+                    }
+                    .controlSize(.small)
+                    .disabled(!draft.canRunReviewQueueStatus || isSavingAndCheckingReviewQueue)
+                }
+
+                TextField("Manual action command executable", text: $draft.reviewQueueManualExecutable)
+                    .help("Optional action. BrainBar only runs this when you click Run Action.")
+                    .disabled(!draft.reviewQueueEnabled)
+                TextField("Manual action command arguments", text: $draft.reviewQueueManualArguments)
+                    .disabled(!draft.reviewQueueEnabled)
+
+                Toggle("Background watcher", isOn: $draft.reviewQueueBackgroundWatcherEnabled)
+                    .disabled(!draft.canEnableReviewQueueWatcher)
+                Stepper(value: $draft.reviewQueueWatcherIntervalSeconds, in: 300...3_600, step: 300) {
+                    TextField("Watcher interval seconds", value: $draft.reviewQueueWatcherIntervalSeconds, format: .number)
+                }
+                .disabled(!draft.reviewQueueBackgroundWatcherEnabled || !draft.reviewQueueEnabled)
+                Stepper(value: $draft.reviewQueueTimeoutSeconds, in: 1...60) {
+                    TextField("Command timeout seconds", value: $draft.reviewQueueTimeoutSeconds, format: .number)
+                }
+                .disabled(!draft.reviewQueueEnabled)
+                Text("The watcher is off by default and only runs the status command. Manual action commands never run automatically.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             Section("Advanced") {
                 Stepper(value: $draft.serverPort, in: 1...65_535) {
                     TextField("Local server port", value: $draft.serverPort, format: .number)
@@ -78,9 +133,7 @@ struct SettingsView: View {
                     SettingsSaveStatus(message: saveMessage, succeeded: saveSucceeded)
                 }
                 Button("Save") {
-                    saveSucceeded = model.saveConfig(draft.config)
-                    saveMessage = saveSucceeded ? "Saved" : "Save failed"
-                    clearSaveMessageAfterDelay()
+                    saveDraft()
                 }
                 .keyboardShortcut(.defaultAction)
             }
@@ -116,6 +169,25 @@ struct SettingsView: View {
         Task {
             try? await Task.sleep(for: .seconds(2))
             saveMessage = nil
+        }
+    }
+
+    @discardableResult
+    private func saveDraft() -> Bool {
+        saveSucceeded = model.saveConfig(draft.config)
+        saveMessage = saveSucceeded ? "Saved" : "Save failed"
+        clearSaveMessageAfterDelay()
+        return saveSucceeded
+    }
+
+    private func saveAndCheckReviewQueue() {
+        guard saveDraft() else {
+            return
+        }
+        isSavingAndCheckingReviewQueue = true
+        Task {
+            await model.refreshReviewQueueStatus()
+            isSavingAndCheckingReviewQueue = false
         }
     }
 }
@@ -192,6 +264,14 @@ private struct SettingsDraft: Equatable {
     var refreshArguments: String
     var brainCheckExecutable: String
     var brainCheckArguments: String
+    var reviewQueueEnabled: Bool
+    var reviewQueuePreflightExecutable: String
+    var reviewQueuePreflightArguments: String
+    var reviewQueueManualExecutable: String
+    var reviewQueueManualArguments: String
+    var reviewQueueBackgroundWatcherEnabled: Bool
+    var reviewQueueWatcherIntervalSeconds: Int
+    var reviewQueueTimeoutSeconds: Int
 
     init(config: BrainBarConfig) {
         vaultPath = config.vaultPath
@@ -205,6 +285,15 @@ private struct SettingsDraft: Equatable {
         refreshArguments = config.commands.refreshGraph.arguments.joined(separator: " ")
         brainCheckExecutable = config.commands.brainCheck?.executable ?? ""
         brainCheckArguments = config.commands.brainCheck?.arguments.joined(separator: " ") ?? ""
+        let reviewQueue = config.reviewQueue.normalized
+        reviewQueueEnabled = reviewQueue.isEnabled
+        reviewQueuePreflightExecutable = reviewQueue.preflightCommand?.executable ?? ""
+        reviewQueuePreflightArguments = reviewQueue.preflightCommand?.arguments.joined(separator: " ") ?? ""
+        reviewQueueManualExecutable = reviewQueue.manualCommand?.executable ?? ""
+        reviewQueueManualArguments = reviewQueue.manualCommand?.arguments.joined(separator: " ") ?? ""
+        reviewQueueBackgroundWatcherEnabled = reviewQueue.backgroundWatcherEnabled
+        reviewQueueWatcherIntervalSeconds = reviewQueue.watcherIntervalSeconds
+        reviewQueueTimeoutSeconds = reviewQueue.timeoutSeconds
     }
 
     var config: BrainBarConfig {
@@ -227,11 +316,45 @@ private struct SettingsDraft: Equatable {
                     arguments: splitArguments(brainCheckArguments),
                     workingDirectory: "vault"
                 )
-            )
-        )
+            ),
+            reviewQueue: ReviewQueueConfiguration(
+                isEnabled: reviewQueueEnabled,
+                preflightCommand: commandSpec(
+                    executable: reviewQueuePreflightExecutable,
+                    arguments: reviewQueuePreflightArguments
+                ),
+                manualCommand: commandSpec(
+                    executable: reviewQueueManualExecutable,
+                    arguments: reviewQueueManualArguments
+                ),
+                backgroundWatcherEnabled: reviewQueueBackgroundWatcherEnabled,
+                watcherIntervalSeconds: reviewQueueWatcherIntervalSeconds,
+                timeoutSeconds: reviewQueueTimeoutSeconds
+            ).normalized
+        ).normalized()
+    }
+
+    var canEnableReviewQueueWatcher: Bool {
+        reviewQueueEnabled && !reviewQueuePreflightExecutable.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    var canRunReviewQueueStatus: Bool {
+        reviewQueueEnabled && !reviewQueuePreflightExecutable.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     private func splitArguments(_ text: String) -> [String] {
         text.split(separator: " ").map(String.init)
+    }
+
+    private func commandSpec(executable: String, arguments: String) -> CommandSpec? {
+        let trimmedExecutable = executable.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedExecutable.isEmpty else {
+            return nil
+        }
+        return CommandSpec(
+            executable: trimmedExecutable,
+            arguments: splitArguments(arguments),
+            workingDirectory: "vault"
+        )
     }
 }

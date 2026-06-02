@@ -9,6 +9,7 @@ struct BrainBarConfig: Codable, Equatable, Sendable {
     var useObsidianURLScheme: Bool
     var notificationsEnabled: Bool
     var commands: CommandConfiguration
+    var reviewQueue: ReviewQueueConfiguration
 
     static let `default` = BrainBarConfig(
         vaultPath: "",
@@ -25,8 +26,56 @@ struct BrainBarConfig: Codable, Equatable, Sendable {
                 workingDirectory: "vault"
             ),
             brainCheck: nil
-        )
+        ),
+        reviewQueue: .default
     )
+
+    enum CodingKeys: String, CodingKey {
+        case vaultPath
+        case projectDashboardRelativePath
+        case graphHtmlRelativePath
+        case graphReportRelativePath
+        case serverPort
+        case useObsidianURLScheme
+        case notificationsEnabled
+        case commands
+        case reviewQueue
+    }
+
+    init(
+        vaultPath: String,
+        projectDashboardRelativePath: String,
+        graphHtmlRelativePath: String,
+        graphReportRelativePath: String,
+        serverPort: Int,
+        useObsidianURLScheme: Bool,
+        notificationsEnabled: Bool,
+        commands: CommandConfiguration,
+        reviewQueue: ReviewQueueConfiguration
+    ) {
+        self.vaultPath = vaultPath
+        self.projectDashboardRelativePath = projectDashboardRelativePath
+        self.graphHtmlRelativePath = graphHtmlRelativePath
+        self.graphReportRelativePath = graphReportRelativePath
+        self.serverPort = serverPort
+        self.useObsidianURLScheme = useObsidianURLScheme
+        self.notificationsEnabled = notificationsEnabled
+        self.commands = commands
+        self.reviewQueue = reviewQueue
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        vaultPath = try container.decode(String.self, forKey: .vaultPath)
+        projectDashboardRelativePath = try container.decode(String.self, forKey: .projectDashboardRelativePath)
+        graphHtmlRelativePath = try container.decode(String.self, forKey: .graphHtmlRelativePath)
+        graphReportRelativePath = try container.decode(String.self, forKey: .graphReportRelativePath)
+        serverPort = try container.decode(Int.self, forKey: .serverPort)
+        useObsidianURLScheme = try container.decode(Bool.self, forKey: .useObsidianURLScheme)
+        notificationsEnabled = try container.decode(Bool.self, forKey: .notificationsEnabled)
+        commands = try container.decode(CommandConfiguration.self, forKey: .commands)
+        reviewQueue = try container.decodeIfPresent(ReviewQueueConfiguration.self, forKey: .reviewQueue) ?? .default
+    }
 }
 
 struct CommandConfiguration: Codable, Equatable, Sendable {
@@ -67,6 +116,7 @@ extension BrainBarConfig {
            config.commands.refreshGraph.arguments == ["--update", "."] {
             config.commands.refreshGraph.arguments = ["update", "."]
         }
+        config.reviewQueue = config.reviewQueue.normalized
         return config
     }
 }
@@ -75,6 +125,64 @@ struct CommandSpec: Codable, Equatable, Sendable {
     var executable: String
     var arguments: [String]
     var workingDirectory: String?
+}
+
+struct ReviewQueueConfiguration: Codable, Equatable, Sendable {
+    var isEnabled: Bool
+    var preflightCommand: CommandSpec?
+    var manualCommand: CommandSpec?
+    var backgroundWatcherEnabled: Bool
+    var watcherIntervalSeconds: Int
+    var timeoutSeconds: Int
+
+    static let `default` = ReviewQueueConfiguration(
+        isEnabled: false,
+        preflightCommand: nil,
+        manualCommand: nil,
+        backgroundWatcherEnabled: false,
+        watcherIntervalSeconds: 300,
+        timeoutSeconds: 10
+    )
+
+    var normalized: ReviewQueueConfiguration {
+        var configuration = self
+        configuration.watcherIntervalSeconds = max(300, watcherIntervalSeconds)
+        configuration.timeoutSeconds = min(max(1, timeoutSeconds), 60)
+        if !isEnabled {
+            configuration.backgroundWatcherEnabled = false
+        }
+        return configuration
+    }
+}
+
+struct ReviewQueueItem: Codable, Equatable, Identifiable, Sendable {
+    var id: String
+    var title: String
+    var detail: String?
+}
+
+struct ReviewQueueStatus: Equatable, Sendable {
+    var pendingCount: Int?
+    var items: [ReviewQueueItem]
+    var lastCheckedAt: Date?
+    var errorMessage: String?
+
+    static let empty = ReviewQueueStatus(
+        pendingCount: nil,
+        items: [],
+        lastCheckedAt: nil,
+        errorMessage: nil
+    )
+
+    var summary: String {
+        if let errorMessage, !errorMessage.isEmpty {
+            return errorMessage
+        }
+        guard let pendingCount else {
+            return "Not checked"
+        }
+        return pendingCount == 1 ? "1 pending item" : "\(pendingCount) pending items"
+    }
 }
 
 struct CommandResult: Equatable, Sendable {
@@ -151,6 +259,7 @@ enum BrainBarError: LocalizedError, Equatable, Sendable {
     case graphNodeSourceOutsideVault(String)
     case graphNodeSourceFileMissing(String)
     case commandNotConfigured(String)
+    case commandTimedOut(String, Int)
     case invalidPort(Int)
     case portBusy(Int)
     case processFailed(String)
@@ -171,6 +280,8 @@ enum BrainBarError: LocalizedError, Equatable, Sendable {
             return "Source file does not exist: \(path)"
         case .commandNotConfigured(let name):
             return "\(name) is not configured."
+        case .commandTimedOut(let name, let seconds):
+            return "\(name) timed out after \(seconds)s."
         case .invalidPort(let port):
             return "Invalid server port: \(port)"
         case .portBusy(let port):

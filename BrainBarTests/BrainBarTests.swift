@@ -185,6 +185,91 @@ final class BrainBarTests: XCTestCase {
         XCTAssertEqual(GraphViewportCommandKind.resetTilt.rawValue, "resetTilt")
     }
 
+    func testReviewQueueWatcherIsOffByDefault() {
+        XCTAssertFalse(BrainBarConfig.default.reviewQueue.isEnabled)
+        XCTAssertFalse(BrainBarConfig.default.reviewQueue.backgroundWatcherEnabled)
+        XCTAssertNil(BrainBarConfig.default.reviewQueue.manualCommand)
+    }
+
+    func testReviewQueueNormalizationUsesConservativeWatcherMinimum() {
+        var reviewQueue = ReviewQueueConfiguration.default
+        reviewQueue.isEnabled = true
+        reviewQueue.backgroundWatcherEnabled = true
+        reviewQueue.watcherIntervalSeconds = 60
+
+        let normalized = reviewQueue.normalized
+
+        XCTAssertEqual(normalized.watcherIntervalSeconds, 300)
+        XCTAssertTrue(normalized.backgroundWatcherEnabled)
+    }
+
+    func testReviewQueueNormalizationDisablesWatcherWhenFeatureIsDisabled() {
+        var reviewQueue = ReviewQueueConfiguration.default
+        reviewQueue.isEnabled = false
+        reviewQueue.backgroundWatcherEnabled = true
+
+        let normalized = reviewQueue.normalized
+
+        XCTAssertFalse(normalized.backgroundWatcherEnabled)
+        XCTAssertEqual(normalized.watcherIntervalSeconds, 300)
+    }
+
+    func testReviewQueueParsesValidJSONWithItems() throws {
+        let json = """
+        {
+          "pending_count": 2,
+          "items": [
+            { "title": "Draft item", "detail": "Needs manual review" },
+            "Loose queue item"
+          ]
+        }
+        """
+
+        let status = try ReviewQueueService.parse(json)
+
+        XCTAssertEqual(status.pendingCount, 2)
+        XCTAssertEqual(status.items.count, 2)
+        XCTAssertEqual(status.items[0].title, "Draft item")
+        XCTAssertEqual(status.items[0].detail, "Needs manual review")
+        XCTAssertEqual(status.items[1].title, "Loose queue item")
+        XCTAssertNil(status.errorMessage)
+    }
+
+    func testReviewQueueRejectsMalformedJSON() {
+        XCTAssertThrowsError(try ReviewQueueService.parse("{")) { error in
+            XCTAssertEqual(error as? BrainBarError, .processFailed("Review Queue returned invalid JSON."))
+        }
+    }
+
+    func testReviewQueuePendingZeroIsQuietStatus() throws {
+        let status = try ReviewQueueService.parse(#"{ "pending_count": 0 }"#)
+
+        XCTAssertEqual(status.pendingCount, 0)
+        XCTAssertTrue(status.items.isEmpty)
+        XCTAssertNil(status.errorMessage)
+        XCTAssertEqual(status.summary, "0 pending items")
+    }
+
+    func testReviewQueuePendingGreaterThanZero() throws {
+        let status = try ReviewQueueService.parse(#"{ "pending_count": 3 }"#)
+
+        XCTAssertEqual(status.pendingCount, 3)
+        XCTAssertEqual(status.summary, "3 pending items")
+    }
+
+    func testReviewQueueCommandTimeoutIsCompact() async throws {
+        var reviewQueue = ReviewQueueConfiguration.default
+        reviewQueue.isEnabled = true
+        reviewQueue.timeoutSeconds = 1
+        reviewQueue.preflightCommand = CommandSpec(executable: "/bin/sleep", arguments: ["2"], workingDirectory: nil)
+
+        let status = await ReviewQueueService().check(config: reviewQueue, vaultURL: nil)
+
+        XCTAssertEqual(status.errorMessage, "Review Queue timed out after 1s.")
+        XCTAssertNil(status.pendingCount)
+        XCTAssertTrue(status.items.isEmpty)
+    }
+
     func testGraphServerStartsAndStops() async throws {
         let vault = try temporaryDirectory()
         try FileManager.default.createDirectory(at: vault.appendingPathComponent("graphify-out"), withIntermediateDirectories: true)

@@ -85,13 +85,19 @@ final class AppModel {
     var graphViewMode: GraphViewMode = .twoD
     var graph3DResetToken = 0
     var graphViewportCommand: GraphViewportCommand?
+    var reviewQueueStatus: ReviewQueueStatus = .empty
+    var isCheckingReviewQueue = false
+    var isRunningReviewQueueAction = false
+    var lastReviewQueueAction: CommandResult?
 
     @ObservationIgnored private let configurationManager: ConfigurationManager
     @ObservationIgnored private let commandRunner: CommandRunner
     @ObservationIgnored private let vaultStatusService: VaultStatusService
     @ObservationIgnored private let graphServerController: GraphServerController
     @ObservationIgnored private let notificationService: NotificationService
+    @ObservationIgnored private let reviewQueueService: ReviewQueueService
     @ObservationIgnored private var nextGraphViewportCommandID = 0
+    @ObservationIgnored private var reviewQueueWatcherTask: Task<Void, Never>?
 
     var configPath: String {
         configurationManager.configURL.path
@@ -134,14 +140,21 @@ final class AppModel {
         commandRunner: CommandRunner = CommandRunner(),
         vaultStatusService: VaultStatusService = VaultStatusService(),
         graphServerController: GraphServerController = GraphServerController(),
-        notificationService: NotificationService = NotificationService()
+        notificationService: NotificationService = NotificationService(),
+        reviewQueueService: ReviewQueueService = ReviewQueueService()
     ) {
         self.configurationManager = configurationManager
         self.commandRunner = commandRunner
         self.vaultStatusService = vaultStatusService
         self.graphServerController = graphServerController
         self.notificationService = notificationService
+        self.reviewQueueService = reviewQueueService
         self.config = (try? configurationManager.loadOrCreate()) ?? .default
+        updateReviewQueueWatcher()
+    }
+
+    deinit {
+        reviewQueueWatcherTask?.cancel()
     }
 
     func refreshStatus() async {
@@ -202,10 +215,12 @@ final class AppModel {
     @discardableResult
     func saveConfig(_ newConfig: BrainBarConfig) -> Bool {
         do {
-            try configurationManager.save(newConfig)
-            config = newConfig
+            let normalizedConfig = newConfig.normalized()
+            try configurationManager.save(normalizedConfig)
+            config = normalizedConfig
             graphReloadToken += 1
             errorMessage = nil
+            updateReviewQueueWatcher()
             Task {
                 await refreshStatus()
             }
@@ -305,6 +320,44 @@ final class AppModel {
         }
     }
 
+    func refreshReviewQueueStatus() async {
+        guard config.reviewQueue.isEnabled else {
+            reviewQueueStatus = .empty
+            return
+        }
+        guard !isCheckingReviewQueue else {
+            return
+        }
+
+        isCheckingReviewQueue = true
+        defer { isCheckingReviewQueue = false }
+
+        let vaultURL = vaultStatusService.vaultURL(for: config)
+        reviewQueueStatus = await reviewQueueService.check(config: config.reviewQueue.normalized, vaultURL: vaultURL)
+    }
+
+    func runReviewQueueAction() async {
+        guard config.reviewQueue.isEnabled else {
+            return
+        }
+        guard !isRunningReviewQueueAction else {
+            return
+        }
+
+        isRunningReviewQueueAction = true
+        defer { isRunningReviewQueueAction = false }
+
+        let vaultURL = vaultStatusService.vaultURL(for: config)
+        do {
+            let result = try await reviewQueueService.runManual(config: config.reviewQueue.normalized, vaultURL: vaultURL)
+            lastReviewQueueAction = result
+            errorMessage = result.succeeded ? nil : result.summary
+            await refreshReviewQueueStatus()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
     func startOrStopGraphServer() async {
         if graphServerRunning {
             graphServerController.stop()
@@ -330,6 +383,28 @@ final class AppModel {
             errorMessage = nil
         } catch {
             errorMessage = error.localizedDescription
+        }
+    }
+
+    private func updateReviewQueueWatcher() {
+        reviewQueueWatcherTask?.cancel()
+        reviewQueueWatcherTask = nil
+
+        let reviewConfig = config.reviewQueue.normalized
+        guard reviewConfig.isEnabled,
+              reviewConfig.backgroundWatcherEnabled,
+              reviewConfig.preflightCommand != nil else {
+            if !reviewConfig.isEnabled {
+                reviewQueueStatus = .empty
+            }
+            return
+        }
+
+        reviewQueueWatcherTask = Task { [weak self] in
+            while !Task.isCancelled {
+                await self?.refreshReviewQueueStatus()
+                try? await Task.sleep(for: .seconds(reviewConfig.watcherIntervalSeconds))
+            }
         }
     }
 }

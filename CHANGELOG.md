@@ -4,6 +4,7 @@ All notable changes to BrainBar are documented here.
 
 ## Unreleased
 
+- Added a generic local Review Queue dashboard for status-only checks, explicit manual actions, and an opt-in conservative background watcher that never runs mutating actions automatically.
 - Extracted the 2D graph runtime into bundled JS/CSS resources for easier testing and profiling.
 - Added JS smoke tests for Source Lens filtering, diff-only updates, Open Note payloads, and graph resource availability.
 - Reduced repeated 2D graph work by avoiding automatic fit on lens switch and skipping unchanged hidden-state updates.
