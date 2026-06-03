@@ -2,7 +2,7 @@
 
 All notable changes to BrainBar are documented here.
 
-## Unreleased
+## 0.8.0 - 2026-06-03
 
 - Added first-run product guidance for choosing a vault, checking Graphify output, and refreshing the graph.
 - Added a System Status menu for quick local checks across Vault, Graph file, Graphify command, Git, Review Queue, and Brain Check.
