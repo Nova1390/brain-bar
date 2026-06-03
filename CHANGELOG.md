@@ -6,6 +6,7 @@ All notable changes to BrainBar are documented here.
 
 - Improved 3D Beta side-view readability by expanding graph depth proportionally to the visible layout.
 - Refined README product positioning, feature tour, and Review Queue/3D Beta descriptions.
+- Added updated public-safe README visuals for Source Lens, node navigation, and 3D Beta.
 
 ## 0.8.0 - 2026-06-03
 

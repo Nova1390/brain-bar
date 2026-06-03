@@ -47,7 +47,7 @@ It keeps the graph where it belongs: on your machine, inside a compact menu bar 
 
 ## Product Tour
 
-Screenshots show BrainBar running against a local graph and are included only to demonstrate the app UI.
+Screenshots and product previews are public-safe and demonstrate the BrainBar UI without including private vault content.
 
 ### Focus Window
 
@@ -59,19 +59,19 @@ BrainBar expands from the menu bar into a larger native Focus Window for longer 
 
 Switch between the full graph, generated Graphify relationships, and native wikilinks without modifying the generated Graphify HTML on disk. The lens is session-only: it changes the current view, not your files.
 
-| Graphify relationships | Wikilinks |
-| --- | --- |
-| ![BrainBar Graphify source lens](docs/brainbar-focus-graphify.png) | ![BrainBar Wikilinks source lens](docs/brainbar-focus-obsidian.png) |
+![BrainBar Source Lens](docs/brainbar-readme-source-lens.png)
 
 ### Node Navigation
 
 Select a graph node to inspect its metadata, then open the backing local note or source file directly from BrainBar. BrainBar resolves source paths inside the configured vault before opening them.
 
-![BrainBar node navigation](docs/brainbar-node-navigation.png)
+![BrainBar node navigation](docs/brainbar-readme-node-focus.png)
 
 ### 3D Beta
 
 `3D Beta` is an experimental Focus Window renderer for spatial exploration. It uses the same local `graph.json` metadata as the 2D view, supports Source Lens filtering, node inspection, hover/focus labels, Open Note, zoom, fit, top view, and free orbit navigation.
+
+![BrainBar 3D Beta](docs/brainbar-readme-3d-beta.png)
 
 The 2D graph remains the stable default. The 3D renderer is intentionally labeled beta while interaction, density, and performance continue to improve for large graphs.
 
