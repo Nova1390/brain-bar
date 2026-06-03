@@ -1,0 +1,36 @@
+name: Feature request
+description: Suggest a public, generic BrainBar improvement
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        BrainBar is a public, local-first project. Please describe features generically and avoid private workflow details.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What user problem would this solve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: What should BrainBar do?
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Optional.
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope check
+      options:
+        - label: This can be implemented without cloud services or telemetry.
+        - label: This does not require hardcoded private workflows.
+        - label: This does not require committing private vault content or local config.

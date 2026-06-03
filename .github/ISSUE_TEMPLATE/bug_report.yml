@@ -1,0 +1,61 @@
+name: Bug report
+description: Report a reproducible BrainBar issue
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. Please keep examples public-safe: no private vault content, local paths, secrets, or personal workflow details.
+  - type: input
+    id: version
+    attributes:
+      label: BrainBar version
+      description: Release version or commit SHA.
+      placeholder: "0.8.0"
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version
+      placeholder: "14.x / 15.x / 26.x"
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Menu bar popover
+        - Focus Window
+        - 2D graph
+        - 3D Beta graph
+        - Settings
+        - Review Queue
+        - Brain Check
+        - Installer / updater
+        - Other
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open BrainBar
+        2. Click ...
+        3. See ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Sanitized logs or screenshots
+      description: Remove private paths, note names, tokens, and vault content before posting.

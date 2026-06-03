@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Graphify
+    url: https://github.com/safishamsi/graphify
+    about: For issues with generated Graphify output itself, please check the Graphify project.
