@@ -12,45 +12,52 @@
 
 BrainBar is a native macOS menu bar control center for a local-first Markdown or Obsidian vault powered by [Graphify](https://github.com/safishamsi/graphify).
 
-It keeps the graph where it belongs: on your machine, inside a compact menu bar app, with direct access to refresh, inspect, open, and validate your vault workflow.
+It keeps the graph where it belongs: on your machine, inside a compact menu bar app, with direct access to refresh, inspect, open, and check local workflow state.
 
 ## Why
 
-- **See the graph immediately.** Click the menu bar icon and inspect `graphify-out/graph.html` inside BrainBar, without bouncing to a browser.
+- **See the graph immediately.** Click the menu bar icon and inspect `graphify-out/graph.html` inside BrainBar, without opening a browser tab.
 - **Open the note behind a node.** Select or double-click graph nodes to jump back to the local source file.
 - **Run local workflow checks.** Trigger Graphify refreshes, custom checks, and queue preflight scripts from one native surface.
+- **Keep lightweight queues visible.** Review Queue can show pending local inbox/preflight status without owning the review logic.
 - **Stay local-first.** BrainBar runs local commands, opens local files, and never uploads vault contents.
 - **Keep the workflow generic.** Vault paths, Graphify commands, dashboards, reports, and check scripts live in local config, not in the public repo.
 
+## What BrainBar Does
+
+| Need | BrainBar gives you |
+| --- | --- |
+| Graph access | Menu bar graph lens, larger Focus Window, Source Lens filtering, and optional `3D Beta` spatial view. |
+| Note navigation | Node inspection, Open Note action, and double-click-to-open local source files. |
+| Local control | Graphify refresh, System Status, Brain Check hook, Review Queue status, and optional local server. |
+
 ## Highlights
 
-- Native SwiftUI macOS menu bar app with `MenuBarExtra`
-- Embedded WebKit graph view for `graphify-out/graph.html`
-- Runtime graph skin that does not rewrite Graphify output
-- Focus Window for longer graph exploration
-- Source lens for switching between all edges, generated Graphify relationships, and native wikilinks
-- Node inspection with fading active labels and an Open Note action for jumping from graph node to local source file
-- Graphify refresh from the footer or action menu
-- System Status panel for vault, graph file, Graphify command, Git, Review Queue, and Brain Check
-- Optional generic Review Queue status panel for local inbox/preflight workflows
-- Vault, Git branch/dirty state, Graphify, and brain-check status
-- Configurable vault path, dashboard path, report path, server port, and commands
-- Optional Obsidian URL scheme support
-- Optional local HTTP server bound to `127.0.0.1`
-- Optional macOS notifications after long-running commands finish
-- Experimental `3D Beta` Focus Graph mode for spatial exploration
+- Native SwiftUI macOS app with `MenuBarExtra` and a regular Focus Window.
+- Embedded WebKit graph view for `graphify-out/graph.html`.
+- Runtime 2D graph skin that does not rewrite Graphify output.
+- Experimental `3D Beta` renderer for spatial exploration of the same local graph metadata.
+- Source Lens for switching between `All`, generated `Graphify` relationships, and `Wikilinks`.
+- Node inspection with fading active labels and an Open Note action.
+- Graphify refresh from the footer, toolbar, or action menu.
+- System Status panel for vault, graph file, Graphify command, Git, Review Queue, and Brain Check.
+- Optional generic Review Queue panel for local inbox/preflight workflows.
+- Configurable vault path, dashboard path, report path, server port, and commands.
+- Optional Obsidian URL scheme support, local HTTP server, and macOS notifications.
 
 ## Product Tour
 
+Screenshots show BrainBar running against a local graph and are included only to demonstrate the app UI.
+
 ### Focus Window
 
-BrainBar can expand from the menu bar into a larger native Focus Window for longer graph exploration, while keeping refresh, settings, and action controls close at hand.
+BrainBar expands from the menu bar into a larger native Focus Window for longer graph exploration, while keeping refresh, settings, Source Lens, and action controls close at hand.
 
 ![BrainBar Focus Window](docs/brainbar-focus-all.png)
 
 ### Source Lens
 
-Switch between the full graph, generated Graphify relationships, and native wikilinks without modifying the generated Graphify HTML on disk.
+Switch between the full graph, generated Graphify relationships, and native wikilinks without modifying the generated Graphify HTML on disk. The lens is session-only: it changes the current view, not your files.
 
 | Graphify relationships | Wikilinks |
 | --- | --- |
@@ -58,9 +65,21 @@ Switch between the full graph, generated Graphify relationships, and native wiki
 
 ### Node Navigation
 
-Select a graph node to inspect its metadata, then open the backing local note or source file directly from BrainBar.
+Select a graph node to inspect its metadata, then open the backing local note or source file directly from BrainBar. BrainBar resolves source paths inside the configured vault before opening them.
 
 ![BrainBar node navigation](docs/brainbar-node-navigation.png)
+
+### 3D Beta
+
+`3D Beta` is an experimental Focus Window renderer for spatial exploration. It uses the same local `graph.json` metadata as the 2D view, supports Source Lens filtering, node inspection, hover/focus labels, Open Note, zoom, fit, top view, and free orbit navigation.
+
+The 2D graph remains the stable default. The 3D renderer is intentionally labeled beta while interaction, density, and performance continue to improve for large graphs.
+
+### System Status And Review Queue
+
+System Status gives a compact read-only check of the local setup: vault, graph file, Graphify command, Git state, Review Queue, and Brain Check.
+
+Review Queue is a generic local dashboard for inbox/preflight workflows. It reads JSON from a configured command, shows pending count and optional items, and can run an optional manual action only when clicked. The background watcher is off by default and only runs the status command.
 
 ## Graphify
 

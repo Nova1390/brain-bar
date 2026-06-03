@@ -299,6 +299,7 @@ function calculateLayout() {
   });
 
   relaxLayout(nodesByCommunity);
+  expandDepthForSideViews();
 }
 
 function buildDegreeMap(edges) {
@@ -376,6 +377,29 @@ function relaxLayout(nodesByCommunity) {
       separateLocalNodes(nodesByCommunity);
     }
   }
+}
+
+function expandDepthForSideViews() {
+  if (!state.visibleNodes.length || !state.positions.size) {
+    return;
+  }
+
+  const bounds = boundsForVisibleNodes();
+  const width = Math.max(bounds.maxX - bounds.minX, 120);
+  const depth = Math.max(bounds.maxZ - bounds.minZ, 120);
+  const currentY = Math.max(bounds.maxY - bounds.minY, 1);
+  const planarSpan = Math.max(width, depth);
+  const targetY = clamp(planarSpan * 0.46, 420, 960);
+
+  if (currentY >= targetY * 0.86) {
+    return;
+  }
+
+  const centerY = (bounds.minY + bounds.maxY) / 2;
+  const scale = targetY / currentY;
+  state.positions.forEach((position) => {
+    position.y = centerY + (position.y - centerY) * scale;
+  });
 }
 
 function separateLocalNodes(nodesByCommunity) {
@@ -523,15 +547,17 @@ function fitCameraWithTilt(preset, zTilt, heightMultiplier) {
   const bounds = boundsForVisibleNodes();
   const width = Math.max(bounds.maxX - bounds.minX, 120);
   const depth = Math.max(bounds.maxZ - bounds.minZ, 120);
+  const height = Math.max(bounds.maxY - bounds.minY, 120);
   const radius = Math.max(width, depth);
   const centerX = (bounds.minX + bounds.maxX) / 2;
   const centerY = (bounds.minY + bounds.maxY) / 2;
   const centerZ = (bounds.minZ + bounds.maxZ) / 2;
+  const verticalSpan = Math.max(depth, height * 0.72);
 
   controls.target.set(centerX, centerY, centerZ);
-  camera.position.set(centerX, radius * heightMultiplier, centerZ + radius * zTilt);
+  camera.position.set(centerX, centerY + radius * heightMultiplier, centerZ + radius * zTilt);
   camera.lookAt(controls.target);
-  camera.zoom = clamp(Math.min(stage.clientWidth / (width * 1.08), stage.clientHeight / (depth * 1.08)), 0.08, 6);
+  camera.zoom = clamp(Math.min(stage.clientWidth / (width * 1.08), stage.clientHeight / (verticalSpan * 1.08)), 0.08, 6);
   camera.updateProjectionMatrix();
   controls.update();
 

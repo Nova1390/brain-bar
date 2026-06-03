@@ -2,6 +2,11 @@
 
 All notable changes to BrainBar are documented here.
 
+## Unreleased
+
+- Improved 3D Beta side-view readability by expanding graph depth proportionally to the visible layout.
+- Refined README product positioning, feature tour, and Review Queue/3D Beta descriptions.
+
 ## 0.8.0 - 2026-06-03
 
 - Added first-run product guidance for choosing a vault, checking Graphify output, and refreshing the graph.
