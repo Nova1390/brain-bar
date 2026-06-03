@@ -538,12 +538,18 @@
             },
             nodes: {
               shape: 'dot',
-              borderWidth: 0,
+              borderWidth: 1.15,
               borderWidthSelected: 2,
-              shadow: { enabled: false },
+              shadow: {
+                enabled: true,
+                color: 'rgba(126, 154, 255, 0.16)',
+                size: 5,
+                x: 0,
+                y: 0
+              },
               scaling: {
-                min: 5,
-                max: 20,
+                min: 6,
+                max: 22,
                 label: { enabled: false }
               },
               font: {
@@ -594,24 +600,32 @@
           const color = node.color || {};
           const base = node._brainBarBaseColor || color.background || color.border || '#8fa2ff';
           const degree = degreeByNode.get(idKey(node.id)) || Number(node.value) || 1;
+          const size = clamp(4.8 + Math.sqrt(degree) * 1.15, 5.4, 18);
           return {
             id: node.id,
             title: '',
             _brainBarBaseColor: base,
-            borderWidth: 0,
+            borderWidth: clamp(0.9 + Math.log1p(degree) * 0.08, 0.95, 1.55),
             borderWidthSelected: 2,
-            size: clamp(3.8 + Math.sqrt(degree) * 1.1, 4.2, 16),
+            size,
             color: {
-              background: base,
+              background: 'rgba(8, 11, 20, 0.46)',
               border: base,
               hover: {
                 background: base,
-                border: 'rgba(255, 255, 255, 0.82)'
+                border: 'rgba(248, 250, 255, 0.92)'
               },
               highlight: {
-                background: '#f5f7ff',
-                border: base
+                background: base,
+                border: 'rgba(248, 250, 255, 0.96)'
               }
+            },
+            shadow: {
+              enabled: degree > 8,
+              color: 'rgba(126, 154, 255, 0.18)',
+              size: clamp(Math.sqrt(degree) * 1.2, 3, 9),
+              x: 0,
+              y: 0
             },
             font: {
               ...(node.font || {}),
@@ -624,19 +638,24 @@
         nodesDataSet.update(themedNodes);
 
         const themedEdges = edgesDataSet.get().map((edge) => {
-          const baseWidth = Math.max(0.75, Math.min(edge._brainBarBaseWidth || edge.width || 1, 1.35));
+          const baseWidth = Math.max(0.7, Math.min(edge._brainBarBaseWidth || edge.width || 1, 1.2));
           return {
             id: edge.id,
             title: '',
             _brainBarBaseWidth: baseWidth,
             color: {
-              color: 'rgba(132, 148, 178, 0.25)',
-              highlight: 'rgba(238, 242, 255, 0.84)',
-              hover: 'rgba(218, 228, 255, 0.70)'
+              color: 'rgba(126, 146, 184, 0.30)',
+              highlight: 'rgba(238, 244, 255, 0.92)',
+              hover: 'rgba(218, 232, 255, 0.82)'
             },
             width: baseWidth,
-            selectionWidth: 1.8,
-            hoverWidth: 1.5,
+            selectionWidth: 2.05,
+            hoverWidth: 1.85,
+            smooth: {
+              enabled: true,
+              type: 'continuous',
+              roundness: 0.18
+            },
             arrows: { to: { enabled: false } }
           };
         });

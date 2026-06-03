@@ -94,7 +94,16 @@ struct GraphShellView: View {
                 }
             }
         }
-        .padding(.horizontal, 2)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 7)
+        .background {
+            Capsule()
+                .fill(.black.opacity(mode.isFocus ? 0.10 : 0.08))
+                .overlay {
+                    Capsule()
+                        .stroke(.white.opacity(0.055), lineWidth: 1)
+                }
+        }
     }
 
     @ViewBuilder
@@ -668,11 +677,21 @@ private struct GraphLensControl: View {
                 .background {
                     if selectedLens == lens {
                         Capsule()
-                            .fill(.white.opacity(0.12))
+                            .fill(
+                                LinearGradient(
+                                    colors: [
+                                        .white.opacity(0.20),
+                                        Color(red: 0.43, green: 0.52, blue: 0.88).opacity(0.18)
+                                    ],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
                             .overlay {
                                 Capsule()
-                                    .stroke(.white.opacity(0.08), lineWidth: 1)
+                                    .stroke(.white.opacity(0.15), lineWidth: 1)
                             }
+                            .shadow(color: .black.opacity(0.18), radius: 8, y: 2)
                     }
                 }
                 .help(lens.help)
@@ -681,10 +700,10 @@ private struct GraphLensControl: View {
             }
         }
         .padding(3)
-        .background(.thinMaterial, in: Capsule())
+        .background(.thinMaterial.opacity(0.9), in: Capsule())
         .overlay {
             Capsule()
-                .stroke(.white.opacity(0.06), lineWidth: 1)
+                .stroke(.white.opacity(0.09), lineWidth: 1)
         }
     }
 }
@@ -712,11 +731,21 @@ private struct GraphViewModeControl: View {
                 .background {
                     if selectedMode == mode {
                         Capsule()
-                            .fill(.white.opacity(0.12))
+                            .fill(
+                                LinearGradient(
+                                    colors: [
+                                        .white.opacity(0.20),
+                                        Color(red: 0.43, green: 0.52, blue: 0.88).opacity(0.18)
+                                    ],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
                             .overlay {
                                 Capsule()
-                                    .stroke(.white.opacity(0.08), lineWidth: 1)
+                                    .stroke(.white.opacity(0.15), lineWidth: 1)
                             }
+                            .shadow(color: .black.opacity(0.18), radius: 8, y: 2)
                     }
                 }
                 .help(mode.help)
@@ -725,10 +754,10 @@ private struct GraphViewModeControl: View {
             }
         }
         .padding(3)
-        .background(.thinMaterial, in: Capsule())
+        .background(.thinMaterial.opacity(0.9), in: Capsule())
         .overlay {
             Capsule()
-                .stroke(.white.opacity(0.06), lineWidth: 1)
+                .stroke(.white.opacity(0.09), lineWidth: 1)
         }
     }
 }
@@ -796,15 +825,29 @@ private struct IconButton: View {
         Button(action: action) {
             Image(systemName: systemImage)
                 .font(.system(size: 14, weight: .medium))
-                .frame(width: 26, height: 26)
+                .frame(width: 28, height: 28)
         }
         .buttonStyle(.plain)
-        .foregroundStyle(.secondary)
-        .background(.thinMaterial, in: Circle())
+        .foregroundStyle(.secondary.opacity(0.92))
+        .background {
+            Circle()
+                .fill(.thinMaterial)
+                .overlay {
+                    Circle()
+                        .fill(
+                            LinearGradient(
+                                colors: [.white.opacity(0.08), .white.opacity(0.015)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                }
+        }
         .overlay {
             Circle()
-                .stroke(.white.opacity(0.06), lineWidth: 1)
+                .stroke(.white.opacity(0.09), lineWidth: 1)
         }
+        .shadow(color: .black.opacity(0.16), radius: 7, y: 2)
         .help(help)
     }
 }

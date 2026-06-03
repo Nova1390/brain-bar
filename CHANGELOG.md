@@ -6,6 +6,7 @@ All notable changes to BrainBar are documented here.
 
 - Added first-run product guidance for choosing a vault, checking Graphify output, and refreshing the graph.
 - Added a System Status menu for quick local checks across Vault, Graph file, Graphify command, Git, Review Queue, and Brain Check.
+- Refined the premium graph presentation with stronger native chrome, hollow 2D nodes, calmer visible edges, and a satin Dark Atlas sidebar.
 - Renamed the public Source Lens label from Obsidian to Wikilinks while keeping the internal `obsidian` raw value compatible.
 - Clarified the README positioning around BrainBar as a local-first macOS control center for seeing graphs, opening notes, and running local workflows.
 - Tightened 2D/3D graph copy and sidebar proportions so the graph remains the primary surface.
