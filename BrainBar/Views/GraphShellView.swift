@@ -101,21 +101,23 @@ struct GraphShellView: View {
     private var graphSurface: some View {
         if model.status.vaultPath.isEmpty {
             EmptyGraphStateView(
-                title: "Choose a vault",
-                detail: "Connect a local Markdown vault to load its Graphify graph.",
+                title: "Connect your local graph",
+                detail: "Choose a Markdown or Obsidian vault, then let BrainBar check for Graphify output.",
                 systemImage: "folder.badge.questionmark",
                 buttonTitle: "Choose Vault",
-                buttonSystemImage: "folder"
+                buttonSystemImage: "folder",
+                steps: ["Choose Vault", "Check Graphify Output", "Refresh Graph"]
             ) {
                 openSettings()
             }
         } else if !model.status.graphHtmlExists {
             EmptyGraphStateView(
-                title: "Graph not built",
-                detail: "Run Graphify to generate graphify-out/graph.html.",
+                title: "Graphify output not found",
+                detail: "BrainBar is connected to the vault. Generate graphify-out/graph.html to see the graph here.",
                 systemImage: "point.3.connected.trianglepath.dotted",
                 buttonTitle: model.isRefreshingGraph ? "Refreshing..." : "Refresh Graph",
-                buttonSystemImage: "arrow.triangle.2.circlepath"
+                buttonSystemImage: "arrow.triangle.2.circlepath",
+                steps: ["Vault connected", "Graph file missing", "Run Refresh Graph"]
             ) {
                 Task {
                     await model.refreshGraph()
@@ -279,8 +281,9 @@ private struct GraphActionMenu: View {
                 } label: {
                     Label("Open Externally", systemImage: "safari")
                 }
-
             }
+
+            SystemStatusMenu(model: model)
 
             Section("Vault") {
                 Button {
@@ -516,6 +519,132 @@ private struct ReviewQueuePanel: View {
     }
 }
 
+private struct SystemStatusMenu: View {
+    let model: AppModel
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some View {
+        Menu {
+            Section("Status") {
+                Label(vaultStatusText, systemImage: vaultStatusIcon)
+                Label(graphStatusText, systemImage: graphStatusIcon)
+                Label(graphifyCommandText, systemImage: graphifyCommandIcon)
+                Label(model.status.gitDescription, systemImage: "point.3.connected.trianglepath.dotted")
+                Label(reviewQueueStatusText, systemImage: "tray.full")
+                Label(brainCheckStatusText, systemImage: "checkmark.seal")
+            }
+
+            Section("Actions") {
+                if model.status.vaultPath.isEmpty || !model.status.vaultExists {
+                    Button {
+                        openSettings()
+                    } label: {
+                        Label("Choose Vault", systemImage: "folder")
+                    }
+                }
+
+                if model.status.vaultExists && !model.status.graphHtmlExists {
+                    Button {
+                        Task {
+                            await model.refreshGraph()
+                        }
+                    } label: {
+                        Label(model.isRefreshingGraph ? "Refreshing..." : "Refresh Graph", systemImage: "arrow.triangle.2.circlepath")
+                    }
+                    .disabled(model.isRefreshingGraph)
+                }
+
+                if !model.config.reviewQueue.isEnabled || model.config.reviewQueue.preflightCommand == nil || model.config.commands.brainCheck == nil {
+                    Button {
+                        openSettings()
+                    } label: {
+                        Label("Open Settings", systemImage: "gearshape")
+                    }
+                }
+            }
+        } label: {
+            Label("System Status", systemImage: "checklist.checked")
+        }
+    }
+
+    private var vaultStatusText: String {
+        if model.status.vaultPath.isEmpty {
+            return "Vault: not configured"
+        }
+        return model.status.vaultExists ? "Vault: connected" : "Vault: path missing"
+    }
+
+    private var vaultStatusIcon: String {
+        model.status.vaultExists ? "checkmark.circle" : "exclamationmark.circle"
+    }
+
+    private var graphStatusText: String {
+        model.status.graphHtmlExists ? "Graph file: ready" : "Graph file: missing"
+    }
+
+    private var graphStatusIcon: String {
+        model.status.graphHtmlExists ? "checkmark.circle" : "exclamationmark.circle"
+    }
+
+    private var graphifyCommandText: String {
+        let executable = model.config.commands.refreshGraph.executable.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !executable.isEmpty else {
+            return "Graphify command: not configured"
+        }
+        return commandLooksAvailable(executable) ? "Graphify command: available" : "Graphify command: check PATH"
+    }
+
+    private var graphifyCommandIcon: String {
+        commandLooksAvailable(model.config.commands.refreshGraph.executable) ? "checkmark.circle" : "exclamationmark.circle"
+    }
+
+    private var reviewQueueStatusText: String {
+        guard model.config.reviewQueue.isEnabled else {
+            return "Review Queue: off"
+        }
+        guard model.config.reviewQueue.preflightCommand != nil else {
+            return "Review Queue: configure status"
+        }
+        return "Review Queue: \(model.reviewQueueStatus.summary)"
+    }
+
+    private var brainCheckStatusText: String {
+        guard model.config.commands.brainCheck != nil else {
+            return "Brain Check: not configured"
+        }
+        return "Brain Check: \(model.lastBrainCheck?.summary ?? "not run")"
+    }
+
+    private func openSettings() {
+        openWindow(id: "settings")
+        BrainBarWindowController.bringSettingsToFront()
+    }
+
+    private func commandLooksAvailable(_ executable: String) -> Bool {
+        let trimmed = executable.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return false
+        }
+
+        if trimmed.contains("/") {
+            return FileManager.default.isExecutableFile(atPath: trimmed)
+        }
+
+        let path = ProcessInfo.processInfo.environment["PATH"] ?? ""
+        let candidates = (path.split(separator: ":").map(String.init) + [
+            FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".local/bin").path,
+            "/opt/homebrew/bin",
+            "/usr/local/bin",
+            "/usr/bin",
+            "/bin"
+        ])
+
+        return candidates.contains { directory in
+            FileManager.default.isExecutableFile(atPath: URL(fileURLWithPath: directory).appendingPathComponent(trimmed).path)
+        }
+    }
+}
+
 private struct GraphLensControl: View {
     let selectedLens: GraphSourceLens
     let onSelect: (GraphSourceLens) -> Void
@@ -686,10 +815,11 @@ private struct EmptyGraphStateView: View {
     let systemImage: String
     let buttonTitle: String
     let buttonSystemImage: String
+    var steps: [String] = []
     let action: () -> Void
 
     var body: some View {
-        VStack(spacing: 14) {
+        VStack(spacing: 15) {
             Image(systemName: systemImage)
                 .font(.system(size: 42, weight: .regular))
                 .foregroundStyle(.secondary)
@@ -699,6 +829,23 @@ private struct EmptyGraphStateView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
+            if !steps.isEmpty {
+                HStack(spacing: 8) {
+                    ForEach(Array(steps.enumerated()), id: \.offset) { index, step in
+                        HStack(spacing: 5) {
+                            Text("\(index + 1)")
+                                .font(.caption2.weight(.bold))
+                                .foregroundStyle(.secondary)
+                                .frame(width: 17, height: 17)
+                                .background(.white.opacity(0.08), in: Circle())
+                            Text(step)
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                .lineLimit(1)
+            }
             Button(action: action) {
                 Label(buttonTitle, systemImage: buttonSystemImage)
             }

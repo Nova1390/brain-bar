@@ -1270,7 +1270,7 @@ function updateOverlay() {
   if (!state.graph || state.graph.nodes.length === 0) {
     showOverlay('Graph data unavailable');
   } else if (state.lens === 'obsidian' && state.visibleEdges.length === 0) {
-    showOverlay('No Obsidian links found');
+    showOverlay('No wikilinks found');
   } else if (state.lens === 'graphify' && state.visibleEdges.length === 0) {
     showOverlay('No Graphify edges found');
   } else if (state.visibleNodes.length === 0) {
@@ -1295,8 +1295,9 @@ function updateHud() {
   }
   const lensLabel = state.lens === 'all'
     ? 'All'
-    : (state.lens === 'graphify' ? 'Graphify' : 'Obsidian');
-  const base = `${state.visibleNodes.length} nodes · ${state.visibleEdges.length} edges · ${lensLabel} · 3D Beta`;
+    : (state.lens === 'graphify' ? 'Graphify' : 'Wikilinks');
+  const edgeLabel = state.lens === 'obsidian' ? 'links' : 'edges';
+  const base = `${lensLabel} · ${state.visibleNodes.length} nodes · ${state.visibleEdges.length} ${edgeLabel} · 3D Beta`;
   const status = state.lastFrameStatus === 'Visible'
     ? ''
     : ` · ${state.cameraPreset} · ${state.lastFrameStatus}`;

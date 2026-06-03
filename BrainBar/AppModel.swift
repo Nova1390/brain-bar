@@ -16,7 +16,7 @@ enum GraphSourceLens: String, CaseIterable, Identifiable, Sendable {
         case .graphify:
             return "Graphify"
         case .obsidian:
-            return "Obsidian"
+            return "Wikilinks"
         }
     }
 
@@ -27,7 +27,7 @@ enum GraphSourceLens: String, CaseIterable, Identifiable, Sendable {
         case .graphify:
             return "Show generated Graphify relationships"
         case .obsidian:
-            return "Show native Obsidian wikilinks"
+            return "Show wikilinks exported in the Graphify output"
         }
     }
 }

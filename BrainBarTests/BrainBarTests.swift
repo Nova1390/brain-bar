@@ -167,7 +167,7 @@ final class BrainBarTests: XCTestCase {
         XCTAssertEqual(GraphSourceLens.graphify.rawValue, "graphify")
         XCTAssertEqual(GraphSourceLens.graphify.label, "Graphify")
         XCTAssertEqual(GraphSourceLens.obsidian.rawValue, "obsidian")
-        XCTAssertEqual(GraphSourceLens.obsidian.label, "Obsidian")
+        XCTAssertEqual(GraphSourceLens.obsidian.label, "Wikilinks")
     }
 
     func testGraphViewModeLabelsAndRawValuesAreStable() {
@@ -247,7 +247,7 @@ final class BrainBarTests: XCTestCase {
         XCTAssertEqual(status.pendingCount, 0)
         XCTAssertTrue(status.items.isEmpty)
         XCTAssertNil(status.errorMessage)
-        XCTAssertEqual(status.summary, "0 pending items")
+        XCTAssertEqual(status.summary, "Review Queue clear")
     }
 
     func testReviewQueuePendingGreaterThanZero() throws {

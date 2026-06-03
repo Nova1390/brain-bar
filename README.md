@@ -1,6 +1,6 @@
 # BrainBar
 
-> Your local vault graph, one click away.
+> A local-first macOS control center for Obsidian/Markdown + Graphify.
 
 [![Latest release](https://img.shields.io/github/v/release/Nova1390/brain-bar?style=flat-square)](https://github.com/Nova1390/brain-bar/releases/latest)
 [![macOS 14+](https://img.shields.io/badge/macOS-14%2B-111827?style=flat-square&logo=apple)](https://www.apple.com/macos/)
@@ -10,16 +10,17 @@
 
 ![BrainBar social preview](docs/brainbar-social-preview.png)
 
-BrainBar is a native macOS menu bar control surface for a local-first Markdown or Obsidian vault powered by [Graphify](https://github.com/safishamsi/graphify).
+BrainBar is a native macOS menu bar control center for a local-first Markdown or Obsidian vault powered by [Graphify](https://github.com/safishamsi/graphify).
 
 It keeps the graph where it belongs: on your machine, inside a compact menu bar app, with direct access to refresh, inspect, open, and validate your vault workflow.
 
 ## Why
 
 - **See the graph immediately.** Click the menu bar icon and inspect `graphify-out/graph.html` inside BrainBar, without bouncing to a browser.
+- **Open the note behind a node.** Select or double-click graph nodes to jump back to the local source file.
+- **Run local workflow checks.** Trigger Graphify refreshes, custom checks, and queue preflight scripts from one native surface.
 - **Stay local-first.** BrainBar runs local commands, opens local files, and never uploads vault contents.
 - **Keep the workflow generic.** Vault paths, Graphify commands, dashboards, reports, and check scripts live in local config, not in the public repo.
-- **Use it as a control panel.** Refresh Graphify, open the vault, inspect Git state, run custom checks, and jump into a larger Focus Window when the graph needs room.
 
 ## Highlights
 
@@ -27,16 +28,17 @@ It keeps the graph where it belongs: on your machine, inside a compact menu bar 
 - Embedded WebKit graph view for `graphify-out/graph.html`
 - Runtime graph skin that does not rewrite Graphify output
 - Focus Window for longer graph exploration
-- Experimental 3D Focus Graph mode for spatial exploration in the Focus Window
-- Source lens for switching between all edges, generated Graphify relationships, and native Obsidian wikilinks
+- Source lens for switching between all edges, generated Graphify relationships, and native wikilinks
 - Node inspection with fading active labels and an Open Note action for jumping from graph node to local source file
 - Graphify refresh from the footer or action menu
+- System Status panel for vault, graph file, Graphify command, Git, Review Queue, and Brain Check
 - Optional generic Review Queue status panel for local inbox/preflight workflows
 - Vault, Git branch/dirty state, Graphify, and brain-check status
 - Configurable vault path, dashboard path, report path, server port, and commands
 - Optional Obsidian URL scheme support
 - Optional local HTTP server bound to `127.0.0.1`
 - Optional macOS notifications after long-running commands finish
+- Experimental `3D Beta` Focus Graph mode for spatial exploration
 
 ## Product Tour
 
@@ -48,11 +50,11 @@ BrainBar can expand from the menu bar into a larger native Focus Window for long
 
 ### Source Lens
 
-Switch between the full graph, generated Graphify relationships, and native Obsidian wikilinks without modifying the generated Graphify HTML on disk.
+Switch between the full graph, generated Graphify relationships, and native wikilinks without modifying the generated Graphify HTML on disk.
 
-| Graphify relationships | Obsidian wikilinks |
+| Graphify relationships | Wikilinks |
 | --- | --- |
-| ![BrainBar Graphify source lens](docs/brainbar-focus-graphify.png) | ![BrainBar Obsidian source lens](docs/brainbar-focus-obsidian.png) |
+| ![BrainBar Graphify source lens](docs/brainbar-focus-graphify.png) | ![BrainBar Wikilinks source lens](docs/brainbar-focus-obsidian.png) |
 
 ### Node Navigation
 
@@ -189,7 +191,7 @@ If the file exists, BrainBar embeds it directly in the menu bar popover and Focu
 
 The footer Graphify status is also a refresh button. Click it to run the configured `refreshGraph` command. During refresh, BrainBar shows `Refreshing Graph...`; if the command succeeds, the embedded graph reloads.
 
-Use the source lens to switch between all graph edges, Graphify-generated relationships, and Obsidian wikilinks. The lens is session-only and does not change local config or rewrite generated files.
+Use the source lens to switch between all graph edges, Graphify-generated relationships, and wikilinks exported in the Graphify metadata. The lens is session-only and does not change local config or rewrite generated files.
 
 Select a node to inspect it. If the generated graph includes a source file for that node, BrainBar shows an Open Note action and supports double-clicking the node to open the backing local file. Source paths are resolved inside the configured vault before opening.
 
@@ -199,11 +201,15 @@ The visual styling is applied at runtime by BrainBar through WebKit. The origina
 
 Use the Focus Window toolbar button to open a larger resizable graph window. It shares the same configuration and state as the menu bar popover, but gives the graph more room for inspection.
 
+If BrainBar has not been configured yet, the app guides you through the minimum setup: choose a vault, check whether Graphify output exists, then refresh the graph. Missing paths and missing graph files are shown as recoverable states with direct actions.
+
 The Focus Window also includes an experimental `2D / 3D Beta` view switch. `2D` keeps the standard embedded Graphify view. `3D Beta` opens a BrainBar-owned Canvas renderer with controlled depth projection, freer orbit navigation, zoom, fit, top view, reset tilt, Source Lens filtering, node inspection, fading active labels, and Open Note support.
 
 The 3D renderer is bundled locally and does not use a CDN. It reads the same local `graph.json` metadata as the 2D Source Lens, and it does not rewrite Graphify output files. See [Experimental 3D Focus Graph](docs/experimental-3d-focus-graph.md) for architecture notes and stability criteria.
 
 Settings can be opened from either the popover or Focus Window. BrainBar brings the Settings window to the front so it does not get hidden behind the graph window.
+
+The action menu includes a System Status panel for quick, non-mutating checks: vault path, graph file, Graphify command availability, Git state, Review Queue, and Brain Check configuration.
 
 ## Brain Check Commands
 

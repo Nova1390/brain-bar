@@ -158,7 +158,7 @@
 
     let emptyMessage = '';
     if (selectedLens === OBSIDIAN_LENS && filteredEdges.length === 0) {
-      emptyMessage = 'No Obsidian links found';
+      emptyMessage = 'No wikilinks found';
     } else if (selectedLens === GRAPHIFY_LENS && filteredEdges.length === 0) {
       emptyMessage = 'No Graphify edges found';
     }

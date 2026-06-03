@@ -181,6 +181,9 @@ struct ReviewQueueStatus: Equatable, Sendable {
         guard let pendingCount else {
             return "Not checked"
         }
+        if pendingCount == 0 {
+            return "Review Queue clear"
+        }
         return pendingCount == 1 ? "1 pending item" : "\(pendingCount) pending items"
     }
 }

@@ -4,6 +4,11 @@ All notable changes to BrainBar are documented here.
 
 ## Unreleased
 
+- Added first-run product guidance for choosing a vault, checking Graphify output, and refreshing the graph.
+- Added a System Status menu for quick local checks across Vault, Graph file, Graphify command, Git, Review Queue, and Brain Check.
+- Renamed the public Source Lens label from Obsidian to Wikilinks while keeping the internal `obsidian` raw value compatible.
+- Clarified the README positioning around BrainBar as a local-first macOS control center for seeing graphs, opening notes, and running local workflows.
+- Tightened 2D/3D graph copy and sidebar proportions so the graph remains the primary surface.
 - Added a generic local Review Queue dashboard for status-only checks, explicit manual actions, and an opt-in conservative background watcher that never runs mutating actions automatically.
 - Extracted the 2D graph runtime into bundled JS/CSS resources for easier testing and profiling.
 - Added JS smoke tests for Source Lens filtering, diff-only updates, Open Note payloads, and graph resource availability.
@@ -11,7 +16,7 @@ All notable changes to BrainBar are documented here.
 - Added an experimental custom 3D graph mode for the Focus Window.
 - Added a session-only 2D/3D view switch that leaves the menu bar popover on the standard 2D graph.
 - Added local bundled Three.js renderer assets for offline 3D graph rendering.
-- Added 3D Source Lens support for All, Graphify, and Obsidian graph layers.
+- Added 3D Source Lens support for All, Graphify, and Wikilinks graph layers.
 - Added 3D node inspection and Open Note routing through the existing vault-safe source opener.
 - Added documentation for the experimental 3D Focus Graph architecture and promotion criteria.
 
@@ -23,7 +28,7 @@ All notable changes to BrainBar are documented here.
 - Ad-hoc sign release packages and verify the bundle before creating `BrainBar.zip`.
 - Added release, GitHub repository, copyright, and MIT license links to Settings.
 - Clarified the header Git badge so it explicitly refers to the configured vault.
-- Added a session-only Graph Source Lens to switch between All, Graphify, and Obsidian graph relationships.
+- Added a session-only Graph Source Lens to switch between All, Graphify, and Wikilinks graph relationships.
 - Fixed Graph Source Lens metadata loading by passing `graph.json` from Swift into WebKit.
 - Stage the release app before signing so package verification is not affected by macOS extended attributes.
 

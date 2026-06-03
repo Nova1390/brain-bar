@@ -24,7 +24,7 @@ body {
 
 #app {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(280px, 31vw);
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 26vw);
   min-height: 0;
 }
 
@@ -222,8 +222,13 @@ h2 {
 }
 
 .primary-button {
-  margin: 2px 0 8px;
-  padding: 7px 12px;
+  margin: 4px 0 10px;
+  padding: 8px 13px;
+  border-color: rgba(169, 184, 255, 0.34);
+  border-radius: 10px;
+  background: linear-gradient(180deg, rgba(144, 162, 255, 0.24), rgba(112, 132, 228, 0.15));
+  color: rgba(248, 250, 255, 0.96);
+  box-shadow: 0 8px 22px rgba(82, 98, 185, 0.16);
 }
 
 .search-item {
@@ -237,6 +242,11 @@ h2 {
 .primary-button:hover,
 .search-item:hover {
   background: rgba(244, 246, 255, 0.11);
+}
+
+.primary-button:hover {
+  border-color: rgba(190, 201, 255, 0.46);
+  background: linear-gradient(180deg, rgba(164, 180, 255, 0.30), rgba(125, 146, 238, 0.20));
 }
 
 #legend {
