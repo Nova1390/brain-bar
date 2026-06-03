@@ -18,6 +18,56 @@
   const asLabel = (value) => String(value || '').replace(/\s+/g, ' ').trim();
   const sourceFileForNode = (node) => node?._source_file || node?.source_file || '';
 
+  function stableHash(value) {
+    const input = String(value || '');
+    let hash = 2166136261;
+    for (let index = 0; index < input.length; index += 1) {
+      hash ^= input.charCodeAt(index);
+      hash = Math.imul(hash, 16777619);
+    }
+    return hash >>> 0;
+  }
+
+  function parseHexColor(value) {
+    const color = String(value || '').trim();
+    const match = color.match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i);
+    if (!match) {
+      return null;
+    }
+
+    const hex = match[1].length === 3
+      ? match[1].split('').map((part) => part + part).join('')
+      : match[1];
+
+    return {
+      r: parseInt(hex.slice(0, 2), 16),
+      g: parseInt(hex.slice(2, 4), 16),
+      b: parseInt(hex.slice(4, 6), 16)
+    };
+  }
+
+  function atlasColor(value, alpha, mix = 0.28) {
+    const rgb = parseHexColor(value);
+    if (!rgb) {
+      return value || `rgba(143, 162, 255, ${alpha})`;
+    }
+
+    const base = { r: 132, g: 150, b: 184 };
+    const r = Math.round(rgb.r * (1 - mix) + base.r * mix);
+    const g = Math.round(rgb.g * (1 - mix) + base.g * mix);
+    const b = Math.round(rgb.b * (1 - mix) + base.b * mix);
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  }
+
+  function organicEdgeSmooth(edge) {
+    const hash = stableHash(`${edge?.id}:${edgeSource(edge)}:${edgeTarget(edge)}`);
+    return {
+      enabled: true,
+      type: hash % 2 === 0 ? 'curvedCW' : 'curvedCCW',
+      roundness: 0.035 + ((hash % 70) / 1000)
+    };
+  }
+
   function cleanRelationshipLabel(value) {
     const label = asLabel(value)
       .replace(/\s*\[[^\]]*EXTRACTED[^\]]*\]\s*/gi, ' ')
@@ -600,28 +650,32 @@
           const color = node.color || {};
           const base = node._brainBarBaseColor || color.background || color.border || '#8fa2ff';
           const degree = degreeByNode.get(idKey(node.id)) || Number(node.value) || 1;
-          const size = clamp(4.8 + Math.sqrt(degree) * 1.15, 5.4, 18);
+          const isLeaf = degree <= 1;
+          const isSmall = degree <= 3;
+          const size = isLeaf
+            ? 4.2
+            : clamp(4.2 + Math.sqrt(degree) * 1.12, 5.2, 17);
           return {
             id: node.id,
             title: '',
             _brainBarBaseColor: base,
-            borderWidth: clamp(0.9 + Math.log1p(degree) * 0.08, 0.95, 1.55),
+            borderWidth: isLeaf ? 0.55 : clamp(0.75 + Math.log1p(degree) * 0.08, 0.82, 1.45),
             borderWidthSelected: 2,
             size,
             color: {
-              background: 'rgba(8, 11, 20, 0.46)',
-              border: base,
+              background: isLeaf ? atlasColor(base, 0.16, 0.52) : atlasColor(base, isSmall ? 0.20 : 0.28, 0.38),
+              border: atlasColor(base, isLeaf ? 0.44 : 0.72, isLeaf ? 0.54 : 0.32),
               hover: {
-                background: base,
+                background: atlasColor(base, 0.86, 0.12),
                 border: 'rgba(248, 250, 255, 0.92)'
               },
               highlight: {
-                background: base,
+                background: atlasColor(base, 0.90, 0.10),
                 border: 'rgba(248, 250, 255, 0.96)'
               }
             },
             shadow: {
-              enabled: degree > 8,
+              enabled: degree > 10,
               color: 'rgba(126, 154, 255, 0.18)',
               size: clamp(Math.sqrt(degree) * 1.2, 3, 9),
               x: 0,
@@ -639,6 +693,7 @@
 
         const themedEdges = edgesDataSet.get().map((edge) => {
           const baseWidth = Math.max(0.7, Math.min(edge._brainBarBaseWidth || edge.width || 1, 1.2));
+          const smooth = organicEdgeSmooth(edge);
           return {
             id: edge.id,
             title: '',
@@ -651,11 +706,7 @@
             width: baseWidth,
             selectionWidth: 2.05,
             hoverWidth: 1.85,
-            smooth: {
-              enabled: true,
-              type: 'continuous',
-              roundness: 0.18
-            },
+            smooth,
             arrows: { to: { enabled: false } }
           };
         });
