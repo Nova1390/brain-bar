@@ -78,6 +78,12 @@ Selecting a connection shows a compact edge inspector with source node, target n
 
 ![BrainBar 3D Beta](docs/brainbar-readme-3d-beta.png)
 
+#### Shortest Path
+
+Pick one note, start a path, then click another note. BrainBar traces the shortest visible route through the 3D graph, dims the surrounding noise, and keeps the ordered path inspectable in the sidebar.
+
+![BrainBar 3D shortest path](docs/brainbar-path-demo.gif)
+
 The 2D graph remains the stable default. The 3D renderer is intentionally labeled beta while interaction, density, and performance continue to improve for large graphs.
 
 ### System Status And Review Queue
