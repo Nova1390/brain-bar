@@ -197,6 +197,15 @@ h2 {
   line-height: 1.25;
 }
 
+#node-info h4 {
+  margin: 14px 0 8px;
+  color: rgba(244, 246, 255, 0.50);
+  font-size: 10px;
+  font-weight: 760;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
 #node-info p {
   margin: 9px 0;
 }
@@ -247,6 +256,117 @@ h2 {
 .primary-button:hover {
   border-color: rgba(190, 201, 255, 0.46);
   background: linear-gradient(180deg, rgba(164, 180, 255, 0.30), rgba(125, 146, 238, 0.20));
+}
+
+.focus-actions,
+.path-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 8px 0 10px;
+}
+
+.focus-actions button,
+.path-actions button,
+.path-step,
+.neighbor-button {
+  min-height: 28px;
+  border: 1px solid rgba(244, 246, 255, 0.12);
+  border-radius: 8px;
+  background: rgba(244, 246, 255, 0.055);
+  color: rgba(244, 246, 255, 0.82);
+  font: 680 11px -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+  letter-spacing: 0;
+}
+
+.focus-actions button,
+.path-actions button {
+  padding: 5px 8px;
+}
+
+.focus-actions button:hover,
+.focus-actions button.selected,
+.path-actions button:hover,
+.path-actions button.selected,
+.path-step:hover,
+.neighbor-button:hover {
+  border-color: rgba(170, 186, 255, 0.28);
+  background: rgba(132, 154, 255, 0.14);
+  color: rgba(248, 250, 255, 0.96);
+}
+
+.focus-actions button:disabled,
+.path-actions button:disabled {
+  cursor: default;
+  opacity: 0.42;
+}
+
+.focus-status {
+  margin: 4px 0 10px !important;
+  color: rgba(168, 184, 255, 0.72);
+  font-size: 11px;
+  font-weight: 720;
+}
+
+.path-panel {
+  display: grid;
+  gap: 8px;
+  margin: 10px 0 12px;
+  padding: 10px;
+  border: 1px solid rgba(156, 170, 255, 0.18);
+  border-radius: 11px;
+  background:
+    linear-gradient(180deg, rgba(119, 142, 255, 0.12), rgba(244, 246, 255, 0.045)),
+    rgba(7, 9, 17, 0.42);
+}
+
+.path-panel h4 {
+  margin: 0 !important;
+}
+
+.path-panel p {
+  margin: 0 !important;
+}
+
+.path-step-list {
+  display: grid;
+  gap: 5px;
+}
+
+.path-step {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  padding: 6px 8px;
+  text-align: left;
+}
+
+.path-step span:first-child {
+  color: rgba(168, 184, 255, 0.72);
+  font-variant-numeric: tabular-nums;
+}
+
+.neighbor-list {
+  display: grid;
+  gap: 6px;
+}
+
+.neighbor-button {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 8px;
+  overflow: hidden;
+  text-align: left;
+}
+
+.neighbor-button span {
+  color: rgba(244, 246, 255, 0.42);
+  font-variant-numeric: tabular-nums;
 }
 
 #legend {

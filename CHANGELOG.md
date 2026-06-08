@@ -4,6 +4,17 @@ All notable changes to BrainBar are documented here.
 
 ## Unreleased
 
+## 0.9.0 - 2026-06-08
+
+- Added runtime 2D graph workflow views for Focus, Needs Links, Key Notes, Review, Recent, Wikilinks, Graphify, and Graph Check.
+- Added clearer 2D workflow toolbar states with counts, hidden empty Review targets, disabled empty Recent view, and action panels.
+- Added runtime-only file modification metadata from Swift so Recent can use real source-file mtimes when available.
+- Added edge provenance inspection for selected graph connections, including source/target labels, relationship, source type, and source path when available.
+- Added 3D Focus Orbit controls for focusing a selected node, expanding visible neighbors to depth 1-3, and returning to the full graph.
+- Added 3D shortest path tracing with runtime-only path state, BFS over the visible graph, highlighted path nodes/edges, and a compact ordered path inspector.
+- Added pure JS smoke coverage for focus filtering, edge provenance, and graph health calculations.
+- Added optional Review Queue graph targets via `source_file` and `node_id` fields.
+- Neutralized the failed Community Atlas direction as a default graph layout and restored a more stable 2D/3D runtime posture.
 - Improved 3D Beta side-view readability by expanding graph depth proportionally to the visible layout.
 - Refined README product positioning, feature tour, and Review Queue/3D Beta descriptions.
 - Added updated public-safe README visuals for Source Lens, node navigation, and 3D Beta.

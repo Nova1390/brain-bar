@@ -159,6 +159,16 @@ struct ReviewQueueItem: Codable, Equatable, Identifiable, Sendable {
     var id: String
     var title: String
     var detail: String?
+    var sourceFile: String?
+    var nodeId: String?
+
+    init(id: String, title: String, detail: String?, sourceFile: String? = nil, nodeId: String? = nil) {
+        self.id = id
+        self.title = title
+        self.detail = detail
+        self.sourceFile = sourceFile
+        self.nodeId = nodeId
+    }
 }
 
 struct ReviewQueueStatus: Equatable, Sendable {

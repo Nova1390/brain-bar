@@ -174,7 +174,7 @@ final class BrainBarTests: XCTestCase {
         XCTAssertEqual(GraphViewMode.twoD.rawValue, "twoD")
         XCTAssertEqual(GraphViewMode.twoD.label, "2D")
         XCTAssertEqual(GraphViewMode.threeD.rawValue, "threeD")
-        XCTAssertEqual(GraphViewMode.threeD.label, "3D Beta")
+        XCTAssertEqual(GraphViewMode.threeD.label, "3D")
     }
 
     func testGraphViewportCommandRawValuesAreStable() {
@@ -183,6 +183,7 @@ final class BrainBarTests: XCTestCase {
         XCTAssertEqual(GraphViewportCommandKind.zoomOut.rawValue, "zoomOut")
         XCTAssertEqual(GraphViewportCommandKind.topView.rawValue, "topView")
         XCTAssertEqual(GraphViewportCommandKind.resetTilt.rawValue, "resetTilt")
+        XCTAssertEqual(GraphViewportCommandKind.graphHealth.rawValue, "graphHealth")
     }
 
     func testReviewQueueWatcherIsOffByDefault() {
@@ -233,6 +234,22 @@ final class BrainBarTests: XCTestCase {
         XCTAssertEqual(status.items[0].detail, "Needs manual review")
         XCTAssertEqual(status.items[1].title, "Loose queue item")
         XCTAssertNil(status.errorMessage)
+    }
+
+    func testReviewQueueParsesOptionalGraphTargets() throws {
+        let json = """
+        {
+          "pending_count": 1,
+          "items": [
+            { "title": "Review graph item", "source_file": "Notes/Alpha.md", "node_id": "alpha" }
+          ]
+        }
+        """
+
+        let status = try ReviewQueueService.parse(json)
+
+        XCTAssertEqual(status.items.first?.sourceFile, "Notes/Alpha.md")
+        XCTAssertEqual(status.items.first?.nodeId, "alpha")
     }
 
     func testReviewQueueRejectsMalformedJSON() {

@@ -240,6 +240,389 @@
     );
   }
 
+  function edgeProvenance(edge, state) {
+    if (!edge) {
+      return 'Unknown';
+    }
+    if (isObsidianEdge(edge, state)) {
+      return 'Wikilink';
+    }
+    const metadata = metadataForEdge(edge, state);
+    const hasMetadata = [
+      metadata.context,
+      metadata.relation,
+      metadata.label,
+      metadata.title,
+      edge.context,
+      edge.relation,
+      edge.label,
+      edge.title
+    ].some((value) => asLabel(value));
+    return hasMetadata ? 'Graphify' : 'Unknown';
+  }
+
+  function nodeById(nodes, nodeId) {
+    const key = idKey(nodeId);
+    return (nodes || []).find((node) => idKey(node.id) === key) || null;
+  }
+
+  function nodeDisplayLabel(node, nodeId) {
+    return asLabel(node?.label || node?.title || node?.name || nodeId || 'Unknown node');
+  }
+
+  function sourceFileForEdge(edge, nodes) {
+    const sourceNode = nodeById(nodes, edgeSource(edge));
+    const targetNode = nodeById(nodes, edgeTarget(edge));
+    return sourceFileForNode(sourceNode) || sourceFileForNode(targetNode) || '';
+  }
+
+  function edgeInspectorDetails(edge, options = {}) {
+    if (!edge) {
+      return {
+        available: false,
+        message: 'Connection metadata unavailable'
+      };
+    }
+
+    const state = { graphLinks: options.graphLinks || [] };
+    const nodes = options.nodes || [];
+    const sourceNode = nodeById(nodes, edgeSource(edge));
+    const targetNode = nodeById(nodes, edgeTarget(edge));
+    const relationship = relationForEdge(edge, state) || 'Connection';
+    return {
+      available: true,
+      edgeId: idKey(edge.id),
+      sourceId: idKey(edgeSource(edge)),
+      targetId: idKey(edgeTarget(edge)),
+      sourceLabel: nodeDisplayLabel(sourceNode, edgeSource(edge)),
+      targetLabel: nodeDisplayLabel(targetNode, edgeTarget(edge)),
+      relationship,
+      provenance: edgeProvenance(edge, state),
+      sourceFile: sourceFileForEdge(edge, nodes)
+    };
+  }
+
+  function computeFocusDiff(options = {}) {
+    const centerNodeId = idKey(options.centerNodeId);
+    const depth = clamp(Number(options.depth) || 1, 1, 3);
+    const originalNodes = options.originalNodes || [];
+    const originalEdges = options.originalEdges || [];
+    const currentNodes = options.currentNodes || originalNodes;
+    const currentEdges = options.currentEdges || originalEdges;
+
+    if (!centerNodeId) {
+      return {
+        centerNodeId: '',
+        depth,
+        visibleNodeIds: [],
+        visibleEdgeIds: [],
+        nodeUpdates: [],
+        edgeUpdates: []
+      };
+    }
+
+    const adjacency = new Map();
+    originalEdges.forEach((edge) => {
+      const source = idKey(edgeSource(edge));
+      const target = idKey(edgeTarget(edge));
+      if (!source || !target) {
+        return;
+      }
+      if (!adjacency.has(source)) {
+        adjacency.set(source, new Set());
+      }
+      if (!adjacency.has(target)) {
+        adjacency.set(target, new Set());
+      }
+      adjacency.get(source).add(target);
+      adjacency.get(target).add(source);
+    });
+
+    const visibleNodeIds = new Set([centerNodeId]);
+    let frontier = new Set([centerNodeId]);
+    for (let level = 0; level < depth; level += 1) {
+      const next = new Set();
+      frontier.forEach((nodeId) => {
+        (adjacency.get(nodeId) || []).forEach((neighborId) => {
+          if (!visibleNodeIds.has(neighborId)) {
+            visibleNodeIds.add(neighborId);
+            next.add(neighborId);
+          }
+        });
+      });
+      frontier = next;
+    }
+
+    const visibleEdgeIds = new Set();
+    originalEdges.forEach((edge) => {
+      const source = idKey(edgeSource(edge));
+      const target = idKey(edgeTarget(edge));
+      if (visibleNodeIds.has(source) && visibleNodeIds.has(target)) {
+        visibleEdgeIds.add(idKey(edge.id));
+      }
+    });
+
+    const currentNodeHidden = hiddenMap(currentNodes);
+    const currentEdgeHidden = hiddenMap(currentEdges);
+    const nodeUpdates = [];
+    const edgeUpdates = [];
+
+    originalNodes.forEach((node) => {
+      const desiredHidden = !visibleNodeIds.has(idKey(node.id));
+      if ((currentNodeHidden.get(idKey(node.id)) || false) !== desiredHidden) {
+        nodeUpdates.push({ id: node.id, hidden: desiredHidden });
+      }
+    });
+
+    originalEdges.forEach((edge) => {
+      const desiredHidden = !visibleEdgeIds.has(idKey(edge.id));
+      if ((currentEdgeHidden.get(idKey(edge.id)) || false) !== desiredHidden) {
+        edgeUpdates.push({ id: edge.id, hidden: desiredHidden });
+      }
+    });
+
+    return {
+      centerNodeId,
+      depth,
+      visibleNodeIds: Array.from(visibleNodeIds),
+      visibleEdgeIds: Array.from(visibleEdgeIds),
+      nodeUpdates,
+      edgeUpdates
+    };
+  }
+
+  function computeGraphHealth(options = {}) {
+    const nodes = options.nodes || [];
+    const edges = options.edges || [];
+    const graphLinks = options.graphLinks || [];
+    const state = { graphLinks };
+    const degree = new Map(nodes.map((node) => [idKey(node.id), 0]));
+    const adjacency = new Map(nodes.map((node) => [idKey(node.id), new Set()]));
+    let wikilinkCount = 0;
+    let graphifyCount = 0;
+
+    edges.forEach((edge) => {
+      const source = idKey(edgeSource(edge));
+      const target = idKey(edgeTarget(edge));
+      if (!degree.has(source) || !degree.has(target)) {
+        return;
+      }
+      degree.set(source, degree.get(source) + 1);
+      degree.set(target, degree.get(target) + 1);
+      adjacency.get(source).add(target);
+      adjacency.get(target).add(source);
+      if (isObsidianEdge(edge, state)) {
+        wikilinkCount += 1;
+      } else {
+        graphifyCount += 1;
+      }
+    });
+
+    const orphanNodes = nodes
+      .filter((node) => (degree.get(idKey(node.id)) || 0) === 0)
+      .map((node) => healthNode(node, 0));
+
+    const averageDegree = nodes.length > 0
+      ? Array.from(degree.values()).reduce((sum, value) => sum + value, 0) / nodes.length
+      : 0;
+    const hubThreshold = Math.max(8, Math.ceil(averageDegree * 3));
+    const hubNodes = nodes
+      .map((node) => healthNode(node, degree.get(idKey(node.id)) || 0))
+      .filter((node) => node.degree >= hubThreshold)
+      .sort((left, right) => right.degree - left.degree || left.label.localeCompare(right.label))
+      .slice(0, 24);
+
+    const visited = new Set();
+    const components = [];
+    nodes.forEach((node) => {
+      const start = idKey(node.id);
+      if (visited.has(start)) {
+        return;
+      }
+      const queue = [start];
+      const component = [];
+      visited.add(start);
+      while (queue.length > 0) {
+        const current = queue.shift();
+        component.push(current);
+        (adjacency.get(current) || []).forEach((neighbor) => {
+          if (!visited.has(neighbor)) {
+            visited.add(neighbor);
+            queue.push(neighbor);
+          }
+        });
+      }
+      components.push(component);
+    });
+    components.sort((left, right) => right.length - left.length);
+
+    const staleCentralNodes = nodes
+      .map((node) => ({ node, degree: degree.get(idKey(node.id)) || 0, modifiedAt: node.mtime || node.modified_at || node.modifiedAt }))
+      .filter((item) => item.degree >= hubThreshold && item.modifiedAt)
+      .sort((left, right) => String(left.modifiedAt).localeCompare(String(right.modifiedAt)))
+      .slice(0, 12)
+      .map((item) => ({ ...healthNode(item.node, item.degree), modifiedAt: item.modifiedAt }));
+
+    return {
+      counts: {
+        nodes: nodes.length,
+        edges: edges.length,
+        graphifyEdges: graphifyCount,
+        wikilinkEdges: wikilinkCount,
+        components: components.length
+      },
+      orphanNodes: orphanNodes.slice(0, 40),
+      hubNodes,
+      isolatedComponents: components
+        .filter((component, index) => index > 0 && component.length > 1)
+        .slice(0, 12)
+        .map((component) => ({ size: component.length, nodeIds: component.slice(0, 12) })),
+      staleCentralNodes
+    };
+  }
+
+  function healthNode(node, degree) {
+    return {
+      id: idKey(node.id),
+      label: nodeDisplayLabel(node, node?.id),
+      sourceFile: sourceFileForNode(node),
+      degree
+    };
+  }
+
+  function fileMetadataForNode(node) {
+    const metadata = root.__brainBarNodeFileMetadata || {};
+    const byNodeId = metadata.byNodeId || {};
+    const bySourceFile = metadata.bySourceFile || {};
+    const sourceFile = sourceFileForNode(node);
+    return byNodeId[idKey(node?.id)] || (sourceFile ? bySourceFile[sourceFile] : null) || {};
+  }
+
+  function nodeTimestamp(node) {
+    const fileMetadata = fileMetadataForNode(node);
+    const explicit = node?.mtime || node?.modified_at || node?.modifiedAt || fileMetadata.mtime || fileMetadata.modifiedAt;
+    if (explicit) {
+      if (typeof explicit === 'number') {
+        return explicit > 10000000000 ? explicit : explicit * 1000;
+      }
+      const parsed = Date.parse(explicit);
+      return Number.isNaN(parsed) ? Number(explicit) || 0 : parsed;
+    }
+
+    const haystack = [
+      node?.label,
+      node?.title,
+      node?.id,
+      sourceFileForNode(node)
+    ].map((value) => String(value || '')).join(' ');
+    const dashed = haystack.match(/\b(20\d{2})-(\d{2})-(\d{2})\b/);
+    if (dashed) {
+      return Date.parse(`${dashed[1]}-${dashed[2]}-${dashed[3]}T00:00:00Z`) || 0;
+    }
+    const compact = haystack.match(/\b(20\d{2})(\d{2})(\d{2})\b/);
+    if (compact) {
+      return Date.parse(`${compact[1]}-${compact[2]}-${compact[3]}T00:00:00Z`) || 0;
+    }
+    return 0;
+  }
+
+  function recentNodeIds(nodes, limit = 80) {
+    return (nodes || [])
+      .map((node) => ({ node, timestamp: nodeTimestamp(node) }))
+      .filter((item) => item.timestamp > 0)
+      .sort((left, right) => right.timestamp - left.timestamp || nodeDisplayLabel(left.node, left.node?.id).localeCompare(nodeDisplayLabel(right.node, right.node?.id)))
+      .slice(0, limit)
+      .map((item) => item.node.id);
+  }
+
+  function workflowViewState(options = {}) {
+    const nodes = options.nodes || [];
+    const edges = options.edges || [];
+    const graphLinks = options.graphLinks || [];
+    const reviewQueueTargets = options.reviewQueueTargets || [];
+    const health = options.health || computeGraphHealth({ nodes, edges, graphLinks });
+    const reviewTargets = reviewQueueNodeTargetsFromNodes(nodes, reviewQueueTargets);
+    const recent = recentNodeIds(nodes);
+    return {
+      orphans: { count: health.orphanNodes.length, hidden: false, disabled: false },
+      hubs: { count: health.hubNodes.length, hidden: false, disabled: false },
+      review: { count: reviewTargets.length, hidden: reviewTargets.length === 0, disabled: reviewTargets.length === 0 },
+      recent: { count: recent.length, hidden: false, disabled: recent.length === 0 },
+      wikilinks: { count: health.counts.wikilinkEdges, hidden: false, disabled: health.counts.wikilinkEdges === 0 },
+      graphify: { count: health.counts.graphifyEdges, hidden: false, disabled: health.counts.graphifyEdges === 0 }
+    };
+  }
+
+  function describeWorkflowView(view, count = 0) {
+    const descriptions = {
+      global: {
+        activeName: 'global',
+        title: 'All Notes',
+        body: 'The full graph. Useful as a map, but usually too dense for close reading.'
+      },
+      orphans: {
+        activeName: 'orphans',
+        title: 'Needs Links',
+        body: 'Notes with no graph connections. These are candidates to link, merge, or leave intentionally isolated.',
+        empty: 'No notes need links right now.'
+      },
+      hubs: {
+        activeName: 'hubs',
+        title: 'Key Notes',
+        body: 'The most connected notes. They often act as indexes, protocols, dashboards, or central concepts.',
+        empty: 'No key notes found.'
+      },
+      review: {
+        activeName: 'review',
+        title: 'Review',
+        body: 'Review Queue items that point to a graph node. Items need source_file or node_id to appear here.',
+        empty: 'No Review Queue items currently point to graph nodes.'
+      },
+      recent: {
+        activeName: 'recent',
+        title: 'Recent Notes',
+        body: 'Recently changed or date-named notes. Uses mtime when available, otherwise dates found in titles or paths.',
+        empty: 'No recent-date metadata found in this graph.'
+      },
+      health: {
+        activeName: 'health',
+        title: 'Graph Check',
+        body: 'A read-only check for notes that need links, key notes, disconnected groups, and stale key notes when timestamps exist.'
+      },
+      component: {
+        activeName: 'component',
+        title: 'Disconnected Group',
+        body: 'A smaller connected group outside the main graph. These may be intentional islands or areas that need bridge links.',
+        empty: 'This disconnected group has no visible nodes.'
+      }
+    };
+    const fallback = descriptions.global;
+    return {
+      ...(descriptions[String(view || '').toLowerCase()] || fallback),
+      count
+    };
+  }
+
+  function reviewQueueNodeTargetsFromNodes(nodes, targets) {
+    const nodeIds = new Set();
+    const nodesBySource = new Map();
+    (nodes || []).forEach((node) => {
+      const source = sourceFileForNode(node);
+      if (source) {
+        nodesBySource.set(source, node.id);
+      }
+    });
+    (targets || []).forEach((target) => {
+      if (target.node_id) {
+        nodeIds.add(String(target.node_id));
+      }
+      if (target.source_file && nodesBySource.has(target.source_file)) {
+        nodeIds.add(String(nodesBySource.get(target.source_file)));
+      }
+    });
+    return Array.from(nodeIds);
+  }
+
   function ensurePremiumTooltip(document) {
     let tooltip = document.getElementById('brainbar-graph-tooltip');
     if (!tooltip) {
@@ -299,6 +682,22 @@
       tooltip.style.top = `${Math.max(14, y - 38)}px`;
     }
 
+    function isGraphPointerTarget(target) {
+      if (!target || typeof target.closest !== 'function') {
+        return false;
+      }
+      const graph = root.document.getElementById('graph');
+      return Boolean(graph && (target === graph || graph.contains(target)));
+    }
+
+    function handlePremiumTooltipPointerMove(event) {
+      if (!isGraphPointerTarget(event.target)) {
+        hidePremiumTooltip();
+        return;
+      }
+      movePremiumTooltip(event);
+    }
+
     function showPremiumTooltip(eyebrow, label, event) {
       const cleanLabel = asLabel(label);
       if (!cleanLabel) {
@@ -354,7 +753,13 @@
         const node = graphNodesDS()?.get(nodeId);
         const sourceFile = sourceFileForNode(node);
         const info = root.document.getElementById('info-content');
-        if (!info || !sourceFile || root.document.getElementById('brainbar-open-note')) {
+        const existingButton = root.document.getElementById('brainbar-open-note');
+        if (existingButton) {
+          existingButton.dataset.nodeId = String(nodeId);
+          addFocusControls(nodeId);
+          return;
+        }
+        if (!info || !sourceFile) {
           return;
         }
         const button = root.document.createElement('button');
@@ -363,8 +768,84 @@
         button.dataset.nodeId = String(nodeId);
         button.textContent = 'Open Note';
         info.insertBefore(button, info.children[1] || null);
+        addFocusControls(nodeId);
       } catch (error) {
         console.debug('BrainBar open note button skipped', error);
+      }
+    }
+
+    function showEdgeInspector(edgeId) {
+      try {
+        const edge = graphEdgesDS()?.get(edgeId) || null;
+        const snapshot = currentGraphSnapshot();
+        const details = edgeInspectorDetails(edge, {
+          nodes: snapshot.nodes,
+          graphLinks: snapshot.state.graphLinks || []
+        });
+        const info = root.document.getElementById('info-content');
+        if (!info) {
+          return;
+        }
+
+        let panel = root.document.getElementById('brainbar-edge-inspector');
+        if (!panel) {
+          panel = root.document.createElement('div');
+          panel.id = 'brainbar-edge-inspector';
+        }
+        panel.innerHTML = '';
+
+        const eyebrow = root.document.createElement('div');
+        eyebrow.className = 'edge-eyebrow';
+        eyebrow.textContent = 'Connection';
+        const title = root.document.createElement('strong');
+        title.textContent = details.available
+          ? `${details.sourceLabel} -> ${details.targetLabel}`
+          : details.message;
+        panel.append(eyebrow, title);
+
+        if (details.available) {
+          [
+            ['Relationship', details.relationship],
+            ['Source', details.provenance],
+            ['File', details.sourceFile || 'Connection metadata unavailable']
+          ].forEach(([label, value]) => {
+            const row = root.document.createElement('div');
+            row.className = 'edge-row';
+            const key = root.document.createElement('span');
+            key.textContent = label;
+            const val = root.document.createElement('b');
+            val.textContent = value;
+            row.append(key, val);
+            panel.appendChild(row);
+          });
+
+          if (details.sourceFile) {
+            const actions = root.document.createElement('div');
+            actions.className = 'edge-actions';
+            const open = root.document.createElement('button');
+            open.type = 'button';
+            open.textContent = 'Open Source Note';
+            open.addEventListener('click', () => {
+              sendNodeAction('openNode', {
+                id: details.sourceId,
+                label: details.sourceLabel,
+                source_file: details.sourceFile
+              });
+            });
+            const copy = root.document.createElement('button');
+            copy.type = 'button';
+            copy.textContent = 'Copy Path';
+            copy.addEventListener('click', () => {
+              root.navigator?.clipboard?.writeText(details.sourceFile);
+            });
+            actions.append(open, copy);
+            panel.appendChild(actions);
+          }
+        }
+
+        info.prepend(panel);
+      } catch (error) {
+        console.debug('BrainBar edge inspector skipped', error);
       }
     }
 
@@ -407,6 +888,516 @@
       const overlay = ensureLensEmptyState();
       overlay.textContent = message || '';
       overlay.hidden = !message;
+    }
+
+    function applyDataSetUpdates(nodeUpdates, edgeUpdates) {
+      const nodesDataSet = graphNodesDS();
+      const edgesDataSet = graphEdgesDS();
+      if (edgeUpdates?.length > 0 && edgesDataSet) {
+        edgesDataSet.update(edgeUpdates);
+      }
+      if (nodeUpdates?.length > 0 && nodesDataSet) {
+        nodesDataSet.update(nodeUpdates);
+      }
+      graphNetwork()?.redraw();
+    }
+
+    function clearRuntimeFilter() {
+      const state = ensureGraphLensState();
+      const nodesDataSet = graphNodesDS();
+      const edgesDataSet = graphEdgesDS();
+      if (!state || !nodesDataSet || !edgesDataSet) {
+        return;
+      }
+      root.__brainBarFocusState = null;
+      root.__brainBarActiveGraphView = 'global';
+      setLensEmptyMessage('');
+      const resetAll = computeLensDiff({
+        lens: root.__brainBarPendingGraphLens || ALL_LENS,
+        originalNodes: state.originalNodes,
+        originalEdges: state.originalEdges,
+        graphLinks: state.graphLinks,
+        currentNodes: nodesDataSet.get(),
+        currentEdges: edgesDataSet.get()
+      });
+      applyDataSetUpdates(resetAll.nodeUpdates, resetAll.edgeUpdates);
+      updateFocusStatus(null);
+      updateWorkflowToolbarState();
+    }
+
+    function applyFocus(centerNodeId, depth = 1) {
+      const state = ensureGraphLensState();
+      const nodesDataSet = graphNodesDS();
+      const edgesDataSet = graphEdgesDS();
+      if (!state || !nodesDataSet || !edgesDataSet || !centerNodeId) {
+        return;
+      }
+
+      const focus = computeFocusDiff({
+        centerNodeId,
+        depth,
+        originalNodes: state.originalNodes,
+        originalEdges: state.originalEdges,
+        currentNodes: nodesDataSet.get(),
+        currentEdges: edgesDataSet.get()
+      });
+      root.__brainBarFocusState = focus;
+      root.__brainBarActiveGraphView = 'focus';
+      setLensEmptyMessage(focus.visibleNodeIds.length === 0 ? 'Focus node not found' : '');
+      applyDataSetUpdates(focus.nodeUpdates, focus.edgeUpdates);
+      updateWorkflowToolbarState();
+      updateFocusStatus(focus);
+      graphNetwork()?.selectNodes([centerNodeId]);
+      graphNetwork()?.focus(centerNodeId, {
+        scale: focus.depth <= 1 ? 0.95 : 0.72,
+        animation: { duration: 260, easingFunction: 'easeInOutQuad' }
+      });
+    }
+
+    function expandFocus() {
+      const focus = root.__brainBarFocusState;
+      if (!focus?.centerNodeId) {
+        return;
+      }
+      applyFocus(focus.centerNodeId, clamp((focus.depth || 1) + 1, 1, 3));
+    }
+
+    function addFocusControls(nodeId) {
+      const info = root.document.getElementById('info-content');
+      if (!info || !nodeId) {
+        return;
+      }
+      let controls = root.document.getElementById('brainbar-focus-controls');
+      if (!controls) {
+        controls = root.document.createElement('div');
+        controls.id = 'brainbar-focus-controls';
+        controls.innerHTML = `
+          <div class="focus-status" hidden></div>
+          <button type="button" data-action="focus">Focus note</button>
+          <button type="button" data-action="expand">Expand neighbors</button>
+          <button type="button" data-action="clear">Back to all</button>
+        `;
+        controls.addEventListener('click', (event) => {
+          const button = event.target.closest('button[data-action]');
+          if (!button) {
+            return;
+          }
+          event.preventDefault();
+          const selected = graphNetwork()?.getSelectedNodes?.()?.[0] || controls.dataset.nodeId;
+          if (button.dataset.action === 'focus') {
+            applyFocus(selected, 1);
+          } else if (button.dataset.action === 'expand') {
+            expandFocus();
+          } else {
+            clearRuntimeFilter();
+          }
+        });
+      }
+      controls.dataset.nodeId = String(nodeId);
+      if (!controls.parentElement) {
+        const openButton = root.document.getElementById('brainbar-open-note');
+        info.insertBefore(controls, openButton?.nextSibling || info.children[1] || null);
+      }
+      updateFocusStatus(root.__brainBarFocusState);
+    }
+
+    function updateFocusStatus(focus) {
+      const controls = root.document.getElementById('brainbar-focus-controls');
+      if (!controls) {
+        return;
+      }
+      const status = controls.querySelector('.focus-status');
+      const expand = controls.querySelector('button[data-action="expand"]');
+      if (!status) {
+        return;
+      }
+      if (!focus?.centerNodeId) {
+        status.hidden = true;
+        if (expand) {
+          expand.disabled = false;
+        }
+        return;
+      }
+      status.hidden = false;
+      status.textContent = `Focused · depth ${focus.depth} · ${focus.visibleNodeIds.length} notes`;
+      if (expand) {
+        expand.disabled = focus.depth >= 3;
+      }
+    }
+
+    function currentGraphSnapshot() {
+      const state = ensureGraphLensState() || {};
+      const nodesDataSet = graphNodesDS();
+      const edgesDataSet = graphEdgesDS();
+      return {
+        state,
+        nodes: state.originalNodes || nodesDataSet?.get() || [],
+        edges: state.originalEdges || edgesDataSet?.get() || [],
+        currentNodes: nodesDataSet?.get() || [],
+        currentEdges: edgesDataSet?.get() || []
+      };
+    }
+
+    function applyNodeSetView(viewName, nodeIds) {
+      const viewMeta = describeWorkflowView(viewName, nodeIds?.length || 0);
+      const snapshot = currentGraphSnapshot();
+      const visibleNodeIds = new Set((nodeIds || []).map(idKey));
+      const visibleEdgeIds = new Set();
+      snapshot.edges.forEach((edge) => {
+        if (visibleNodeIds.has(idKey(edgeSource(edge))) && visibleNodeIds.has(idKey(edgeTarget(edge)))) {
+          visibleEdgeIds.add(idKey(edge.id));
+        }
+      });
+
+      const nodeHidden = hiddenMap(snapshot.currentNodes);
+      const edgeHidden = hiddenMap(snapshot.currentEdges);
+      const nodeUpdates = snapshot.nodes.map((node) => ({ id: node.id, hidden: !visibleNodeIds.has(idKey(node.id)) }))
+        .filter((update) => (nodeHidden.get(idKey(update.id)) || false) !== update.hidden);
+      const edgeUpdates = snapshot.edges.map((edge) => ({ id: edge.id, hidden: !visibleEdgeIds.has(idKey(edge.id)) }))
+        .filter((update) => (edgeHidden.get(idKey(update.id)) || false) !== update.hidden);
+
+      root.__brainBarFocusState = null;
+      root.__brainBarActiveGraphView = viewMeta.activeName;
+      setLensEmptyMessage(visibleNodeIds.size === 0 ? viewMeta.empty : '');
+      applyDataSetUpdates(nodeUpdates, edgeUpdates);
+      updateWorkflowToolbarState();
+      showWorkflowViewPanel(viewMeta, Array.from(visibleNodeIds));
+      if (visibleNodeIds.size === 1) {
+        const nodeId = Array.from(visibleNodeIds)[0];
+        graphNetwork()?.selectNodes([nodeId]);
+        graphNetwork()?.focus(nodeId, {
+          scale: 1.35,
+          animation: { duration: 280, easingFunction: 'easeInOutQuad' }
+        });
+      } else if (visibleNodeIds.size > 1) {
+        graphNetwork()?.fit({
+          nodes: Array.from(visibleNodeIds),
+          animation: { duration: 260, easingFunction: 'easeInOutQuad' }
+        });
+      }
+    }
+
+    function applyBuiltInView(viewName) {
+      const view = String(viewName || 'global').toLowerCase();
+      const snapshot = currentGraphSnapshot();
+      const health = computeGraphHealth({
+        nodes: snapshot.nodes,
+        edges: snapshot.edges,
+        graphLinks: snapshot.state.graphLinks || []
+      });
+
+      if (view === 'global') {
+        clearRuntimeFilter();
+        hideWorkflowViewPanel();
+      } else if (view === 'orphans') {
+        applyNodeSetView('orphans', health.orphanNodes.map((node) => node.id));
+      } else if (view === 'hubs') {
+        applyNodeSetView('hubs', health.hubNodes.map((node) => node.id));
+      } else if (view === 'review') {
+        const targets = reviewQueueNodeTargets(snapshot.nodes, root.__brainBarReviewQueueTargets || []);
+        applyNodeSetView('review', targets);
+      } else if (view === 'recent') {
+        applyNodeSetView('recent', recentNodeIds(snapshot.nodes));
+      } else if (view === 'wikilinks') {
+        hideWorkflowViewPanel();
+        root.brainBarApplyGraphLens(OBSIDIAN_LENS);
+      } else if (view === 'graphify') {
+        hideWorkflowViewPanel();
+        root.brainBarApplyGraphLens(GRAPHIFY_LENS);
+      } else if (view === 'health') {
+        showGraphHealthPanel(health);
+      }
+    }
+
+    function reviewQueueNodeTargets(nodes, targets) {
+      return reviewQueueNodeTargetsFromNodes(nodes, targets);
+    }
+
+    function ensureWorkflowToolbar() {
+      let toolbar = root.document.getElementById('brainbar-workflow-toolbar');
+      if (toolbar) {
+        return toolbar;
+      }
+      toolbar = root.document.createElement('div');
+      toolbar.id = 'brainbar-workflow-toolbar';
+      [
+        ['global', 'All'],
+        ['orphans', 'Needs Links'],
+        ['hubs', 'Key Notes'],
+        ['review', 'Review'],
+        ['recent', 'Recent'],
+        ['wikilinks', 'Wikilinks'],
+        ['graphify', 'Graphify'],
+        ['health', 'Graph Check']
+      ].forEach(([view, label]) => {
+        const button = root.document.createElement('button');
+        button.type = 'button';
+        button.dataset.view = view;
+        button.dataset.label = label;
+        button.title = describeWorkflowView(view).body;
+        button.textContent = label;
+        toolbar.appendChild(button);
+      });
+      toolbar.addEventListener('click', (event) => {
+        const button = event.target.closest('button[data-view]');
+        if (!button) {
+          return;
+        }
+        event.preventDefault();
+        applyBuiltInView(button.dataset.view);
+      });
+      root.document.body.appendChild(toolbar);
+      updateWorkflowToolbarState();
+      return toolbar;
+    }
+
+    function updateWorkflowToolbarState() {
+      const toolbar = root.document.getElementById('brainbar-workflow-toolbar');
+      if (!toolbar) {
+        return;
+      }
+      const snapshot = currentGraphSnapshot();
+      const health = computeGraphHealth({
+        nodes: snapshot.nodes,
+        edges: snapshot.edges,
+        graphLinks: snapshot.state.graphLinks || []
+      });
+      const viewState = workflowViewState({
+        nodes: snapshot.nodes,
+        edges: snapshot.edges,
+        graphLinks: snapshot.state.graphLinks || [],
+        reviewQueueTargets: root.__brainBarReviewQueueTargets || [],
+        health
+      });
+      const active = String(root.__brainBarActiveGraphView || 'global').toLowerCase();
+      toolbar.querySelectorAll('button[data-view]').forEach((button) => {
+        const view = String(button.dataset.view || '').toLowerCase();
+        const selected = active === view || (active === 'global' && view === 'global');
+        const state = viewState[view] || { count: 0, hidden: false, disabled: false };
+        const label = button.dataset.label || button.textContent || '';
+        button.textContent = state.count > 0 && ['orphans', 'hubs', 'review', 'recent'].includes(view)
+          ? `${label} ${state.count}`
+          : label;
+        button.hidden = Boolean(state.hidden);
+        button.disabled = Boolean(state.disabled);
+        button.classList.toggle('selected', selected);
+      });
+    }
+
+    function hideWorkflowViewPanel() {
+      const panel = root.document.getElementById('brainbar-workflow-panel');
+      if (panel) {
+        panel.hidden = true;
+      }
+    }
+
+    function pathsForNodeIds(nodeIds) {
+      const snapshot = currentGraphSnapshot();
+      return (nodeIds || [])
+        .map((nodeId) => nodeById(snapshot.nodes, nodeId))
+        .map(sourceFileForNode)
+        .filter(Boolean);
+    }
+
+    function showWorkflowViewPanel(meta, nodeIds) {
+      let panel = root.document.getElementById('brainbar-workflow-panel');
+      if (!panel) {
+        panel = root.document.createElement('div');
+        panel.id = 'brainbar-workflow-panel';
+        root.document.body.appendChild(panel);
+      }
+      panel.innerHTML = '';
+
+      const close = root.document.createElement('button');
+      close.type = 'button';
+      close.className = 'close';
+      close.textContent = 'Close';
+      close.addEventListener('click', () => {
+        panel.hidden = true;
+      });
+      const title = root.document.createElement('h2');
+      title.textContent = meta.title;
+      const body = root.document.createElement('p');
+      body.textContent = `${meta.body} ${meta.count} shown.`;
+      panel.append(close, title, body);
+
+      const actions = root.document.createElement('div');
+      actions.className = 'workflow-actions';
+      const focusFirst = root.document.createElement('button');
+      focusFirst.type = 'button';
+      focusFirst.textContent = 'Focus first';
+      focusFirst.disabled = nodeIds.length === 0;
+      focusFirst.addEventListener('click', () => {
+        if (nodeIds[0]) {
+          applyFocus(nodeIds[0], 1);
+          panel.hidden = true;
+        }
+      });
+      const showAll = root.document.createElement('button');
+      showAll.type = 'button';
+      showAll.textContent = 'Show all';
+      showAll.addEventListener('click', () => {
+        clearRuntimeFilter();
+        panel.hidden = true;
+      });
+      actions.append(focusFirst, showAll);
+      const paths = pathsForNodeIds(nodeIds);
+      if (paths.length > 0) {
+        const copyPaths = root.document.createElement('button');
+        copyPaths.type = 'button';
+        copyPaths.textContent = 'Copy paths';
+        copyPaths.addEventListener('click', () => {
+          root.navigator?.clipboard?.writeText(paths.join('\n'));
+        });
+        actions.appendChild(copyPaths);
+      }
+      panel.appendChild(actions);
+
+      if (!nodeIds.length) {
+        const empty = root.document.createElement('p');
+        empty.className = 'empty';
+        empty.textContent = meta.empty || 'No nodes match this view.';
+        panel.appendChild(empty);
+      } else {
+        const snapshot = currentGraphSnapshot();
+        const nodesDataSet = graphNodesDS();
+        nodeIds.slice(0, 10).forEach((nodeId) => {
+          const node = nodesDataSet?.get(nodeId) || nodeById(snapshot.nodes, nodeId);
+          const row = root.document.createElement('button');
+          row.type = 'button';
+          row.className = 'health-row';
+          row.textContent = nodeDisplayLabel(node, nodeId);
+          row.addEventListener('click', () => {
+            graphNetwork()?.selectNodes([nodeId]);
+            graphNetwork()?.focus(nodeId, {
+              scale: 1.15,
+              animation: { duration: 220, easingFunction: 'easeInOutQuad' }
+            });
+          });
+          panel.appendChild(row);
+        });
+      }
+
+      panel.hidden = false;
+    }
+
+    function showGraphHealthPanel(health) {
+      let panel = root.document.getElementById('brainbar-health-panel');
+      if (!panel) {
+        panel = root.document.createElement('div');
+        panel.id = 'brainbar-health-panel';
+        root.document.body.appendChild(panel);
+      }
+      panel.innerHTML = '';
+      const close = root.document.createElement('button');
+      close.type = 'button';
+      close.className = 'close';
+      close.textContent = 'Close';
+      close.addEventListener('click', () => {
+        panel.hidden = true;
+      });
+      const title = root.document.createElement('h2');
+      title.textContent = 'Graph Check';
+      const summary = root.document.createElement('p');
+      summary.textContent = `Read-only check: ${health.counts.nodes} notes, ${health.counts.edges} links, ${health.counts.components} connected groups.`;
+      panel.append(close, title, summary);
+      appendGraphCheckActions(panel, health);
+      appendHealthList(panel, 'Needs Links', health.orphanNodes, 'No notes need links right now.');
+      appendHealthList(panel, 'Key Notes', health.hubNodes, 'No unusually connected notes found.');
+      appendComponentList(panel, 'Disconnected Groups', health.isolatedComponents);
+      if (health.staleCentralNodes.length > 0) {
+        appendHealthList(panel, 'Stale Key Notes', health.staleCentralNodes);
+      }
+      panel.hidden = false;
+    }
+
+    function appendGraphCheckActions(panel, health) {
+      const actions = root.document.createElement('div');
+      actions.className = 'workflow-actions';
+      const focusFirst = root.document.createElement('button');
+      focusFirst.type = 'button';
+      focusFirst.textContent = 'Focus first issue';
+      const firstNode = health.orphanNodes[0] || health.hubNodes[0] || health.staleCentralNodes[0];
+      focusFirst.disabled = !firstNode;
+      focusFirst.addEventListener('click', () => {
+        if (firstNode?.id) {
+          applyFocus(firstNode.id, 1);
+          panel.hidden = true;
+        }
+      });
+      const showAll = root.document.createElement('button');
+      showAll.type = 'button';
+      showAll.textContent = 'Show all';
+      showAll.addEventListener('click', () => {
+        clearRuntimeFilter();
+        panel.hidden = true;
+      });
+      actions.append(focusFirst, showAll);
+      const paths = [...health.orphanNodes, ...health.hubNodes, ...health.staleCentralNodes]
+        .map((node) => node.sourceFile)
+        .filter(Boolean);
+      if (paths.length > 0) {
+        const copy = root.document.createElement('button');
+        copy.type = 'button';
+        copy.textContent = 'Copy paths';
+        copy.addEventListener('click', () => {
+          root.navigator?.clipboard?.writeText(paths.join('\n'));
+        });
+        actions.appendChild(copy);
+      }
+      panel.appendChild(actions);
+    }
+
+    function appendHealthList(panel, title, nodes, emptyText = 'Nothing to review') {
+      const section = root.document.createElement('section');
+      const heading = root.document.createElement('h3');
+      heading.textContent = `${title} (${nodes.length})`;
+      section.appendChild(heading);
+      if (nodes.length === 0) {
+        const empty = root.document.createElement('p');
+        empty.className = 'empty';
+        empty.textContent = emptyText;
+        section.appendChild(empty);
+      } else {
+        nodes.slice(0, 8).forEach((node) => {
+          const row = root.document.createElement('button');
+          row.type = 'button';
+          row.className = 'health-row';
+          row.textContent = `${node.label}${node.degree ? ` · degree ${node.degree}` : ''}`;
+          row.addEventListener('click', () => {
+            applyFocus(node.id, 1);
+            panel.hidden = true;
+          });
+          section.appendChild(row);
+        });
+      }
+      panel.appendChild(section);
+    }
+
+    function appendComponentList(panel, title, components) {
+      const section = root.document.createElement('section');
+      const heading = root.document.createElement('h3');
+      heading.textContent = `${title} (${components.length})`;
+      section.appendChild(heading);
+      if (components.length === 0) {
+        const empty = root.document.createElement('p');
+        empty.className = 'empty';
+        empty.textContent = 'All connected groups beyond the main graph are tiny or absent.';
+        section.appendChild(empty);
+      } else {
+        components.slice(0, 8).forEach((component, index) => {
+          const row = root.document.createElement('button');
+          row.type = 'button';
+          row.className = 'health-row';
+          row.textContent = `Group ${index + 1} · ${component.size} notes`;
+          row.addEventListener('click', () => {
+            applyNodeSetView('component', component.nodeIds || []);
+            panel.hidden = true;
+          });
+          section.appendChild(row);
+        });
+      }
+      panel.appendChild(section);
     }
 
     function rebuildEmptyCommunityLegend() {
@@ -542,7 +1533,8 @@
       }
       root.__brainBarPremium2DInteractionInstalled = true;
 
-      root.document.addEventListener('mousemove', movePremiumTooltip, { passive: true });
+      root.document.addEventListener('mousemove', handlePremiumTooltipPointerMove, { passive: true });
+      root.document.getElementById('graph')?.addEventListener('mouseleave', hidePremiumTooltip, { passive: true });
 
       currentNetwork.on('hoverNode', (params) => {
         const node = graphNodesDS()?.get(params.node) || null;
@@ -567,6 +1559,13 @@
           addOpenNoteButton(selectedNodeId);
         }
       });
+      currentNetwork.on('selectEdge', (params) => {
+        hidePremiumTooltip();
+        const selectedEdgeId = params.edges?.[0];
+        if (selectedEdgeId !== undefined && selectedEdgeId !== null) {
+          showEdgeInspector(selectedEdgeId);
+        }
+      });
       currentNetwork.on('deselectNode', hidePremiumTooltip);
       currentNetwork.on('dragStart', hidePremiumTooltip);
       currentNetwork.on('zoom', hidePremiumTooltip);
@@ -588,18 +1587,18 @@
             },
             nodes: {
               shape: 'dot',
-              borderWidth: 1.15,
-              borderWidthSelected: 2,
+              borderWidth: 0.85,
+              borderWidthSelected: 1.7,
               shadow: {
                 enabled: true,
                 color: 'rgba(126, 154, 255, 0.16)',
-                size: 5,
+                size: 3,
                 x: 0,
                 y: 0
               },
               scaling: {
-                min: 6,
-                max: 22,
+                min: 3,
+                max: 11,
                 label: { enabled: false }
               },
               font: {
@@ -653,8 +1652,8 @@
           const isLeaf = degree <= 1;
           const isSmall = degree <= 3;
           const size = isLeaf
-            ? 4.2
-            : clamp(4.2 + Math.sqrt(degree) * 1.12, 5.2, 17);
+            ? 3.2
+            : clamp(3.4 + Math.sqrt(degree) * 0.74, 4.2, 9.2);
           return {
             id: node.id,
             title: '',
@@ -675,9 +1674,9 @@
               }
             },
             shadow: {
-              enabled: degree > 10,
-              color: 'rgba(126, 154, 255, 0.18)',
-              size: clamp(Math.sqrt(degree) * 1.2, 3, 9),
+              enabled: degree > 18,
+              color: 'rgba(126, 154, 255, 0.12)',
+              size: clamp(Math.sqrt(degree) * 0.72, 2, 5),
               x: 0,
               y: 0
             },
@@ -692,7 +1691,7 @@
         nodesDataSet.update(themedNodes);
 
         const themedEdges = edgesDataSet.get().map((edge) => {
-          const baseWidth = Math.max(0.7, Math.min(edge._brainBarBaseWidth || edge.width || 1, 1.2));
+          const baseWidth = Math.max(0.45, Math.min(edge._brainBarBaseWidth || edge.width || 0.75, 0.95));
           const smooth = organicEdgeSmooth(edge);
           return {
             id: edge.id,
@@ -724,6 +1723,7 @@
     root.brainBarApplyGraphLens = (lens) => {
       applyNetworkTheme();
       rebuildEmptyCommunityLegend();
+      ensureWorkflowToolbar();
       installNodeActionBridge();
       installPremium2DInteraction();
       ensureOpenNoteButton();
@@ -762,11 +1762,28 @@
       if (currentNetwork) {
         currentNetwork.redraw();
       }
+      root.__brainBarActiveGraphView = selectedLens === ALL_LENS
+        ? 'global'
+        : (selectedLens === OBSIDIAN_LENS ? 'wikilinks' : 'graphify');
+      updateWorkflowToolbarState();
+    };
+
+    root.brainBarApplyReviewQueueTargets = (targets) => {
+      root.__brainBarReviewQueueTargets = Array.isArray(targets) ? targets : [];
+      updateWorkflowToolbarState();
+      if (String(root.__brainBarActiveGraphView || '').toLowerCase() === 'review') {
+        applyBuiltInView('review');
+      }
+    };
+
+    root.brainBarShowGraphHealth = () => {
+      applyBuiltInView('health');
     };
 
     function applyBrainBarGraphRuntime() {
       applyNetworkTheme();
       rebuildEmptyCommunityLegend();
+      ensureWorkflowToolbar();
       installNodeActionBridge();
       installPremium2DInteraction();
       ensureOpenNoteButton();
@@ -792,14 +1809,23 @@
     graphifyLens: GRAPHIFY_LENS,
     obsidianLens: OBSIDIAN_LENS,
     cleanRelationshipLabel,
+    computeFocusDiff,
+    computeGraphHealth,
     computeLensDiff,
+    describeWorkflowView,
+    edgeInspectorDetails,
+    edgeProvenance,
     edgeSource,
     edgeTarget,
+    fileMetadataForNode,
     isObsidianEdge,
     metadataForEdge,
     nodeActionPayload,
+    nodeTimestamp,
     nodeTooltipLabel,
     normalizeLens,
+    recentNodeIds,
+    workflowViewState,
     sourceFileForNode
   };
 

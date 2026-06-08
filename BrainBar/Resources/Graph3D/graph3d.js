@@ -1,5 +1,6 @@
 import * as THREE from './vendor/three.module.min.js';
 import { OrbitControls } from './vendor/OrbitControls.js';
+import { computeShortestPath } from './graph3d-path-utils.mjs';
 
 const stage = document.getElementById('stage');
 const graphVisual = document.getElementById('graph-visual');
@@ -40,13 +41,16 @@ const state = {
   graph: null,
   lens: 'all',
   communities: [],
+  communityByName: new Map(),
   communityEnabled: new Set(),
   visibleNodes: [],
   visibleEdges: [],
+  visibleNodeIds: new Set(),
   positions: new Map(),
   degreeByNode: new Map(),
   adjacencyByNode: new Map(),
   edgesByNode: new Map(),
+  edgeById: new Map(),
   projectedPoints: new Map(),
   visualCacheDirty: true,
   selectedNode: null,
@@ -56,6 +60,21 @@ const state = {
   hoverTrails: new Map(),
   edgeTrails: new Map(),
   hoverIntensity: 0,
+  focusMode: false,
+  focusDepth: 1,
+  focusNodeId: null,
+  focusNodeIds: new Set(),
+  focusEdgeIds: new Set(),
+  focusNodeDistance: new Map(),
+  pathMode: false,
+  pathSourceId: null,
+  pathTargetId: null,
+  pathNodeIds: new Set(),
+  pathEdgeIds: new Set(),
+  pathOrderedNodeIds: [],
+  pathOrderedEdgeIds: [],
+  pathMessage: '',
+  pathPulsePhase: 0,
   lastDiagnostic: '',
   cameraPreset: 'Fit',
   lastFrameStatus: 'Waiting',
@@ -63,6 +82,8 @@ const state = {
   pointer: new THREE.Vector2(),
   raycaster: new THREE.Raycaster(),
   nodeIndexById: new Map(),
+  pendingPointerEvent: null,
+  pointerHitFrame: null,
   animationFrame: null,
   ambientFrame: null,
   ambientPhase: 0,
@@ -210,6 +231,7 @@ function prepareCommunities(graph) {
       index
     }))
     .sort((left, right) => right.count - left.count || left.name.localeCompare(right.name));
+  state.communityByName = new Map(state.communities.map((community) => [community.name, community]));
   state.communityEnabled = new Set(state.communities.map((community) => community.name));
 }
 
@@ -234,14 +256,16 @@ function applyLens(fit = true) {
       : graph.nodes.filter((node) => connectedIds.has(node.id));
 
     state.visibleNodes = lensNodes.filter((node) => state.communityEnabled.has(node.community));
-    const visibleIds = new Set(state.visibleNodes.map((node) => node.id));
-    state.visibleEdges = lensEdges.filter((edge) => visibleIds.has(edge.source) && visibleIds.has(edge.target));
+    state.visibleNodeIds = new Set(state.visibleNodes.map((node) => node.id));
+    state.visibleEdges = lensEdges.filter((edge) => state.visibleNodeIds.has(edge.source) && state.visibleNodeIds.has(edge.target));
     state.hoveredNode = null;
     state.hoveredEdge = null;
     state.hoverVisualNode = null;
     state.hoverTrails = new Map();
     state.edgeTrails = new Map();
     state.hoverIntensity = 0;
+    clearFocusOrbit(false);
+    clearPathMode(false);
     markVisualCacheDirty();
 
     calculateLayout();
@@ -269,11 +293,14 @@ function isObsidianEdge(edge) {
 
 function calculateLayout() {
   state.positions = new Map();
-  const communityIndex = new Map(state.communities.map((community, index) => [community.name, index]));
-  const communityCount = Math.max(state.communities.length, 1);
-  const clusterRadius = Math.min(720, 180 + Math.sqrt(communityCount) * 64);
   const nodesByCommunity = new Map();
   const degreeMap = buildDegreeMap(state.visibleEdges);
+  const sortedNodes = [...state.visibleNodes].sort((left, right) => {
+    const communityOrder = String(left.community).localeCompare(String(right.community));
+    return communityOrder !== 0 ? communityOrder : String(left.label).localeCompare(String(right.label));
+  });
+  const nodeCount = Math.max(sortedNodes.length, 1);
+  const outerRadius = clamp(Math.sqrt(nodeCount) * 14.2, 240, 780);
 
   state.visibleNodes.forEach((node) => {
     const nodes = nodesByCommunity.get(node.community) ?? [];
@@ -281,20 +308,19 @@ function calculateLayout() {
     nodesByCommunity.set(node.community, nodes);
   });
 
-  nodesByCommunity.forEach((nodes, communityName) => {
-    const index = communityIndex.get(communityName) ?? 0;
-    const center = pointOnDisc(index, communityCount, clusterRadius);
-    const localRadius = Math.max(42, Math.min(170, Math.sqrt(nodes.length) * 11));
-    nodes.forEach((node, localIndex) => {
-      const seed = hashString(node.id);
-      const angle = localIndex * 2.399963 + (seed % 100) * 0.01;
-      const distance = localRadius * Math.sqrt((localIndex + 0.5) / Math.max(nodes.length, 1));
-      const depth = depthForNode(node, index, localIndex, degreeMap);
-      state.positions.set(node.id, {
-        x: center.x + Math.cos(angle) * distance,
-        y: depth,
-        z: center.y + Math.sin(angle) * distance
-      });
+  sortedNodes.forEach((node, index) => {
+    const seed = hashString(`${node.id}:${node.community}`);
+    const degree = degreeMap.get(node.id) ?? 0;
+    const angle = index * 2.399963229728653 + (seed % 628) / 100;
+    const baseDistance = Math.sqrt((index + 0.5) / nodeCount) * outerRadius;
+    const hubPull = clamp(Math.log1p(degree) / 7, 0, 0.55);
+    const distanceJitter = (((seed % 1000) / 1000) - 0.5) * 34;
+    const distance = clamp((baseDistance * (1 - hubPull * 0.42)) + distanceJitter, 24, outerRadius);
+    const depth = depthForNode(node, 0, index, degreeMap);
+    state.positions.set(node.id, {
+      x: Math.cos(angle) * distance,
+      y: depth,
+      z: Math.sin(angle) * distance
     });
   });
 
@@ -344,11 +370,19 @@ function buildEdgeMap(edges) {
 function depthForNode(node, communityIndex, localIndex, degreeMap) {
   const seed = hashString(`${node.id}:${node.community}`);
   const degree = degreeMap.get(node.id) ?? 0;
-  const hubLift = Math.min(130, Math.log1p(degree) * 22);
-  const communityBand = ((communityIndex % 19) - 9) * 13;
-  const organicLayer = (((seed % 1000) / 1000) - 0.5) * 110;
-  const localWave = Math.sin((localIndex + 1) * 1.618 + (seed % 97)) * 42;
-  return clamp(communityBand + organicLayer + localWave + hubLift - 48, -260, 280);
+  const hubLift = Math.min(260, Math.log1p(degree) * 38);
+  const communityBand = ((hashString(node.community) % 29) - 14) * 24;
+  const organicLayer = (((seed % 1000) / 1000) - 0.5) * 520;
+  const localWave = Math.sin((localIndex + 1) * 1.618 + (seed % 97)) * 150;
+  return clamp(communityBand + organicLayer + localWave + hubLift - 126, -980, 1120);
+}
+
+function depthLayerOffset(communityIndex, communityCount, clusterRadius) {
+  const layerCount = Math.min(11, Math.max(5, Math.ceil(Math.sqrt(communityCount))));
+  const layer = (communityIndex % layerCount) - (layerCount - 1) / 2;
+  const sweep = (Math.floor(communityIndex / layerCount) % 3) - 1;
+  const layerSpacing = clamp((clusterRadius / layerCount) * 1.85, 95, 190);
+  return (layer * layerSpacing) + (sweep * layerSpacing * 0.32);
 }
 
 function relaxLayout(nodesByCommunity) {
@@ -389,9 +423,9 @@ function expandDepthForSideViews() {
   const depth = Math.max(bounds.maxZ - bounds.minZ, 120);
   const currentY = Math.max(bounds.maxY - bounds.minY, 1);
   const planarSpan = Math.max(width, depth);
-  const targetY = clamp(planarSpan * 0.46, 420, 960);
+  const targetY = clamp(planarSpan * 1.02, 920, 1900);
 
-  if (currentY >= targetY * 0.86) {
+  if (currentY >= targetY * 0.9) {
     return;
   }
 
@@ -451,6 +485,7 @@ function rebuildMeshes() {
   state.degreeByNode = degreeMap;
   state.adjacencyByNode = buildAdjacencyMap(state.visibleEdges);
   state.edgesByNode = buildEdgeMap(state.visibleEdges);
+  state.edgeById = new Map(state.visibleEdges.map((edge) => [edge.id, edge]));
   markVisualCacheDirty();
 
   state.visibleNodes.forEach((node, index) => {
@@ -533,7 +568,7 @@ function removeGraphObjects() {
 }
 
 function fitCameraToGraph(preset = 'Fit') {
-  fitCameraWithTilt(preset, 0.22, 1.46);
+  fitCameraWithTilt(preset, 1.12, 0.54);
 }
 
 function fitCameraWithTilt(preset, zTilt, heightMultiplier) {
@@ -548,11 +583,11 @@ function fitCameraWithTilt(preset, zTilt, heightMultiplier) {
   const width = Math.max(bounds.maxX - bounds.minX, 120);
   const depth = Math.max(bounds.maxZ - bounds.minZ, 120);
   const height = Math.max(bounds.maxY - bounds.minY, 120);
-  const radius = Math.max(width, depth);
+  const radius = Math.max(width, depth, height * 0.66);
   const centerX = (bounds.minX + bounds.maxX) / 2;
   const centerY = (bounds.minY + bounds.maxY) / 2;
   const centerZ = (bounds.minZ + bounds.maxZ) / 2;
-  const verticalSpan = Math.max(depth, height * 0.72);
+  const verticalSpan = Math.max(depth * 0.58, height * 1.08);
 
   controls.target.set(centerX, centerY, centerZ);
   camera.position.set(centerX, centerY + radius * heightMultiplier, centerZ + radius * zTilt);
@@ -747,6 +782,8 @@ function drawVisualFrame({ width, height, pixelRatio }) {
   const hoverTrails = updateHoverTrails();
   const edgeTrails = updateEdgeTrails();
   const activeAmount = Math.max(
+    state.pathMode && state.pathOrderedNodeIds.length ? 1 : 0,
+    state.focusMode ? 1 : 0,
     state.selectedNode ? 1 : 0,
     hoverTrails.reduce((max, trail) => Math.max(max, trail.intensity), 0),
     edgeTrails.reduce((max, trail) => Math.max(max, trail.intensity), 0)
@@ -762,13 +799,17 @@ function drawVisualFrame({ width, height, pixelRatio }) {
 
   if (hoverAmount > 0.01) {
     visualContext.save();
-    visualContext.globalAlpha = 0.1 * hoverAmount;
+    visualContext.globalAlpha = (state.focusMode ? 0.28 : 0.1) * hoverAmount;
     visualContext.fillStyle = '#050812';
     visualContext.fillRect(0, 0, width, height);
     visualContext.restore();
   }
 
   drawActiveVisualOverlay(hoverTrails, edgeTrails, hoverAmount, width, height);
+  if (state.pathMode && state.pathOrderedEdgeIds.length && !prefersReducedMotion) {
+    state.pathPulsePhase = performance.now() * 0.001;
+    requestRender();
+  }
 }
 
 function drawAmbientNodeMotion(width, height) {
@@ -890,6 +931,7 @@ function drawActiveVisualOverlay(hoverTrails, edgeTrails, hoverAmount, width, he
   });
 
   drawActiveNodeLabels(labelCandidates, width, height);
+  drawPathPulseOverlay(width, height);
 }
 
 function drawActiveNodeLabels(candidates, width, height) {
@@ -963,6 +1005,56 @@ function drawActiveNodeLabels(candidates, width, height) {
 function buildHighlightedEdges(hoverTrails, edgeTrails, width, height) {
   const highlightedEdges = [];
   const seenEdges = new Set();
+  if (state.pathMode) {
+    if (state.pathOrderedEdgeIds.length) {
+      pathOverlayEdges().forEach((edge, index) => {
+        const source = state.projectedPoints.get(edge.source);
+        const target = state.projectedPoints.get(edge.target);
+        if (!source || !target) {
+          return;
+        }
+        const highlightedPath = new Path2D();
+        addCurvedEdge(
+          highlightedPath,
+          edge,
+          ambientProjectedPoint(source, width, height),
+          ambientProjectedPoint(target, width, height),
+          1.04
+        );
+        highlightedEdges.push({
+          path: highlightedPath,
+          color: index === 0 ? '#f6f8ff' : '#aebdff',
+          intensity: 1
+        });
+        seenEdges.add(edge.id);
+      });
+    }
+    return highlightedEdges;
+  }
+  if (state.focusMode && state.focusEdgeIds.size) {
+    focusOverlayEdges().forEach((edge) => {
+      const source = state.projectedPoints.get(edge.source);
+      const target = state.projectedPoints.get(edge.target);
+      if (!source || !target) {
+        return;
+      }
+      const highlightedPath = new Path2D();
+      addCurvedEdge(
+        highlightedPath,
+        edge,
+        ambientProjectedPoint(source, width, height),
+        ambientProjectedPoint(target, width, height),
+        1
+      );
+      highlightedEdges.push({
+        path: highlightedPath,
+        color: colorForEdge(edge),
+        intensity: edge.source === state.focusNodeId || edge.target === state.focusNodeId ? 1 : 0.56
+      });
+      seenEdges.add(edge.id);
+    });
+    return highlightedEdges;
+  }
   if (state.selectedNode) {
     const linkedEdges = state.edgesByNode.get(state.selectedNode.id) ?? [];
     linkedEdges.forEach((edge) => {
@@ -1040,6 +1132,80 @@ function buildHighlightedEdges(hoverTrails, edgeTrails, width, height) {
     seenEdges.add(trail.edge.id);
   });
   return highlightedEdges;
+}
+
+function pathOverlayEdges() {
+  return state.pathOrderedEdgeIds
+    .map((edgeId) => state.edgeById.get(edgeId))
+    .filter(Boolean);
+}
+
+function pathEdgeRenderSegment(edge, index, width, height) {
+  const renderedSource = state.projectedPoints.get(edge.source);
+  const renderedTarget = state.projectedPoints.get(edge.target);
+  if (!renderedSource || !renderedTarget) {
+    return null;
+  }
+  const pathFrom = state.pathOrderedNodeIds[index];
+  const pathTo = state.pathOrderedNodeIds[index + 1];
+  return {
+    sourcePoint: ambientProjectedPoint(renderedSource, width, height),
+    targetPoint: ambientProjectedPoint(renderedTarget, width, height),
+    reverse: edge.source === pathTo && edge.target === pathFrom
+  };
+}
+
+function drawPathPulseOverlay(width, height) {
+  if (!state.pathMode || !state.pathOrderedEdgeIds.length) {
+    return;
+  }
+  const phase = prefersReducedMotion ? 0.5 : state.pathPulsePhase;
+  visualContext.save();
+  state.pathOrderedEdgeIds.forEach((edgeId, index) => {
+    const edge = state.edgeById.get(edgeId);
+    if (!edge) {
+      return;
+    }
+    const segment = pathEdgeRenderSegment(edge, index, width, height);
+    if (!segment) {
+      return;
+    }
+    const control = curvedEdgeControl(edge, segment.sourcePoint, segment.targetPoint, 1.04);
+    const pathT = prefersReducedMotion ? 0.5 : ((phase * 0.82 + index * 0.18) % 1);
+    const pulseT = segment.reverse ? 1 - pathT : pathT;
+    const pulse = pointOnQuadratic(segment.sourcePoint, control, segment.targetPoint, pulseT);
+    const radius = prefersReducedMotion ? 3.4 : 3.2 + Math.sin((phase + index) * 3.2) * 0.8;
+    visualContext.beginPath();
+    visualContext.arc(pulse.x, pulse.y, radius + 4.5, 0, Math.PI * 2);
+    visualContext.fillStyle = '#dfe8ff';
+    visualContext.globalAlpha = prefersReducedMotion ? 0.16 : 0.18;
+    visualContext.shadowColor = 'rgba(214, 226, 255, 0.5)';
+    visualContext.shadowBlur = prefersReducedMotion ? 8 : 14;
+    visualContext.fill();
+    visualContext.beginPath();
+    visualContext.arc(pulse.x, pulse.y, radius, 0, Math.PI * 2);
+    visualContext.fillStyle = '#f7f9ff';
+    visualContext.globalAlpha = 0.88;
+    visualContext.fill();
+  });
+  visualContext.restore();
+}
+
+function focusOverlayEdges() {
+  const directEdges = [];
+  const otherEdges = [];
+  state.focusEdgeIds.forEach((edgeId) => {
+    const edge = state.edgeById.get(edgeId);
+    if (!edge) {
+      return;
+    }
+    if (edge.source === state.focusNodeId || edge.target === state.focusNodeId) {
+      directEdges.push(edge);
+    } else {
+      otherEdges.push(edge);
+    }
+  });
+  return directEdges.concat(otherEdges).slice(0, 720);
 }
 
 function addCurvedEdge(path, edge, source, target, strength = 1) {
@@ -1132,6 +1298,34 @@ function updateEdgeTrails() {
 
 function buildNodeFocusMap(hoverTrails, edgeTrails) {
   const focus = new Map();
+  if (state.pathMode) {
+    if (state.pathNodeIds.size) {
+      state.pathOrderedNodeIds.forEach((nodeId, index) => {
+        const isEndpoint = index === 0 || index === state.pathOrderedNodeIds.length - 1;
+        mergeNodeFocus(focus, nodeId, isEndpoint ? 1 : 0, isEndpoint ? 0 : 0.74);
+      });
+    } else {
+      if (state.pathSourceId) {
+        mergeNodeFocus(focus, state.pathSourceId, 1, 0);
+      }
+      if (state.pathTargetId) {
+        mergeNodeFocus(focus, state.pathTargetId, 0.76, 0);
+      }
+    }
+    return focus;
+  }
+  if (state.focusMode && state.focusNodeIds.size) {
+    state.focusNodeIds.forEach((nodeId) => {
+      const distance = state.focusNodeDistance.get(nodeId) ?? state.focusDepth;
+      if (distance === 0) {
+        mergeNodeFocus(focus, nodeId, 1, 0);
+      } else {
+        const neighborStrength = clamp(0.9 - (distance - 1) * 0.22, 0.36, 0.9);
+        mergeNodeFocus(focus, nodeId, 0, neighborStrength);
+      }
+    });
+    return focus;
+  }
   if (state.selectedNode) {
     mergeNodeFocus(focus, state.selectedNode.id, 1, 0);
     const neighbors = state.adjacencyByNode.get(state.selectedNode.id) ?? new Set();
@@ -1232,19 +1426,128 @@ function renderNodeInfo(node) {
   const sourceButton = source
     ? '<button class="primary-button" id="open-note">Open Note</button>'
     : '';
+  const isFocused = state.focusMode && state.focusNodeId === node.id;
+  const focusStatus = state.focusMode
+    ? `<p class="focus-status">Focused · depth ${state.focusDepth} · ${state.focusNodeIds.size} notes</p>`
+    : '';
+  const pathStatus = state.pathMode && !state.pathTargetId && state.pathSourceId
+    ? '<p class="focus-status">Path source set · click another node to trace</p>'
+    : '';
+  const topNeighbors = topNeighborsForNode(node.id, 12);
   nodeInfo.innerHTML = `
     <h3>${escapeHTML(node.label)}</h3>
     ${sourceButton}
+    <div class="focus-actions">
+      <button id="focus-orbit" class="${isFocused ? 'selected' : ''}">Focus</button>
+      <button data-depth="1" ${state.focusDepth === 1 && isFocused ? 'class="selected"' : ''}>Depth 1</button>
+      <button data-depth="2" ${state.focusDepth === 2 && isFocused ? 'class="selected"' : ''}>Depth 2</button>
+      <button data-depth="3" ${state.focusDepth === 3 && isFocused ? 'class="selected"' : ''}>Depth 3</button>
+      <button id="back-to-all" ${state.focusMode || state.pathMode ? '' : 'disabled'}>Back to all</button>
+    </div>
+    <div class="path-actions">
+      <button id="start-path" class="${state.pathSourceId === node.id && !state.pathTargetId ? 'selected' : ''}">Start path</button>
+      <button id="clear-path" ${state.pathMode ? '' : 'disabled'}>Clear path</button>
+    </div>
+    ${focusStatus}
+    ${pathStatus}
+    ${renderPathPanel()}
     <p><strong>Type:</strong> ${escapeHTML(node.type ?? node.file_type ?? 'document')}</p>
     <p><strong>Community:</strong> ${escapeHTML(node.community)}</p>
     ${source ? `<p><strong>Source:</strong> ${escapeHTML(source)}</p>` : ''}
     <p><strong>Degree:</strong> ${degreeForNode(node.id)}</p>
+    <h4>Top neighbors</h4>
+    <div class="neighbor-list">
+      ${topNeighbors.length
+        ? topNeighbors.map((neighbor) => `<button class="neighbor-button" data-node-id="${escapeHTML(neighbor.id)}">${escapeHTML(neighbor.label)}<span>${neighbor.degree}</span></button>`).join('')
+        : '<p class="muted">No neighbors in this view.</p>'}
+    </div>
   `;
 
   const button = document.getElementById('open-note');
   if (button) {
     button.addEventListener('click', () => sendNodeAction('openNode', node));
   }
+  document.getElementById('focus-orbit')?.addEventListener('click', () => applyFocusOrbit(node, state.focusDepth || 1));
+  nodeInfo.querySelectorAll('button[data-depth]').forEach((depthButton) => {
+    depthButton.addEventListener('click', () => {
+      const depth = Number(depthButton.dataset.depth) || 1;
+      applyFocusOrbit(node, depth, depth === 1 || !state.focusMode);
+    });
+  });
+  document.getElementById('back-to-all')?.addEventListener('click', () => backToAll());
+  document.getElementById('start-path')?.addEventListener('click', () => armPathSource(node));
+  document.getElementById('clear-path')?.addEventListener('click', () => clearPathMode(true));
+  nodeInfo.querySelectorAll('.path-step[data-node-id]').forEach((pathButton) => {
+    pathButton.addEventListener('click', () => {
+      const pathNode = nodeForId(pathButton.dataset.nodeId);
+      if (pathNode) {
+        selectNode(pathNode, true, { preservePath: true });
+      }
+    });
+  });
+  nodeInfo.querySelectorAll('.neighbor-button[data-node-id]').forEach((neighborButton) => {
+    neighborButton.addEventListener('click', () => {
+      const neighbor = nodeForId(neighborButton.dataset.nodeId);
+      if (neighbor) {
+        if (state.pathMode && state.pathSourceId && !state.pathTargetId) {
+          applyPathToNode(neighbor);
+        } else {
+          applyFocusOrbit(neighbor, state.focusMode ? state.focusDepth : 1);
+        }
+      }
+    });
+  });
+}
+
+function renderPathPanel() {
+  if (!state.pathMode) {
+    return '';
+  }
+  const source = nodeForId(state.pathSourceId);
+  const target = nodeForId(state.pathTargetId);
+  const hasPath = state.pathOrderedNodeIds.length > 0;
+  const title = hasPath ? 'Shortest path' : 'Path';
+  const summary = hasPath
+    ? `${Math.max(state.pathOrderedNodeIds.length - 1, 0)} steps · ${escapeHTML(source?.label || 'Source')} → ${escapeHTML(target?.label || 'Target')}`
+    : escapeHTML(state.pathMessage || 'Select target');
+  const steps = state.pathOrderedNodeIds.slice(0, 9).map((nodeId, index) => {
+    const node = nodeForId(nodeId);
+    const label = node?.label || nodeId;
+    return `<button class="path-step" data-node-id="${escapeHTML(nodeId)}"><span>${index + 1}</span>${escapeHTML(label)}</button>`;
+  }).join('');
+  const overflow = state.pathOrderedNodeIds.length > 9
+    ? `<p class="muted">+${state.pathOrderedNodeIds.length - 9} more steps</p>`
+    : '';
+  return `
+    <section class="path-panel">
+      <h4>${title}</h4>
+      <p>${summary}</p>
+      ${steps ? `<div class="path-step-list">${steps}${overflow}</div>` : ''}
+    </section>
+  `;
+}
+
+function topNeighborsForNode(nodeId, limit = 12) {
+  const edges = state.edgesByNode.get(nodeId) || [];
+  const seen = new Set();
+  return edges
+    .map((edge) => edge.source === nodeId ? edge.target : edge.source)
+    .filter((neighborId) => {
+      if (seen.has(neighborId)) {
+        return false;
+      }
+      seen.add(neighborId);
+      return true;
+    })
+    .map((neighborId) => nodeForId(neighborId))
+    .filter(Boolean)
+    .sort((left, right) => degreeForNode(right.id) - degreeForNode(left.id) || left.label.localeCompare(right.label))
+    .slice(0, limit)
+    .map((neighbor) => ({
+      id: neighbor.id,
+      label: neighbor.label,
+      degree: degreeForNode(neighbor.id)
+    }));
 }
 
 function renderLegend() {
@@ -1323,7 +1626,15 @@ function updateHud() {
     ? 'All'
     : (state.lens === 'graphify' ? 'Graphify' : 'Wikilinks');
   const edgeLabel = state.lens === 'obsidian' ? 'links' : 'edges';
-  const base = `${lensLabel} · ${state.visibleNodes.length} nodes · ${state.visibleEdges.length} ${edgeLabel} · 3D Beta`;
+  const focusText = state.focusMode
+    ? `Focused · depth ${state.focusDepth} · ${state.focusNodeIds.size} nodes`
+    : '';
+  const pathText = pathHudText();
+  const base = pathText
+    ? `${pathText} · ${lensLabel} · 3D`
+    : state.focusMode
+    ? `${focusText} · ${lensLabel} · 3D`
+    : `${lensLabel} · ${state.visibleNodes.length} nodes · ${state.visibleEdges.length} ${edgeLabel} · 3D`;
   const status = state.lastFrameStatus === 'Visible'
     ? ''
     : ` · ${state.cameraPreset} · ${state.lastFrameStatus}`;
@@ -1334,7 +1645,24 @@ function updateHud() {
   hud.hidden = false;
 }
 
-function selectNode(node, focusCamera = false) {
+function pathHudText() {
+  if (!state.pathMode) {
+    return '';
+  }
+  if (!state.pathTargetId) {
+    return state.pathMessage || 'Path source set · click another node';
+  }
+  if (state.pathOrderedNodeIds.length) {
+    return `Path · ${Math.max(state.pathOrderedNodeIds.length - 1, 0)} steps · ${state.pathOrderedNodeIds.length} nodes`;
+  }
+  return state.pathMessage || 'No visible path in current view';
+}
+
+function selectNode(node, focusCamera = false, options = {}) {
+  if (state.pathMode && state.pathSourceId && !state.pathTargetId && !options.preservePath && node.id !== state.pathSourceId) {
+    applyPathToNode(node);
+    return;
+  }
   state.selectedNode = node;
   renderNodeInfo(node);
   positionSelectedMarker(node);
@@ -1342,6 +1670,173 @@ function selectNode(node, focusCamera = false) {
     focusNode(node);
   }
   requestRender();
+}
+
+function applyFocusOrbit(node, depth = 1, focusCamera = true) {
+  if (!node) {
+    return;
+  }
+  clearPathMode(false);
+  const focus = computeFocusOrbit(node.id, depth);
+  state.focusMode = true;
+  state.focusDepth = focus.depth;
+  state.focusNodeId = node.id;
+  state.focusNodeIds = focus.nodeIds;
+  state.focusEdgeIds = focus.edgeIds;
+  state.focusNodeDistance = focus.nodeDistance;
+  state.selectedNode = node;
+  renderNodeInfo(node);
+  positionSelectedMarker(node);
+  if (focusCamera) {
+    focusNode(node, 'Focus orbit');
+  }
+  updateHud();
+  requestRender();
+}
+
+function armPathSource(node) {
+  if (!node) {
+    return;
+  }
+  clearFocusOrbit(false);
+  state.pathMode = true;
+  state.pathSourceId = node.id;
+  state.pathTargetId = null;
+  state.pathNodeIds = new Set();
+  state.pathEdgeIds = new Set();
+  state.pathOrderedNodeIds = [];
+  state.pathOrderedEdgeIds = [];
+  state.pathMessage = 'Path source set · click another node';
+  state.selectedNode = node;
+  renderNodeInfo(node);
+  positionSelectedMarker(node);
+  focusNode(node, 'Path source');
+  updateHud();
+  requestRender();
+}
+
+function applyPathToNode(targetNode) {
+  const sourceNode = nodeForId(state.pathSourceId);
+  if (!sourceNode || !targetNode || sourceNode.id === targetNode.id) {
+    return;
+  }
+  clearFocusOrbit(false);
+  const path = computeShortestPath({
+    sourceId: sourceNode.id,
+    targetId: targetNode.id,
+    nodes: state.visibleNodes,
+    edges: state.visibleEdges
+  });
+  state.pathMode = true;
+  state.pathSourceId = sourceNode.id;
+  state.pathTargetId = targetNode.id;
+  state.pathNodeIds = path.nodeIds;
+  state.pathEdgeIds = path.edgeIds;
+  state.pathOrderedNodeIds = path.orderedNodeIds;
+  state.pathOrderedEdgeIds = path.orderedEdgeIds;
+  state.pathMessage = path.message || '';
+  state.selectedNode = targetNode;
+  renderNodeInfo(targetNode);
+  positionSelectedMarker(targetNode);
+  if (path.found) {
+    focusPath(path, 'Shortest path');
+  } else {
+    focusNode(targetNode, 'Path target');
+  }
+  updateHud();
+  requestRender();
+}
+
+function clearPathMode(render = true) {
+  state.pathMode = false;
+  state.pathSourceId = null;
+  state.pathTargetId = null;
+  state.pathNodeIds = new Set();
+  state.pathEdgeIds = new Set();
+  state.pathOrderedNodeIds = [];
+  state.pathOrderedEdgeIds = [];
+  state.pathMessage = '';
+  state.pathPulsePhase = 0;
+  if (render) {
+    renderNodeInfo(state.selectedNode);
+    updateHud();
+    requestRender();
+  }
+}
+
+function backToAll() {
+  clearFocusOrbit(false);
+  clearPathMode(false);
+  fitCameraToGraph('All');
+  renderNodeInfo(state.selectedNode);
+  updateHud();
+  requestRender();
+}
+
+function setFocusDepth(depth) {
+  const focusNode = nodeForId(state.focusNodeId) || state.selectedNode;
+  if (!focusNode) {
+    return;
+  }
+  applyFocusOrbit(focusNode, depth, false);
+}
+
+function clearFocusOrbit(resetView = true) {
+  state.focusMode = false;
+  state.focusDepth = 1;
+  state.focusNodeId = null;
+  state.focusNodeIds = new Set();
+  state.focusEdgeIds = new Set();
+  state.focusNodeDistance = new Map();
+  if (resetView) {
+    markVisualCacheDirty();
+    fitCameraToGraph('Back to all');
+    renderNodeInfo(state.selectedNode);
+    updateHud();
+    requestRender();
+  }
+}
+
+function computeFocusOrbit(centerNodeId, depth = 1) {
+  const normalizedDepth = clamp(Math.round(Number(depth) || 1), 1, 3);
+  const centerId = String(centerNodeId);
+  const nodeIds = new Set([centerId]);
+  const nodeDistance = new Map([[centerId, 0]]);
+  let frontier = new Set([centerId]);
+
+  for (let level = 1; level <= normalizedDepth; level += 1) {
+    const next = new Set();
+    frontier.forEach((nodeId) => {
+      (state.adjacencyByNode.get(nodeId) || new Set()).forEach((neighborId) => {
+        if (nodeIds.has(neighborId)) {
+          return;
+        }
+        nodeIds.add(neighborId);
+        nodeDistance.set(neighborId, level);
+        next.add(neighborId);
+      });
+    });
+    frontier = next;
+    if (!frontier.size) {
+      break;
+    }
+  }
+
+  const edgeIds = new Set();
+  nodeIds.forEach((nodeId) => {
+    (state.edgesByNode.get(nodeId) || []).forEach((edge) => {
+      if (nodeIds.has(edge.source) && nodeIds.has(edge.target)) {
+        edgeIds.add(edge.id);
+      }
+    });
+  });
+
+  return {
+    depth: normalizedDepth,
+    nodeIds,
+    edgeIds,
+    nodeDistance
+  };
 }
 
 function positionSelectedMarker(node) {
@@ -1354,19 +1849,83 @@ function positionSelectedMarker(node) {
   selectedMarker.visible = true;
 }
 
-function focusNode(node) {
+function focusNode(node, preset = 'Node focus') {
   const position = state.positions.get(node.id);
   if (!position) {
     return;
   }
-  controls.target.set(position.x, position.y, position.z);
-  camera.zoom = clamp(Math.max(camera.zoom, 1.5), 0.08, 8);
-  camera.updateProjectionMatrix();
-  controls.update();
-  state.cameraPreset = 'Node focus';
-  markVisualCacheDirty();
-  updateHud();
-  requestRender();
+  orbitCameraTo(position, clamp(Math.max(camera.zoom, 1.7), 0.08, 8), preset);
+}
+
+function focusPath(path, preset = 'Shortest path') {
+  const positions = path.orderedNodeIds
+    .map((nodeId) => state.positions.get(nodeId))
+    .filter(Boolean);
+  if (!positions.length) {
+    return;
+  }
+  const bounds = positions.reduce((box, position) => ({
+    minX: Math.min(box.minX, position.x),
+    maxX: Math.max(box.maxX, position.x),
+    minY: Math.min(box.minY, position.y),
+    maxY: Math.max(box.maxY, position.y),
+    minZ: Math.min(box.minZ, position.z),
+    maxZ: Math.max(box.maxZ, position.z)
+  }), { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity, minZ: Infinity, maxZ: -Infinity });
+  const center = new THREE.Vector3(
+    (bounds.minX + bounds.maxX) / 2,
+    (bounds.minY + bounds.maxY) / 2,
+    (bounds.minZ + bounds.maxZ) / 2
+  );
+  const span = Math.max(
+    bounds.maxX - bounds.minX,
+    bounds.maxY - bounds.minY,
+    bounds.maxZ - bounds.minZ,
+    160
+  );
+  const zoom = clamp(Math.min(stage.clientWidth / (span * 1.25), stage.clientHeight / (span * 0.95)), 0.28, 3.8);
+  orbitCameraTo(center, zoom, preset);
+}
+
+function orbitCameraTo(position, zoom, preset) {
+  const target = new THREE.Vector3(position.x, position.y, position.z);
+  if (prefersReducedMotion) {
+    controls.target.copy(target);
+    camera.zoom = zoom;
+    camera.updateProjectionMatrix();
+    controls.update();
+    state.cameraPreset = preset;
+    markVisualCacheDirty();
+    updateHud();
+    requestRender();
+    return;
+  }
+
+  const startTarget = controls.target.clone();
+  const startPosition = camera.position.clone();
+  const startZoom = camera.zoom;
+  const offset = startPosition.clone().sub(startTarget);
+  const startedAt = performance.now();
+  const duration = 320;
+
+  function tick(now) {
+    const t = smoothstep(clamp((now - startedAt) / duration, 0, 1));
+    controls.target.lerpVectors(startTarget, target, t);
+    camera.position.copy(controls.target).add(offset);
+    camera.zoom = startZoom + (zoom - startZoom) * t;
+    camera.updateProjectionMatrix();
+    controls.update();
+    markVisualCacheDirty();
+    requestRender();
+    if (t < 1) {
+      requestAnimationFrame(tick);
+    } else {
+      state.cameraPreset = preset;
+      updateHud();
+    }
+  }
+
+  requestAnimationFrame(tick);
 }
 
 function nodeAtEvent(event) {
@@ -1397,8 +1956,9 @@ function edgeAtEvent(event) {
   const threshold = 8;
   let bestEdge = null;
   let bestDistance = threshold;
+  const candidateEdges = candidateEdgesNearPoint(point, threshold);
 
-  state.visibleEdges.forEach((edge) => {
+  candidateEdges.forEach((edge) => {
     const source = state.projectedPoints.get(edge.source);
     const target = state.projectedPoints.get(edge.target);
     if (!source || !target) {
@@ -1422,6 +1982,41 @@ function edgeAtEvent(event) {
   });
 
   return bestEdge;
+}
+
+function candidateEdgesNearPoint(point, threshold) {
+  if (state.focusMode && state.focusEdgeIds.size) {
+    return focusOverlayEdges();
+  }
+
+  const candidateIds = new Set();
+  const nodeRadius = clamp(54 / Math.max(camera.zoom, 0.45), 18, 72);
+  state.projectedPoints.forEach((projected, nodeId) => {
+    if (
+      Math.abs(projected.x - point.x) > nodeRadius ||
+      Math.abs(projected.y - point.y) > nodeRadius
+    ) {
+      return;
+    }
+    (state.edgesByNode.get(nodeId) || []).forEach((edge) => candidateIds.add(edge.id));
+  });
+
+  if (!candidateIds.size && state.selectedNode) {
+    (state.edgesByNode.get(state.selectedNode.id) || []).forEach((edge) => candidateIds.add(edge.id));
+  }
+
+  const maxCandidates = state.selectedNode ? 260 : 160;
+  const candidates = [];
+  for (const edgeId of candidateIds) {
+    const edge = state.edgeById.get(edgeId);
+    if (edge) {
+      candidates.push(edge);
+    }
+    if (candidates.length >= maxCandidates) {
+      break;
+    }
+  }
+  return candidates;
 }
 
 function distanceToCurvedEdge(point, edge, source, target) {
@@ -1509,16 +2104,16 @@ function resetTilt() {
 }
 
 function degreeForNode(nodeId) {
-  return state.visibleEdges.filter((edge) => edge.source === nodeId || edge.target === nodeId).length;
+  return state.degreeByNode.get(nodeId) ?? 0;
 }
 
 function colorForCommunity(name) {
-  const community = state.communities.find((item) => item.name === name);
+  const community = state.communityByName.get(name);
   return community?.color ?? palette[0];
 }
 
 function accentColorForCommunity(name) {
-  const community = state.communities.find((item) => item.name === name);
+  const community = state.communityByName.get(name);
   return community?.accentColor ?? accentPalette[0];
 }
 
@@ -1565,23 +2160,15 @@ function sendNodeAction(action, node) {
 
 function wireEvents() {
   renderer?.domElement?.addEventListener('pointermove', (event) => {
-    const node = nodeAtEvent(event);
-    const edge = node ? null : edgeAtEvent(event);
-    if (node !== state.hoveredNode || edge !== state.hoveredEdge) {
-      if (node && state.hoveredNode) {
-        state.hoverIntensity = Math.min(state.hoverIntensity, 0.35);
-      }
-      state.hoveredNode = node;
-      state.hoveredEdge = edge;
-      if (node && !state.selectedNode) {
-        state.hoverVisualNode = node;
-      }
-      stage.style.cursor = node ? 'pointer' : (edge ? 'crosshair' : 'grab');
-      requestRender();
-    }
+    schedulePointerHitTest(event);
   });
 
   renderer?.domElement?.addEventListener('pointerleave', () => {
+    if (state.pointerHitFrame) {
+      cancelAnimationFrame(state.pointerHitFrame);
+      state.pointerHitFrame = null;
+      state.pendingPointerEvent = null;
+    }
     if (!state.hoveredNode && !state.hoveredEdge) {
       return;
     }
@@ -1594,11 +2181,20 @@ function wireEvents() {
   renderer?.domElement?.addEventListener('click', (event) => {
     const node = nodeAtEvent(event);
     if (node) {
-      selectNode(node);
-    } else if (state.selectedNode) {
+      if (state.pathMode && state.pathSourceId && !state.pathTargetId && node.id !== state.pathSourceId) {
+        applyPathToNode(node);
+      } else if (state.focusMode) {
+        applyFocusOrbit(node, state.focusDepth);
+      } else {
+        selectNode(node);
+      }
+    } else if (state.selectedNode || state.focusMode || state.pathMode) {
+      clearFocusOrbit(false);
+      clearPathMode(false);
       state.selectedNode = null;
       selectedMarker.visible = false;
       renderNodeInfo(null);
+      updateHud();
       requestRender();
     }
   });
@@ -1631,6 +2227,43 @@ function wireEvents() {
     event.preventDefault();
     reportDiagnostic('WebGL context lost', true);
   });
+}
+
+function schedulePointerHitTest(event) {
+  state.pendingPointerEvent = {
+    clientX: event.clientX,
+    clientY: event.clientY
+  };
+  if (state.pointerHitFrame) {
+    return;
+  }
+  state.pointerHitFrame = requestAnimationFrame(() => {
+    const pendingEvent = state.pendingPointerEvent;
+    state.pendingPointerEvent = null;
+    state.pointerHitFrame = null;
+    if (pendingEvent) {
+      updatePointerHover(pendingEvent);
+    }
+  });
+}
+
+function updatePointerHover(event) {
+  const node = nodeAtEvent(event);
+  const edge = node ? null : edgeAtEvent(event);
+  if (node === state.hoveredNode && edge === state.hoveredEdge) {
+    return;
+  }
+
+  if (node && state.hoveredNode) {
+    state.hoverIntensity = Math.min(state.hoverIntensity, 0.35);
+  }
+  state.hoveredNode = node;
+  state.hoveredEdge = edge;
+  if (node && !state.selectedNode) {
+    state.hoverVisualNode = node;
+  }
+  stage.style.cursor = node ? 'pointer' : (edge ? 'crosshair' : 'grab');
+  requestRender();
 }
 
 function isBrainBarWebKitScheme() {
@@ -1683,6 +2316,8 @@ function installWindowAPI() {
       state.graph = normalizeGraph(payload);
       state.lens = lens;
       state.selectedNode = null;
+      clearFocusOrbit(false);
+      clearPathMode(false);
       prepareCommunities(state.graph);
       applyLens(true);
     } catch (error) {
@@ -1693,6 +2328,8 @@ function installWindowAPI() {
   window.brainBarApplyGraphLens = (lens) => {
     state.lens = lens;
     state.selectedNode = null;
+    clearFocusOrbit(false);
+    clearPathMode(false);
     applyLens(true);
   };
 

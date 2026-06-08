@@ -133,10 +133,14 @@ extension ReviewQueueItem {
         let title = try container.decodeFirstPresentString(for: [.title, .label, .name, .id])
         let normalizedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         let detail = try container.decodeFirstPresentStringIfAvailable(for: [.detail, .summary, .status])
+        let sourceFile = try container.decodeFirstPresentStringIfAvailable(for: [.sourceFile, .source_file])
+        let nodeId = try container.decodeFirstPresentStringIfAvailable(for: [.nodeId, .node_id])
         self.init(
             id: (try? container.decode(String.self, forKey: .id)) ?? normalizedTitle,
             title: normalizedTitle.isEmpty ? "Untitled item" : normalizedTitle,
-            detail: detail?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+            detail: detail?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty,
+            sourceFile: sourceFile?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty,
+            nodeId: nodeId?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
         )
     }
 }
@@ -149,6 +153,10 @@ private enum ReviewQueueItemCodingKeys: String, CodingKey {
     case detail
     case summary
     case status
+    case sourceFile
+    case source_file
+    case nodeId
+    case node_id
 }
 
 private extension KeyedDecodingContainer where Key == ReviewQueueItemCodingKeys {

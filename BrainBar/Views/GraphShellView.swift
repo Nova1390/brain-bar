@@ -50,15 +50,17 @@ struct GraphShellView: View {
                 .accessibilityHint("Git status for the configured vault, not the BrainBar app repository")
 
             if model.status.graphHtmlExists {
-                GraphLensControl(
-                    selectedLens: model.graphSourceLens,
-                    onSelect: model.setGraphSourceLens
-                )
-
                 if mode.isFocus {
                     GraphViewModeControl(
                         selectedMode: model.graphViewMode,
                         onSelect: model.setGraphViewMode
+                    )
+                }
+
+                if model.graphViewMode == .threeD {
+                    GraphLensControl(
+                        selectedLens: model.graphSourceLens,
+                        onSelect: model.setGraphSourceLens
                     )
                 }
             }
@@ -175,6 +177,8 @@ struct GraphShellView: View {
                     readAccessURL: readAccessURL,
                     reloadToken: model.graphReloadToken,
                     sourceLens: model.graphSourceLens,
+                    reviewQueueStatus: model.reviewQueueStatus,
+                    viewportCommand: model.graphViewportCommand,
                     onOpenNode: model.openGraphNode
                 )
 
@@ -283,6 +287,12 @@ private struct GraphActionMenu: View {
                     model.reloadGraphView()
                 } label: {
                     Label("Reload View", systemImage: "arrow.clockwise")
+                }
+
+                Button {
+                    model.showGraphHealth()
+                } label: {
+                    Label("Graph Health", systemImage: "stethoscope")
                 }
 
                 Button {
@@ -786,7 +796,7 @@ private struct GraphViewportControls: View {
 
 private struct ThreeDFallbackBadge: View {
     var body: some View {
-        Label("3D Beta paused", systemImage: "pause.circle")
+        Label("3D paused", systemImage: "pause.circle")
             .font(.caption.weight(.semibold))
             .foregroundStyle(.secondary.opacity(0.9))
             .padding(.horizontal, 10)
@@ -796,7 +806,7 @@ private struct ThreeDFallbackBadge: View {
                 Capsule()
                     .stroke(.white.opacity(0.08), lineWidth: 1)
             }
-            .help("Using the stable graph renderer while the experimental 3D renderer is under review.")
+            .help("Using the stable graph renderer while the 3D renderer is paused.")
     }
 }
 

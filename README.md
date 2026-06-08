@@ -37,8 +37,9 @@ It keeps the graph where it belongs: on your machine, inside a compact menu bar 
 - Embedded WebKit graph view for `graphify-out/graph.html`.
 - Runtime 2D graph skin that does not rewrite Graphify output.
 - Experimental `3D Beta` renderer for spatial exploration of the same local graph metadata.
-- Source Lens for switching between `All`, generated `Graphify` relationships, and `Wikilinks`.
-- Node inspection with fading active labels and an Open Note action.
+- Runtime workflow views for `Needs Links`, `Key Notes`, `Review`, `Recent`, `Wikilinks`, `Graphify`, and `Graph Check`.
+- Node inspection with Focus note controls, edge provenance, and an Open Note action.
+- Graph Check views for local maintenance signals such as notes that need links, key notes, disconnected groups, and stale key notes when timestamps exist.
 - Graphify refresh from the footer, toolbar, or action menu.
 - System Status panel for vault, graph file, Graphify command, Git, Review Queue, and Brain Check.
 - Optional generic Review Queue panel for local inbox/preflight workflows.
@@ -51,7 +52,7 @@ Screenshots and product previews are public-safe and demonstrate the BrainBar UI
 
 ### Focus Window
 
-BrainBar expands from the menu bar into a larger native Focus Window for longer graph exploration, while keeping refresh, settings, Source Lens, and action controls close at hand.
+BrainBar expands from the menu bar into a larger native Focus Window for longer graph exploration, while keeping refresh, settings, workflow views, and action controls close at hand.
 
 ![BrainBar Focus Window](docs/brainbar-focus-all.png)
 
@@ -66,6 +67,10 @@ Switch between the full graph, generated Graphify relationships, and native wiki
 Select a graph node to inspect its metadata, then open the backing local note or source file directly from BrainBar. BrainBar resolves source paths inside the configured vault before opening them.
 
 ![BrainBar node navigation](docs/brainbar-readme-node-focus.png)
+
+The 2D graph also includes local workflow views for Focus, Needs Links, Key Notes, Review, Recent, Wikilinks, Graphify, and Graph Check. These views are runtime-only: they filter the current graph scene without changing Graphify output or writing to the vault.
+
+Selecting a connection shows a compact edge inspector with source node, target node, relationship label, provenance, and source path when the generated graph exposes enough metadata.
 
 ### 3D Beta
 
@@ -210,7 +215,7 @@ If the file exists, BrainBar embeds it directly in the menu bar popover and Focu
 
 The footer Graphify status is also a refresh button. Click it to run the configured `refreshGraph` command. During refresh, BrainBar shows `Refreshing Graph...`; if the command succeeds, the embedded graph reloads.
 
-Use the source lens to switch between all graph edges, Graphify-generated relationships, and wikilinks exported in the Graphify metadata. The lens is session-only and does not change local config or rewrite generated files.
+Use the 2D workflow toolbar to switch between all graph edges, Graphify-generated relationships, and wikilinks exported in the Graphify metadata. The lens is session-only and does not change local config or rewrite generated files.
 
 Select a node to inspect it. If the generated graph includes a source file for that node, BrainBar shows an Open Note action and supports double-clicking the node to open the backing local file. Source paths are resolved inside the configured vault before opening.
 
@@ -222,13 +227,13 @@ Use the Focus Window toolbar button to open a larger resizable graph window. It 
 
 If BrainBar has not been configured yet, the app guides you through the minimum setup: choose a vault, check whether Graphify output exists, then refresh the graph. Missing paths and missing graph files are shown as recoverable states with direct actions.
 
-The Focus Window also includes an experimental `2D / 3D Beta` view switch. `2D` keeps the standard embedded Graphify view. `3D Beta` opens a BrainBar-owned Canvas renderer with controlled depth projection, freer orbit navigation, zoom, fit, top view, reset tilt, Source Lens filtering, node inspection, fading active labels, and Open Note support.
+The Focus Window also includes an experimental `2D / 3D Beta` view switch. `2D` keeps the standard embedded Graphify view plus BrainBar's runtime workflow controls. `3D Beta` opens a BrainBar-owned Canvas renderer with controlled depth projection, freer orbit navigation, zoom, fit, top view, reset tilt, Source Lens filtering, node inspection, fading active labels, and Open Note support.
 
 The 3D renderer is bundled locally and does not use a CDN. It reads the same local `graph.json` metadata as the 2D Source Lens, and it does not rewrite Graphify output files. See [Experimental 3D Focus Graph](docs/experimental-3d-focus-graph.md) for architecture notes and stability criteria.
 
 Settings can be opened from either the popover or Focus Window. BrainBar brings the Settings window to the front so it does not get hidden behind the graph window.
 
-The action menu includes a System Status panel for quick, non-mutating checks: vault path, graph file, Graphify command availability, Git state, Review Queue, and Brain Check configuration.
+The action menu includes a System Status panel for quick, non-mutating checks: vault path, graph file, Graphify command availability, Git state, Review Queue, and Brain Check configuration. Graph Check inside the 2D viewer is also read-only and highlights graph maintenance surfaces without modifying files.
 
 ## Brain Check Commands
 
@@ -295,6 +300,8 @@ The status command must print JSON to stdout:
 ```
 
 `items` is optional. BrainBar treats item fields as generic display text and does not interpret them. If `pending_count` is `0`, BrainBar stays quiet and simply shows the current status.
+
+Items may optionally include `source_file` or `node_id`. When present, BrainBar can highlight matching nodes in the runtime Review graph view. Items without graph targets remain plain queue rows.
 
 For a quick local demo in Settings, use `Use Demo Status`, then `Save & Check`. This fills a status-only command that returns static sample JSON. It does not configure a manual action.
 
@@ -375,8 +382,8 @@ scripts/check-public-safety.sh
 3. Tag the release:
 
    ```sh
-   git tag v0.8.0
-   git push origin v0.8.0
+   git tag v0.9.0
+   git push origin v0.9.0
    ```
 
 4. GitHub Actions builds `BrainBar.zip` and attaches it to the release.
@@ -395,7 +402,7 @@ The preferred v1 distribution is the simple release installer above. A later rel
 
 ```ruby
 cask "brain-bar" do
-  version "0.8.0"
+  version "0.9.0"
   sha256 "<release zip sha256>"
   url "https://github.com/Nova1390/brain-bar/releases/download/v#{version}/BrainBar.zip"
   name "BrainBar"

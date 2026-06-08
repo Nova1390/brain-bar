@@ -143,6 +143,8 @@ struct Graph3DWebView: NSViewRepresentable {
                 script = "if (window.brainBarTopView) { window.brainBarTopView(); }"
             case .resetTilt:
                 script = "if (window.brainBarResetTilt) { window.brainBarResetTilt(); }"
+            case .graphHealth:
+                script = "if (window.brainBarShowGraphHealth) { window.brainBarShowGraphHealth(); }"
             }
             evaluate(script, in: webView)
         }
@@ -229,7 +231,7 @@ struct Graph3DWebView: NSViewRepresentable {
                 return "text/html"
             case "css":
                 return "text/css"
-            case "js":
+            case "js", "mjs":
                 return "text/javascript"
             case "json":
                 return "application/json"

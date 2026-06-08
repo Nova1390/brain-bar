@@ -43,7 +43,7 @@ enum GraphViewMode: String, CaseIterable, Identifiable, Sendable {
         case .twoD:
             return "2D"
         case .threeD:
-            return "3D Beta"
+            return "3D"
         }
     }
 
@@ -52,7 +52,7 @@ enum GraphViewMode: String, CaseIterable, Identifiable, Sendable {
         case .twoD:
             return "Show the standard Graphify view"
         case .threeD:
-            return "Show the experimental controlled 3D focus graph"
+            return "Show the 3D focus explorer"
         }
     }
 }
@@ -63,6 +63,7 @@ enum GraphViewportCommandKind: String, Sendable {
     case zoomOut
     case topView
     case resetTilt
+    case graphHealth
 }
 
 struct GraphViewportCommand: Equatable, Sendable {
@@ -197,6 +198,10 @@ final class AppModel {
 
     func zoomGraphOut() {
         sendGraphViewportCommand(.zoomOut)
+    }
+
+    func showGraphHealth() {
+        sendGraphViewportCommand(.graphHealth)
     }
 
     func reportGraphRendererIssue(_ message: String) {

@@ -176,6 +176,217 @@ body {
   background: linear-gradient(180deg, rgba(164, 180, 255, 0.30), rgba(125, 146, 238, 0.20));
 }
 
+#brainbar-focus-controls,
+.edge-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 8px 0 6px;
+}
+
+#brainbar-focus-controls button,
+.edge-actions button,
+#brainbar-workflow-toolbar button,
+#brainbar-workflow-panel button,
+#brainbar-health-panel button {
+  border: 1px solid rgba(244, 246, 255, 0.12);
+  border-radius: 8px;
+  background: rgba(244, 246, 255, 0.055);
+  color: rgba(244, 246, 255, 0.82);
+  font: 680 11px -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+  letter-spacing: 0;
+  cursor: pointer;
+}
+
+#brainbar-focus-controls button,
+.edge-actions button {
+  padding: 6px 8px;
+}
+
+#brainbar-workflow-toolbar {
+  position: fixed;
+  z-index: 25;
+  left: 16px;
+  bottom: 14px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  max-width: min(680px, calc(100vw - 360px));
+  padding: 6px;
+  border: 1px solid rgba(244, 246, 255, 0.09);
+  border-radius: 12px;
+  background: rgba(8, 11, 20, 0.64);
+  box-shadow: 0 18px 52px rgba(0, 0, 0, 0.24);
+  backdrop-filter: blur(18px) saturate(1.12);
+  -webkit-backdrop-filter: blur(18px) saturate(1.12);
+}
+
+#brainbar-workflow-toolbar button {
+  padding: 6px 9px;
+}
+
+#brainbar-workflow-toolbar button[hidden] {
+  display: none !important;
+}
+
+#brainbar-workflow-toolbar button:disabled,
+#brainbar-focus-controls button:disabled,
+#brainbar-workflow-panel button:disabled,
+#brainbar-health-panel button:disabled {
+  cursor: default;
+  opacity: 0.42;
+}
+
+#brainbar-workflow-toolbar button:hover,
+#brainbar-workflow-toolbar button.selected,
+#brainbar-focus-controls button:hover,
+.edge-actions button:hover,
+#brainbar-workflow-panel button:hover,
+#brainbar-health-panel button:hover {
+  border-color: rgba(170, 186, 255, 0.28);
+  background: rgba(132, 154, 255, 0.14);
+  color: rgba(248, 250, 255, 0.96);
+}
+
+#brainbar-focus-controls .focus-status {
+  flex-basis: 100%;
+  margin-bottom: 2px;
+  color: rgba(244, 246, 255, 0.52);
+  font: 700 10px -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+}
+
+#brainbar-workflow-panel .workflow-actions,
+#brainbar-health-panel .workflow-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 11px 0 4px;
+}
+
+#brainbar-workflow-panel .workflow-actions button,
+#brainbar-health-panel .workflow-actions button {
+  padding: 6px 8px;
+}
+
+#brainbar-edge-inspector {
+  margin-bottom: 12px;
+  padding: 11px;
+  border: 1px solid rgba(244, 246, 255, 0.095);
+  border-radius: 10px;
+  background: rgba(244, 246, 255, 0.045);
+}
+
+#brainbar-edge-inspector .edge-eyebrow {
+  margin-bottom: 5px;
+  color: rgba(244, 246, 255, 0.46);
+  font-size: 9px;
+  font-weight: 780;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+#brainbar-edge-inspector strong {
+  display: block;
+  margin-bottom: 8px;
+  color: rgba(248, 250, 255, 0.94);
+  font-size: 12px;
+  line-height: 1.28;
+}
+
+#brainbar-edge-inspector .edge-row {
+  display: grid;
+  grid-template-columns: 82px minmax(0, 1fr);
+  gap: 8px;
+  margin-top: 6px;
+  font-size: 11px;
+}
+
+#brainbar-edge-inspector .edge-row span {
+  color: rgba(244, 246, 255, 0.46);
+}
+
+#brainbar-edge-inspector .edge-row b {
+  overflow: hidden;
+  color: rgba(244, 246, 255, 0.82);
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#brainbar-workflow-panel,
+#brainbar-health-panel {
+  position: fixed;
+  z-index: 60;
+  right: 336px;
+  top: 72px;
+  width: min(360px, calc(100vw - 380px));
+  max-height: min(620px, calc(100vh - 110px));
+  overflow: auto;
+  padding: 14px;
+  border: 1px solid rgba(244, 246, 255, 0.12);
+  border-radius: 12px;
+  background: rgba(9, 12, 22, 0.88);
+  color: rgba(244, 246, 255, 0.86);
+  box-shadow: 0 22px 74px rgba(0, 0, 0, 0.40);
+  backdrop-filter: blur(22px) saturate(1.12);
+  -webkit-backdrop-filter: blur(22px) saturate(1.12);
+}
+
+#brainbar-workflow-panel[hidden],
+#brainbar-health-panel[hidden] {
+  display: none !important;
+}
+
+#brainbar-workflow-panel .close,
+#brainbar-health-panel .close {
+  float: right;
+  padding: 5px 8px;
+}
+
+#brainbar-workflow-panel h2,
+#brainbar-health-panel h2 {
+  margin: 0 0 5px;
+  font-size: 15px;
+}
+
+#brainbar-workflow-panel h3,
+#brainbar-health-panel h3 {
+  margin: 14px 0 7px;
+  color: rgba(244, 246, 255, 0.52);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+#brainbar-workflow-panel p,
+#brainbar-health-panel p {
+  margin: 0;
+  color: rgba(244, 246, 255, 0.58);
+  font-size: 12px;
+  line-height: 1.38;
+}
+
+#brainbar-workflow-panel .empty,
+#brainbar-health-panel .empty {
+  margin-top: 12px;
+  padding: 9px 10px;
+  border: 1px solid rgba(244, 246, 255, 0.08);
+  border-radius: 9px;
+  background: rgba(244, 246, 255, 0.035);
+}
+
+#brainbar-workflow-panel .health-row,
+#brainbar-health-panel .health-row {
+  display: block;
+  width: 100%;
+  margin-top: 5px;
+  padding: 7px 8px;
+  overflow: hidden;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .vis-tooltip {
   display: none !important;
   visibility: hidden !important;

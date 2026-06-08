@@ -7,6 +7,8 @@ struct GraphWebView: NSViewRepresentable {
     let readAccessURL: URL
     let reloadToken: Int
     let sourceLens: GraphSourceLens
+    let reviewQueueStatus: ReviewQueueStatus
+    let viewportCommand: GraphViewportCommand?
     let onOpenNode: @MainActor (GraphNodeOpenRequest) -> Void
 
     func makeCoordinator() -> Coordinator {
@@ -25,6 +27,7 @@ struct GraphWebView: NSViewRepresentable {
         webView.setValue(false, forKey: "drawsBackground")
         webView.navigationDelegate = context.coordinator
         context.coordinator.sourceLens = sourceLens
+        context.coordinator.reviewQueueScript = Self.reviewQueueTargetsScript(status: reviewQueueStatus)
         context.coordinator.graphMetadataScript = Self.graphMetadataScript(readAccessURL: readAccessURL)
         load(in: webView, context: context)
         return webView
@@ -33,8 +36,16 @@ struct GraphWebView: NSViewRepresentable {
     func updateNSView(_ webView: WKWebView, context: Context) {
         let didLoad = load(in: webView, context: context)
         context.coordinator.onOpenNode = onOpenNode
-        context.coordinator.graphMetadataScript = Self.graphMetadataScript(readAccessURL: readAccessURL)
-        if didLoad || context.coordinator.sourceLens != sourceLens {
+        let graphMetadataScript = Self.graphMetadataScript(readAccessURL: readAccessURL)
+        let didUpdateGraphMetadata = context.coordinator.graphMetadataScript != graphMetadataScript
+        context.coordinator.graphMetadataScript = graphMetadataScript
+        let reviewQueueScript = Self.reviewQueueTargetsScript(status: reviewQueueStatus)
+        if context.coordinator.reviewQueueScript != reviewQueueScript {
+            context.coordinator.reviewQueueScript = reviewQueueScript
+            context.coordinator.applyReviewQueueTargets(in: webView)
+        }
+        context.coordinator.applyViewportCommandIfNeeded(viewportCommand, in: webView)
+        if didLoad || didUpdateGraphMetadata || context.coordinator.sourceLens != sourceLens {
             context.coordinator.sourceLens = sourceLens
             context.coordinator.applyLens(sourceLens, in: webView)
         }
@@ -56,6 +67,8 @@ struct GraphWebView: NSViewRepresentable {
         var reloadToken = -1
         var sourceLens: GraphSourceLens = .all
         var graphMetadataScript = ""
+        var reviewQueueScript = ""
+        var lastViewportCommandID = -1
         var onOpenNode: @MainActor (GraphNodeOpenRequest) -> Void
 
         init(onOpenNode: @escaping @MainActor (GraphNodeOpenRequest) -> Void) {
@@ -63,7 +76,42 @@ struct GraphWebView: NSViewRepresentable {
         }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            applyReviewQueueTargets(in: webView)
             applyLens(sourceLens, in: webView)
+        }
+
+        func applyReviewQueueTargets(in webView: WKWebView) {
+            let script = """
+            \(reviewQueueScript)
+            if (window.brainBarApplyReviewQueueTargets) {
+              window.brainBarApplyReviewQueueTargets(window.__brainBarReviewQueueTargets || []);
+            }
+            """
+            webView.evaluateJavaScript(script)
+        }
+
+        func applyViewportCommandIfNeeded(_ command: GraphViewportCommand?, in webView: WKWebView) {
+            guard let command, lastViewportCommandID != command.id else {
+                return
+            }
+            lastViewportCommandID = command.id
+            let script: String
+            switch command.kind {
+            case .fit:
+                script = "if (window.network && window.network.fit) { window.network.fit({ animation: { duration: 240, easingFunction: 'easeInOutQuad' } }); }"
+            case .zoomIn:
+                script = "if (window.network && window.network.moveTo) { const scale = window.network.getScale ? window.network.getScale() : 1; window.network.moveTo({ scale: scale * 1.18 }); }"
+            case .zoomOut:
+                script = "if (window.network && window.network.moveTo) { const scale = window.network.getScale ? window.network.getScale() : 1; window.network.moveTo({ scale: scale * 0.8474576271 }); }"
+            case .topView, .resetTilt:
+                script = ""
+            case .graphHealth:
+                script = "if (window.brainBarShowGraphHealth) { window.brainBarShowGraphHealth(); }"
+            }
+            guard !script.isEmpty else {
+                return
+            }
+            webView.evaluateJavaScript(script)
         }
 
         func applyLens(_ lens: GraphSourceLens, in webView: WKWebView) {
@@ -133,6 +181,7 @@ private extension GraphWebView {
             return """
             window.__brainBarGraphJSONVersion = "missing";
             window.__brainBarGraphJSON = null;
+            window.__brainBarNodeFileMetadata = { byNodeId: {}, bySourceFile: {} };
             """
         }
         let resourceValues = try? graphJSONURL.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey])
@@ -143,7 +192,96 @@ private extension GraphWebView {
         return """
         window.__brainBarGraphJSONVersion = \(jsStringLiteral(version));
         window.__brainBarGraphJSON = \(json);
+        window.__brainBarNodeFileMetadata = \(nodeFileMetadataJSON(graphObject: object, readAccessURL: readAccessURL));
         """
+    }
+
+    static func nodeFileMetadataJSON(graphObject: Any, readAccessURL: URL) -> String {
+        guard
+            let graph = graphObject as? [String: Any],
+            let nodes = graph["nodes"] as? [[String: Any]]
+        else {
+            return "{ \"byNodeId\": {}, \"bySourceFile\": {} }"
+        }
+
+        let vaultURL = readAccessURL.deletingLastPathComponent().standardizedFileURL
+        var byNodeId: [String: [String: Any]] = [:]
+        var bySourceFile: [String: [String: Any]] = [:]
+
+        for node in nodes {
+            guard
+                let idValue = node["id"],
+                let sourceFile = (node["source_file"] as? String) ?? (node["_source_file"] as? String),
+                !sourceFile.isEmpty,
+                let fileURL = resolvedVaultFileURL(sourceFile, vaultURL: vaultURL)
+            else {
+                continue
+            }
+
+            let resourceValues = try? fileURL.resourceValues(forKeys: [.contentModificationDateKey])
+            guard let modifiedAt = resourceValues?.contentModificationDate?.timeIntervalSince1970 else {
+                continue
+            }
+
+            let entry: [String: Any] = [
+                "source_file": sourceFile,
+                "mtime": modifiedAt
+            ]
+            byNodeId[String(describing: idValue)] = entry
+            bySourceFile[sourceFile] = entry
+        }
+
+        let payload: [String: Any] = [
+            "byNodeId": byNodeId,
+            "bySourceFile": bySourceFile
+        ]
+        guard
+            let data = try? JSONSerialization.data(withJSONObject: payload),
+            let json = String(data: data, encoding: .utf8)
+        else {
+            return "{ \"byNodeId\": {}, \"bySourceFile\": {} }"
+        }
+        return json
+    }
+
+    static func resolvedVaultFileURL(_ sourceFile: String, vaultURL: URL) -> URL? {
+        guard
+            !sourceFile.hasPrefix("/"),
+            !sourceFile.split(separator: "/").contains(where: { $0 == ".." })
+        else {
+            return nil
+        }
+        let resolved = vaultURL.appendingPathComponent(sourceFile).standardizedFileURL
+        guard resolved.path.hasPrefix(vaultURL.path + "/") || resolved.path == vaultURL.path else {
+            return nil
+        }
+        return resolved
+    }
+
+    static func reviewQueueTargetsScript(status: ReviewQueueStatus) -> String {
+        let targets = status.items.compactMap { item -> [String: String]? in
+            var target: [String: String] = [:]
+            if let nodeId = item.nodeId, !nodeId.isEmpty {
+                target["node_id"] = nodeId
+            }
+            if let sourceFile = item.sourceFile, !sourceFile.isEmpty {
+                target["source_file"] = sourceFile
+            }
+            guard !target.isEmpty else {
+                return nil
+            }
+            target["title"] = item.title
+            return target
+        }
+
+        guard
+            let data = try? JSONSerialization.data(withJSONObject: targets),
+            let json = String(data: data, encoding: .utf8)
+        else {
+            return "window.__brainBarReviewQueueTargets = [];"
+        }
+
+        return "window.__brainBarReviewQueueTargets = \(json);"
     }
 
     static func bundledResourceString(name: String, extension fileExtension: String, subdirectory: String) -> String? {
