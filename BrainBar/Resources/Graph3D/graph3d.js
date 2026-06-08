@@ -1,6 +1,6 @@
 import * as THREE from './vendor/three.module.min.js';
 import { OrbitControls } from './vendor/OrbitControls.js';
-import { computeShortestPath, explainShortestPath } from './graph3d-path-utils.mjs';
+import { computePathVariants, explainShortestPath } from './graph3d-path-utils.mjs';
 
 const stage = document.getElementById('stage');
 const graphVisual = document.getElementById('graph-visual');
@@ -73,6 +73,8 @@ const state = {
   pathEdgeIds: new Set(),
   pathOrderedNodeIds: [],
   pathOrderedEdgeIds: [],
+  pathVariants: [],
+  activePathVariantId: 'shortest',
   pathMessage: '',
   pathPulsePhase: 0,
   lastDiagnostic: '',
@@ -1485,6 +1487,9 @@ function renderNodeInfo(node) {
       }
     });
   });
+  nodeInfo.querySelectorAll('.path-variant[data-variant-id]').forEach((variantButton) => {
+    variantButton.addEventListener('click', () => applyPathVariant(variantButton.dataset.variantId));
+  });
   nodeInfo.querySelectorAll('.neighbor-button[data-node-id]').forEach((neighborButton) => {
     neighborButton.addEventListener('click', () => {
       const neighbor = nodeForId(neighborButton.dataset.nodeId);
@@ -1505,8 +1510,9 @@ function renderPathPanel() {
   }
   const source = nodeForId(state.pathSourceId);
   const target = nodeForId(state.pathTargetId);
+  const activeVariant = activePathVariant();
   const hasPath = state.pathOrderedNodeIds.length > 0;
-  const title = hasPath ? 'Shortest path' : 'Path';
+  const title = hasPath ? (activeVariant?.label || 'Shortest path') : 'Path';
   const summary = hasPath
     ? `${Math.max(state.pathOrderedNodeIds.length - 1, 0)} steps · ${escapeHTML(source?.label || 'Source')} → ${escapeHTML(target?.label || 'Target')}`
     : escapeHTML(state.pathMessage || 'Select target');
@@ -1532,9 +1538,38 @@ function renderPathPanel() {
     <section class="path-panel">
       <h4>${title}</h4>
       <p>${summary}</p>
+      ${renderPathCompare(activeVariant)}
       ${steps ? `<div class="path-step-list">${steps}${overflow}</div>` : ''}
       ${renderPathExplanation(explanation)}
     </section>
+  `;
+}
+
+function renderPathCompare(activeVariant) {
+  if (!state.pathTargetId || state.pathVariants.length <= 1) {
+    return '';
+  }
+  const buttons = state.pathVariants.map((variant) => {
+    const classes = ['path-variant'];
+    if (variant.id === activeVariant?.id) {
+      classes.push('selected');
+    }
+    const disabled = variant.found ? '' : 'disabled';
+    const detail = variant.found
+      ? `${variant.stepCount} ${variant.stepCount === 1 ? 'step' : 'steps'}`
+      : variant.message;
+    return `
+      <button class="${classes.join(' ')}" data-variant-id="${escapeHTML(variant.id)}" ${disabled}>
+        <span>${escapeHTML(variant.label)}</span>
+        <small>${escapeHTML(detail)}</small>
+      </button>
+    `;
+  }).join('');
+  return `
+    <div class="path-compare">
+      <h5>Compare paths</h5>
+      <div class="path-variant-list">${buttons}</div>
+    </div>
   `;
 }
 
@@ -1688,7 +1723,9 @@ function pathHudText() {
     return state.pathMessage || 'Path source set · click another node';
   }
   if (state.pathOrderedNodeIds.length) {
-    return `Path · ${Math.max(state.pathOrderedNodeIds.length - 1, 0)} steps · ${state.pathOrderedNodeIds.length} nodes`;
+    const variant = activePathVariant();
+    const label = variant?.id && variant.id !== 'shortest' ? `${variant.label} · ` : '';
+    return `Path · ${label}${Math.max(state.pathOrderedNodeIds.length - 1, 0)} steps · ${state.pathOrderedNodeIds.length} nodes`;
   }
   return state.pathMessage || 'No visible path in current view';
 }
@@ -1741,6 +1778,8 @@ function armPathSource(node) {
   state.pathEdgeIds = new Set();
   state.pathOrderedNodeIds = [];
   state.pathOrderedEdgeIds = [];
+  state.pathVariants = [];
+  state.activePathVariantId = 'shortest';
   state.pathMessage = 'Path source set · click another node';
   state.selectedNode = node;
   renderNodeInfo(node);
@@ -1756,30 +1795,56 @@ function applyPathToNode(targetNode) {
     return;
   }
   clearFocusOrbit(false);
-  const path = computeShortestPath({
+  const variants = computePathVariants({
     sourceId: sourceNode.id,
     targetId: targetNode.id,
     nodes: state.visibleNodes,
     edges: state.visibleEdges
   });
+  const path = variants.find((variant) => variant.id === 'shortest') || variants[0];
   state.pathMode = true;
   state.pathSourceId = sourceNode.id;
   state.pathTargetId = targetNode.id;
-  state.pathNodeIds = path.nodeIds;
-  state.pathEdgeIds = path.edgeIds;
-  state.pathOrderedNodeIds = path.orderedNodeIds;
-  state.pathOrderedEdgeIds = path.orderedEdgeIds;
-  state.pathMessage = path.message || '';
+  state.pathVariants = variants;
+  state.activePathVariantId = path?.id || 'shortest';
+  applyPathVariantState(path);
   state.selectedNode = targetNode;
   renderNodeInfo(targetNode);
   positionSelectedMarker(targetNode);
-  if (path.found) {
+  if (path?.found) {
     focusPath(path, 'Shortest path');
   } else {
     focusNode(targetNode, 'Path target');
   }
   updateHud();
   requestRender();
+}
+
+function activePathVariant() {
+  return state.pathVariants.find((variant) => variant.id === state.activePathVariantId) || state.pathVariants[0] || null;
+}
+
+function applyPathVariant(variantId) {
+  const variant = state.pathVariants.find((item) => item.id === variantId);
+  if (!variant || !variant.found) {
+    return;
+  }
+  state.activePathVariantId = variant.id;
+  applyPathVariantState(variant);
+  renderNodeInfo(state.selectedNode);
+  if (variant.found) {
+    focusPath(variant, variant.label);
+  }
+  updateHud();
+  requestRender();
+}
+
+function applyPathVariantState(path) {
+  state.pathNodeIds = path?.nodeIds || new Set();
+  state.pathEdgeIds = path?.edgeIds || new Set();
+  state.pathOrderedNodeIds = path?.orderedNodeIds || [];
+  state.pathOrderedEdgeIds = path?.orderedEdgeIds || [];
+  state.pathMessage = path?.message || '';
 }
 
 function clearPathMode(render = true) {
@@ -1790,6 +1855,8 @@ function clearPathMode(render = true) {
   state.pathEdgeIds = new Set();
   state.pathOrderedNodeIds = [];
   state.pathOrderedEdgeIds = [];
+  state.pathVariants = [];
+  state.activePathVariantId = 'shortest';
   state.pathMessage = '';
   state.pathPulsePhase = 0;
   if (render) {

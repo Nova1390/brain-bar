@@ -40,6 +40,8 @@ BrainBar is a local-first macOS control center for a Markdown or Obsidian-style 
 - **Start path**: arm the selected node as the source for a 3D shortest path trace. The user then clicks another node to trace the route.
 - **Shortest path**: the shortest visible unweighted path between two selected nodes in the current 3D graph view.
 - **Explain Path**: a deterministic, local-only explanation of a 3D shortest path using visible graph metadata such as edge provenance, communities, labels, and bridge nodes.
+- **Path Compare**: a 3D path panel control for comparing deterministic route variants between the same selected source and target.
+- **Best explained path**: a Path Compare variant that prefers routes with clearer Wikilink or Graphify metadata. It is still deterministic graph analysis, not semantic proof.
 
 ## Internal Architecture Terms
 
@@ -50,6 +52,7 @@ BrainBar is a local-first macOS control center for a Markdown or Obsidian-style 
 - **2D runtime**: `BrainBar/Resources/Graph2D/brainbar-graph-runtime.js`. It augments generated Graphify HTML at runtime and must not rewrite `graph.html`.
 - **3D runtime**: `BrainBar/Resources/Graph3D/graph3d.js`. It owns the 3D explorer's session state, rendering, focus orbit, path mode, and sidebar behavior.
 - **Path utilities**: `BrainBar/Resources/Graph3D/graph3d-path-utils.mjs`. It contains reusable 3D path logic such as unweighted shortest-path BFS.
+- **Path variants**: runtime-only 3D path results for `Shortest visible`, `Best explained`, `Wikilinks only`, and `Graphify only`.
 - **Edge provenance**: runtime classification for a connection as `Wikilink`, `Graphify`, or `Unknown`, based on Graphify metadata and exported wikilink data.
 - **Review Queue status payload**: JSON printed by a configured local status command. Required shape includes `pending_count`; `items` are optional.
 - **Review Queue graph targets**: optional item fields `source_file` and `node_id` used only to highlight matching graph nodes.
@@ -66,6 +69,7 @@ BrainBar is a local-first macOS control center for a Markdown or Obsidian-style 
 - **Review Queue is not an automation engine.** It displays local status and can run explicit manual actions; the background watcher only checks status.
 - **Shortest path is not semantic proof.** It is an unweighted route through currently visible graph edges, not an AI explanation or claim of causality.
 - **Explain Path is not AI reasoning.** It summarizes visible graph metadata conservatively and should not invent meaning beyond the current path data.
+- **Best explained is not most true.** It prefers available connection metadata and should not be described as the only meaningful path.
 - **3D Beta is not a release-stable default unless explicitly promoted.** Keep language conservative unless product docs and QA criteria change.
 - **Brain KG is not a public dependency.** Treat it as optional local/generated context unless a concrete integration is present.
 

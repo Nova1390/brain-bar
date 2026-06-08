@@ -268,6 +268,7 @@ h2 {
 
 .focus-actions button,
 .path-actions button,
+.path-variant,
 .path-step,
 .neighbor-button {
   min-height: 28px;
@@ -288,6 +289,7 @@ h2 {
 .focus-actions button.selected,
 .path-actions button:hover,
 .path-actions button.selected,
+.path-variant:hover,
 .path-step:hover,
 .neighbor-button:hover {
   border-color: rgba(170, 186, 255, 0.28);
@@ -331,6 +333,59 @@ h2 {
 .path-step-list {
   display: grid;
   gap: 5px;
+}
+
+.path-compare {
+  display: grid;
+  gap: 6px;
+  padding-top: 2px;
+}
+
+.path-compare h5 {
+  margin: 0;
+  color: rgba(244, 246, 255, 0.58);
+  font-size: 10px;
+  font-weight: 760;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.path-variant-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.path-variant {
+  display: grid;
+  gap: 2px;
+  min-height: 46px;
+  padding: 7px 8px;
+  text-align: left;
+}
+
+.path-variant span,
+.path-variant small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.path-variant small {
+  color: rgba(244, 246, 255, 0.52);
+  font-size: 10px;
+  font-weight: 620;
+}
+
+.path-variant.selected {
+  border-color: rgba(184, 198, 255, 0.36);
+  background: rgba(132, 154, 255, 0.20);
+}
+
+.path-variant:disabled {
+  cursor: default;
+  opacity: 0.42;
 }
 
 .path-step {

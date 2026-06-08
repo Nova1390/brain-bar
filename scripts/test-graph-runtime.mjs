@@ -139,6 +139,40 @@ const lensFilteredPath = graph3dPath.computeShortestPath({
 });
 assert.equal(lensFilteredPath.found, false);
 
+const comparedPaths = graph3dPath.computePathVariants({
+  sourceId: 'a',
+  targetId: 'd',
+  nodes: [...pathNodes, { id: 'e' }],
+  edges: [
+    { id: 'ad', source: 'a', target: 'd' },
+    { id: 'ab', source: 'a', target: 'b', relation: 'obsidian_wikilink' },
+    { id: 'bd', source: 'b', target: 'd', relation: 'semantic_similarity' },
+    { id: 'ac', source: 'a', target: 'c', relation: 'obsidian_wikilink' },
+    { id: 'ce', source: 'c', target: 'e', relation: 'obsidian_wikilink' },
+    { id: 'ed', source: 'e', target: 'd', relation: 'obsidian_wikilink' }
+  ]
+});
+const comparedById = new Map(comparedPaths.map((variant) => [variant.id, variant]));
+assert.deepEqual(comparedById.get('shortest').orderedNodeIds, ['a', 'd']);
+assert.deepEqual(comparedById.get('best-explained').orderedNodeIds, ['a', 'b', 'd']);
+assert.deepEqual(comparedById.get('wikilinks').orderedNodeIds, ['a', 'c', 'e', 'd']);
+assert.equal(comparedById.get('graphify').found, false);
+assert.equal(comparedById.get('graphify').message, 'No Graphify-only path in current view');
+
+const graphifyComparedPaths = graph3dPath.computePathVariants({
+  sourceId: 'a',
+  targetId: 'd',
+  nodes: pathNodes,
+  edges: [
+    { id: 'ab', source: 'a', target: 'b', relation: 'semantic_similarity' },
+    { id: 'bd', source: 'b', target: 'd', context: 'graphify_inferred' }
+  ]
+});
+assert.deepEqual(
+  new Map(graphifyComparedPaths.map((variant) => [variant.id, variant])).get('graphify').orderedNodeIds,
+  ['a', 'b', 'd']
+);
+
 const explainNodes = [
   { id: 'a', label: 'Alpha', community: 'Community 1' },
   { id: 'b', label: 'Beta', community: 'Community 1' },
@@ -202,6 +236,7 @@ assert.ok(sparseExplanation.caveat.includes('metadata is unavailable'));
 
 const graph3dSource = readFileSync(join(root, 'BrainBar/Resources/Graph3D/graph3d.js'), 'utf8');
 assert.match(graph3dSource, /function applyFocusOrbit[\s\S]*clearPathMode\(false\)/);
+assert.match(graph3dSource, /Compare paths/);
 
 const obsidianDiff = runtime.computeLensDiff({
   lens: 'obsidian',

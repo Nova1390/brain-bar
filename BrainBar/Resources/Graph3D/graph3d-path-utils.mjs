@@ -60,6 +60,59 @@ export function computeShortestPath({ sourceId, targetId, nodes = [], edges = []
   return emptyPath('No visible path in current view');
 }
 
+export function computePathVariants({ sourceId, targetId, nodes = [], edges = [] } = {}) {
+  const allEdges = Array.isArray(edges) ? edges : [];
+  const shortest = computeShortestPath({ sourceId, targetId, nodes, edges: allEdges });
+  const bestExplained = computeWeightedPath({
+    sourceId,
+    targetId,
+    nodes,
+    edges: allEdges,
+    weightForEdge: explanationWeightForEdge
+  });
+  const wikilinksOnly = computeShortestPath({
+    sourceId,
+    targetId,
+    nodes,
+    edges: allEdges.filter((edge) => edgeProvenance(edge) === 'wikilink')
+  });
+  const graphifyOnly = computeShortestPath({
+    sourceId,
+    targetId,
+    nodes,
+    edges: allEdges.filter((edge) => edgeProvenance(edge) === 'graphify')
+  });
+
+  return [
+    pathVariant({
+      id: 'shortest',
+      label: 'Shortest visible',
+      description: 'Fewest visible steps in the current graph view.',
+      path: shortest
+    }),
+    pathVariant({
+      id: 'best-explained',
+      label: 'Best explained',
+      description: 'Prefers routes with clearer Wikilink or Graphify metadata.',
+      path: bestExplained
+    }),
+    pathVariant({
+      id: 'wikilinks',
+      label: 'Wikilinks only',
+      description: 'Uses only explicit exported wikilinks.',
+      path: wikilinksOnly,
+      missingMessage: 'No Wikilinks-only path in current view'
+    }),
+    pathVariant({
+      id: 'graphify',
+      label: 'Graphify only',
+      description: 'Uses only generated Graphify relationships.',
+      path: graphifyOnly,
+      missingMessage: 'No Graphify-only path in current view'
+    })
+  ];
+}
+
 export function explainShortestPath({
   orderedNodeIds = [],
   orderedEdgeIds = [],
@@ -126,6 +179,135 @@ export function explainShortestPath({
   };
 }
 
+function pathVariant({ id, label, description, path, missingMessage }) {
+  const message = path.found ? '' : (missingMessage || path.message || 'No visible path in current view');
+  return {
+    id,
+    label,
+    description,
+    found: path.found,
+    message,
+    orderedNodeIds: path.orderedNodeIds,
+    orderedEdgeIds: path.orderedEdgeIds,
+    nodeIds: path.nodeIds,
+    edgeIds: path.edgeIds,
+    stepCount: Math.max(path.orderedNodeIds.length - 1, 0)
+  };
+}
+
+function computeWeightedPath({ sourceId, targetId, nodes = [], edges = [], weightForEdge }) {
+  const source = String(sourceId ?? '');
+  const target = String(targetId ?? '');
+  const visibleNodeIds = new Set(nodes.map((node) => String(node.id)));
+
+  if (!source || !target || !visibleNodeIds.has(source) || !visibleNodeIds.has(target)) {
+    return emptyPath('No visible path in current view');
+  }
+  if (source === target) {
+    return {
+      found: true,
+      message: '',
+      orderedNodeIds: [source],
+      orderedEdgeIds: [],
+      nodeIds: new Set([source]),
+      edgeIds: new Set()
+    };
+  }
+
+  const adjacency = weightedAdjacency({ edges, visibleNodeIds, weightForEdge });
+  const best = new Map();
+  const queue = [{
+    nodeId: source,
+    weight: 0,
+    steps: 0,
+    routeKey: '',
+    previous: new Map()
+  }];
+  best.set(source, { weight: 0, steps: 0, routeKey: '' });
+
+  while (queue.length) {
+    queue.sort(compareWeightedState);
+    const current = queue.shift();
+    const known = best.get(current.nodeId);
+    if (!known || compareWeightedState(current, known) > 0) {
+      continue;
+    }
+    if (current.nodeId === target) {
+      return buildPath(source, target, current.previous);
+    }
+
+    const neighbors = adjacency.get(current.nodeId) || [];
+    for (const neighbor of neighbors) {
+      const nextWeight = current.weight + neighbor.weight;
+      const nextSteps = current.steps + 1;
+      const nextRouteKey = `${current.routeKey}/${neighbor.edgeId}`;
+      const nextState = { weight: nextWeight, steps: nextSteps, routeKey: nextRouteKey };
+      const previousBest = best.get(neighbor.nodeId);
+      if (previousBest && compareWeightedState(nextState, previousBest) >= 0) {
+        continue;
+      }
+      const nextPrevious = new Map(current.previous);
+      nextPrevious.set(neighbor.nodeId, { nodeId: current.nodeId, edgeId: neighbor.edgeId });
+      best.set(neighbor.nodeId, nextState);
+      queue.push({
+        nodeId: neighbor.nodeId,
+        weight: nextWeight,
+        steps: nextSteps,
+        routeKey: nextRouteKey,
+        previous: nextPrevious
+      });
+    }
+  }
+
+  return emptyPath('No visible path in current view');
+}
+
+function weightedAdjacency({ edges, visibleNodeIds, weightForEdge }) {
+  const adjacency = new Map();
+  edges.forEach((edge) => {
+    const edgeId = edgeStableId(edge);
+    const from = endpointId(edge.source ?? edge.from);
+    const to = endpointId(edge.target ?? edge.to);
+    if (!visibleNodeIds.has(from) || !visibleNodeIds.has(to)) {
+      return;
+    }
+    const weight = weightForEdge(edge);
+    if (!adjacency.has(from)) {
+      adjacency.set(from, []);
+    }
+    if (!adjacency.has(to)) {
+      adjacency.set(to, []);
+    }
+    adjacency.get(from).push({ nodeId: to, edgeId, weight });
+    adjacency.get(to).push({ nodeId: from, edgeId, weight });
+  });
+  adjacency.forEach((neighbors) => {
+    neighbors.sort((left, right) => left.nodeId.localeCompare(right.nodeId) || left.edgeId.localeCompare(right.edgeId));
+  });
+  return adjacency;
+}
+
+function compareWeightedState(left, right) {
+  if (left.weight !== right.weight) {
+    return left.weight - right.weight;
+  }
+  if (left.steps !== right.steps) {
+    return left.steps - right.steps;
+  }
+  return String(left.routeKey || '').localeCompare(String(right.routeKey || ''));
+}
+
+function explanationWeightForEdge(edge) {
+  const provenance = edgeProvenance(edge);
+  if (provenance === 'wikilink') {
+    return 1;
+  }
+  if (provenance === 'graphify') {
+    return 1.2;
+  }
+  return 2.5;
+}
+
 function buildPath(source, target, previous) {
   const orderedNodeIds = [target];
   const orderedEdgeIds = [];
@@ -167,6 +349,10 @@ function endpointId(value) {
     return String(value.id ?? value.label ?? value.name ?? '');
   }
   return String(value ?? '');
+}
+
+function edgeStableId(edge) {
+  return String(edge?.id ?? `${endpointId(edge?.source ?? edge?.from)}:${endpointId(edge?.target ?? edge?.to)}`);
 }
 
 function edgeProvenance(edge) {
