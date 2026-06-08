@@ -355,7 +355,7 @@ BrainBar starts the server with Python's built-in `http.server`, bound to `127.0
 
 ## Development
 
-Project history is tracked in [CHANGELOG.md](CHANGELOG.md).
+Project vocabulary is tracked in [CONCEPTS.md](CONCEPTS.md). Project history is tracked in [CHANGELOG.md](CHANGELOG.md).
 
 Build:
 
