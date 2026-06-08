@@ -1,6 +1,6 @@
 import * as THREE from './vendor/three.module.min.js';
 import { OrbitControls } from './vendor/OrbitControls.js';
-import { computeShortestPath } from './graph3d-path-utils.mjs';
+import { computeShortestPath, explainShortestPath } from './graph3d-path-utils.mjs';
 
 const stage = document.getElementById('stage');
 const graphVisual = document.getElementById('graph-visual');
@@ -1518,12 +1518,47 @@ function renderPathPanel() {
   const overflow = state.pathOrderedNodeIds.length > 9
     ? `<p class="muted">+${state.pathOrderedNodeIds.length - 9} more steps</p>`
     : '';
+  const explanation = hasPath
+    ? explainShortestPath({
+        orderedNodeIds: state.pathOrderedNodeIds,
+        orderedEdgeIds: state.pathOrderedEdgeIds,
+        nodes: state.visibleNodes,
+        edges: state.visibleEdges,
+        lens: state.lens,
+        degreeByNode: state.degreeByNode
+      })
+    : null;
   return `
     <section class="path-panel">
       <h4>${title}</h4>
       <p>${summary}</p>
       ${steps ? `<div class="path-step-list">${steps}${overflow}</div>` : ''}
+      ${renderPathExplanation(explanation)}
     </section>
+  `;
+}
+
+function renderPathExplanation(explanation) {
+  if (!explanation) {
+    return '';
+  }
+  const badges = explanation.badges?.length
+    ? `<div class="path-explain-badges">${explanation.badges.map((badge) => `<span>${escapeHTML(badge)}</span>`).join('')}</div>`
+    : '';
+  const bullets = explanation.bullets?.length
+    ? `<ul>${explanation.bullets.map((bullet) => `<li>${escapeHTML(bullet)}</li>`).join('')}</ul>`
+    : '';
+  const caveat = explanation.caveat
+    ? `<p class="muted">${escapeHTML(explanation.caveat)}</p>`
+    : '';
+  return `
+    <div class="path-explanation">
+      <h5>${escapeHTML(explanation.title || 'Why this path')}</h5>
+      <p>${escapeHTML(explanation.summary || '')}</p>
+      ${badges}
+      ${bullets}
+      ${caveat}
+    </div>
   `;
 }
 
