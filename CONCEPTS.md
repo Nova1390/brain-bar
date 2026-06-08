@@ -39,6 +39,7 @@ BrainBar is a local-first macOS control center for a Markdown or Obsidian-style 
 - **Depth 1 / Depth 2 / Depth 3**: expand the 3D focus orbit by BFS depth from the selected node.
 - **Start path**: arm the selected node as the source for a 3D shortest path trace. The user then clicks another node to trace the route.
 - **Shortest path**: the shortest visible unweighted path between two selected nodes in the current 3D graph view.
+- **Explain Path**: a deterministic, local-only explanation of a 3D shortest path using visible graph metadata such as edge provenance, communities, labels, and bridge nodes.
 
 ## Internal Architecture Terms
 
@@ -64,6 +65,7 @@ BrainBar is a local-first macOS control center for a Markdown or Obsidian-style 
 - **Graph Check is not Brain Check.** Graph Check is built from graph data in the viewer. Brain Check is a configurable external command hook.
 - **Review Queue is not an automation engine.** It displays local status and can run explicit manual actions; the background watcher only checks status.
 - **Shortest path is not semantic proof.** It is an unweighted route through currently visible graph edges, not an AI explanation or claim of causality.
+- **Explain Path is not AI reasoning.** It summarizes visible graph metadata conservatively and should not invent meaning beyond the current path data.
 - **3D Beta is not a release-stable default unless explicitly promoted.** Keep language conservative unless product docs and QA criteria change.
 - **Brain KG is not a public dependency.** Treat it as optional local/generated context unless a concrete integration is present.
 

@@ -4,6 +4,8 @@ All notable changes to BrainBar are documented here.
 
 ## Unreleased
 
+- Added deterministic 3D Explain Path summaries under Shortest Path, including provenance badges, bridge notes, community crossing notes, and conservative metadata caveats.
+
 ## 0.9.3 - 2026-06-08
 
 - Added Developer ID signing and Apple notarization for public release builds.
