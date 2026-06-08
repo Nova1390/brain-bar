@@ -113,7 +113,7 @@ BrainBar does not vendor, fork, or modify Graphify. It runs the configured local
 curl -fsSL https://raw.githubusercontent.com/Nova1390/brain-bar/main/install.sh | bash
 ```
 
-The installer downloads the latest GitHub Release, installs `BrainBar.app` into `~/Applications`, and creates local config only if it is missing.
+The installer downloads the latest notarized GitHub Release DMG, installs `BrainBar.app` into `~/Applications`, and creates local config only if it is missing.
 
 To prefill the vault path on first install:
 
@@ -127,7 +127,7 @@ To install elsewhere:
 BRAIN_BAR_INSTALL_DIR=/Applications curl -fsSL https://raw.githubusercontent.com/Nova1390/brain-bar/main/install.sh | bash
 ```
 
-New public releases created by the release workflow are built to be Developer ID signed and notarized. If you install an older ad-hoc build, macOS may block the app until you approve it manually:
+Public releases from `v0.9.3` onward are Developer ID signed, notarized by Apple, stapled, packaged as `BrainBar.dmg`, and verified on a fresh GitHub-hosted macOS runner before promotion. If you install an older ad-hoc build, macOS may block the app until you approve it manually:
 
 1. Try to open BrainBar once.
 2. If macOS blocks it, open System Settings > Privacy & Security.
@@ -375,7 +375,7 @@ Package a local ad-hoc release zip:
 scripts/package-release.sh
 ```
 
-Package a Developer ID signed and notarized release zip:
+Package a Developer ID signed and notarized release DMG:
 
 ```sh
 BRAINBAR_SIGNING_MODE=developer-id \
@@ -405,6 +405,7 @@ scripts/check-public-safety.sh
    ```
 
 4. GitHub Actions signs, notarizes, staples, builds `BrainBar.dmg`, verifies the mounted app, and attaches it to the release.
+5. Run `Verify Release DMG` against the tag to download the published asset on a clean macOS runner and re-check `codesign`, `stapler`, and `spctl`.
 
 The expected release asset name is:
 
@@ -413,6 +414,21 @@ BrainBar.dmg
 ```
 
 The installer downloads this asset from the latest GitHub Release.
+
+To manually verify a published release from GitHub Actions:
+
+```sh
+gh workflow run verify-release-dmg.yml --ref main -f tag=v0.9.3
+```
+
+The verification run should report:
+
+```text
+BrainBar.app: valid on disk
+The validate action worked!
+BrainBar.app: accepted
+source=Notarized Developer ID
+```
 
 ## Homebrew Roadmap
 

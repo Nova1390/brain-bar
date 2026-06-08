@@ -4,6 +4,14 @@ All notable changes to BrainBar are documented here.
 
 ## Unreleased
 
+## 0.9.3 - 2026-06-08
+
+- Added Developer ID signing and Apple notarization for public release builds.
+- Switched the public release asset from `BrainBar.zip` to notarized `BrainBar.dmg`.
+- Added mounted-DMG verification in the release workflow using `codesign`, `stapler`, and `spctl`.
+- Added a manual `Verify Release DMG` workflow that downloads the published release asset on a clean macOS runner and validates it independently.
+- Updated the installer to download and install from the latest release DMG.
+
 ## 0.9.0 - 2026-06-08
 
 - Added runtime 2D graph workflow views for Focus, Needs Links, Key Notes, Review, Recent, Wikilinks, Graphify, and Graph Check.
