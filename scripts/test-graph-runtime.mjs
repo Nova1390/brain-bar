@@ -139,6 +139,67 @@ const lensFilteredPath = graph3dPath.computeShortestPath({
 });
 assert.equal(lensFilteredPath.found, false);
 
+const explainNodes = [
+  { id: 'a', label: 'Alpha', community: 'Community 1' },
+  { id: 'b', label: 'Beta', community: 'Community 1' },
+  { id: 'c', label: 'Gamma', community: 'Community 2' },
+  { id: 'd', label: 'Delta', community: 'Community 3' }
+];
+const wikilinkExplanation = graph3dPath.explainShortestPath({
+  orderedNodeIds: ['a', 'b', 'c'],
+  orderedEdgeIds: ['ab', 'bc'],
+  nodes: explainNodes,
+  edges: [
+    { id: 'ab', source: 'a', target: 'b', relation: 'obsidian_wikilink' },
+    { id: 'bc', source: 'b', target: 'c', relation: 'obsidian_wikilink' }
+  ]
+});
+assert.equal(wikilinkExplanation.summary, 'This route follows explicit wikilinks between notes.');
+assert.ok(wikilinkExplanation.badges.includes('2 Wikilinks'));
+assert.equal(wikilinkExplanation.caveat, '');
+
+const graphifyExplanation = graph3dPath.explainShortestPath({
+  orderedNodeIds: ['a', 'b', 'c'],
+  orderedEdgeIds: ['ab', 'bc'],
+  nodes: explainNodes,
+  edges: [
+    { id: 'ab', source: 'a', target: 'b', relation: 'semantic_similarity' },
+    { id: 'bc', source: 'b', target: 'c', context: 'graphify_inferred' }
+  ],
+  lens: 'graphify'
+});
+assert.equal(graphifyExplanation.summary, 'This route is inferred from Graphify relationships in the visible graph.');
+assert.ok(graphifyExplanation.badges.includes('2 Graphify'));
+assert.ok(graphifyExplanation.bullets.some((bullet) => bullet.includes('Graphify lens')));
+
+const mixedExplanation = graph3dPath.explainShortestPath({
+  orderedNodeIds: ['a', 'b', 'c', 'd'],
+  orderedEdgeIds: ['ab', 'bc', 'cd'],
+  nodes: explainNodes,
+  edges: [
+    { id: 'ab', source: 'a', target: 'b', relation: 'obsidian_wikilink' },
+    { id: 'bc', source: 'b', target: 'c', relation: 'semantic_similarity' },
+    { id: 'cd', source: 'c', target: 'd', context: 'graphify_inferred' }
+  ],
+  degreeByNode: new Map([['b', 9], ['c', 3]])
+});
+assert.equal(mixedExplanation.summary, 'This route combines explicit wikilinks with inferred Graphify relationships.');
+assert.ok(mixedExplanation.badges.includes('1 Wikilink'));
+assert.ok(mixedExplanation.badges.includes('2 Graphify'));
+assert.ok(mixedExplanation.badges.includes('3 communities'));
+assert.ok(mixedExplanation.bullets.some((bullet) => bullet.includes('crosses 3 communities')));
+assert.ok(mixedExplanation.bullets.some((bullet) => bullet.includes('Beta is the strongest bridge')));
+
+const sparseExplanation = graph3dPath.explainShortestPath({
+  orderedNodeIds: ['a', 'b'],
+  orderedEdgeIds: ['ab'],
+  nodes: explainNodes,
+  edges: [{ id: 'ab', source: 'a', target: 'b' }]
+});
+assert.equal(sparseExplanation.summary, 'BrainBar can trace this route, but the visible graph has limited connection metadata.');
+assert.ok(sparseExplanation.badges.includes('1 Unknown'));
+assert.ok(sparseExplanation.caveat.includes('metadata is unavailable'));
+
 const graph3dSource = readFileSync(join(root, 'BrainBar/Resources/Graph3D/graph3d.js'), 'utf8');
 assert.match(graph3dSource, /function applyFocusOrbit[\s\S]*clearPathMode\(false\)/);
 
