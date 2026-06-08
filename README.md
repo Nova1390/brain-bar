@@ -84,7 +84,7 @@ Pick one note, start a path, then click another note. BrainBar traces the shorte
 
 ![BrainBar 3D shortest path](docs/brainbar-path-demo.gif)
 
-Path Compare can switch the same trace between Shortest visible, Best explained, Wikilinks-only, and Graphify-only routes when those paths exist in the current view.
+Path Compare can switch the same trace between Shortest visible, Different route, Best explained, Wikilinks-only, and Graphify-only routes when those paths exist in the current view.
 
 The 2D graph remains the stable default. The 3D renderer is intentionally labeled beta while interaction, density, and performance continue to improve for large graphs.
 

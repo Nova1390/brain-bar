@@ -52,7 +52,7 @@ BrainBar is a local-first macOS control center for a Markdown or Obsidian-style 
 - **2D runtime**: `BrainBar/Resources/Graph2D/brainbar-graph-runtime.js`. It augments generated Graphify HTML at runtime and must not rewrite `graph.html`.
 - **3D runtime**: `BrainBar/Resources/Graph3D/graph3d.js`. It owns the 3D explorer's session state, rendering, focus orbit, path mode, and sidebar behavior.
 - **Path utilities**: `BrainBar/Resources/Graph3D/graph3d-path-utils.mjs`. It contains reusable 3D path logic such as unweighted shortest-path BFS.
-- **Path variants**: runtime-only 3D path results for `Shortest visible`, `Best explained`, `Wikilinks only`, and `Graphify only`.
+- **Path variants**: runtime-only 3D path results for `Shortest visible`, `Different route`, `Best explained`, `Wikilinks only`, and `Graphify only`.
 - **Edge provenance**: runtime classification for a connection as `Wikilink`, `Graphify`, or `Unknown`, based on Graphify metadata and exported wikilink data.
 - **Review Queue status payload**: JSON printed by a configured local status command. Required shape includes `pending_count`; `items` are optional.
 - **Review Queue graph targets**: optional item fields `source_file` and `node_id` used only to highlight matching graph nodes.

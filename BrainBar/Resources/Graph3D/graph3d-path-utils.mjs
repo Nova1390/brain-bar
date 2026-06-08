@@ -63,6 +63,13 @@ export function computeShortestPath({ sourceId, targetId, nodes = [], edges = []
 export function computePathVariants({ sourceId, targetId, nodes = [], edges = [] } = {}) {
   const allEdges = Array.isArray(edges) ? edges : [];
   const shortest = computeShortestPath({ sourceId, targetId, nodes, edges: allEdges });
+  const differentRoute = computeDifferentRoute({
+    sourceId,
+    targetId,
+    nodes,
+    edges: allEdges,
+    baselinePath: shortest
+  });
   const bestExplained = computeWeightedPath({
     sourceId,
     targetId,
@@ -83,12 +90,19 @@ export function computePathVariants({ sourceId, targetId, nodes = [], edges = []
     edges: allEdges.filter((edge) => edgeProvenance(edge) === 'graphify')
   });
 
-  return [
+  return annotatePathVariants([
     pathVariant({
       id: 'shortest',
       label: 'Shortest visible',
       description: 'Fewest visible steps in the current graph view.',
       path: shortest
+    }),
+    pathVariant({
+      id: 'different',
+      label: 'Different route',
+      description: 'Tries to avoid the shortest path when another visible route exists.',
+      path: differentRoute,
+      missingMessage: 'No different route in current view'
     }),
     pathVariant({
       id: 'best-explained',
@@ -110,7 +124,7 @@ export function computePathVariants({ sourceId, targetId, nodes = [], edges = []
       path: graphifyOnly,
       missingMessage: 'No Graphify-only path in current view'
     })
-  ];
+  ]);
 }
 
 export function explainShortestPath({
@@ -193,6 +207,66 @@ function pathVariant({ id, label, description, path, missingMessage }) {
     edgeIds: path.edgeIds,
     stepCount: Math.max(path.orderedNodeIds.length - 1, 0)
   };
+}
+
+function annotatePathVariants(variants) {
+  const baseline = variants.find((variant) => variant.id === 'shortest');
+  if (!baseline?.found) {
+    return variants;
+  }
+  return variants.map((variant) => {
+    if (variant.id === baseline.id || !variant.found) {
+      return variant;
+    }
+    if (!samePath(variant, baseline)) {
+      return variant;
+    }
+    return {
+      ...variant,
+      sameAs: baseline.id,
+      message: `Same as ${baseline.label}`
+    };
+  });
+}
+
+function computeDifferentRoute({ sourceId, targetId, nodes = [], edges = [], baselinePath }) {
+  if (!baselinePath?.found || !baselinePath.orderedEdgeIds.length) {
+    return emptyPath('No different route in current view');
+  }
+  const baselineEdgeIds = new Set(baselinePath.orderedEdgeIds.map(String));
+  const candidates = [];
+  baselineEdgeIds.forEach((edgeIdToAvoid) => {
+    const candidate = computeShortestPath({
+      sourceId,
+      targetId,
+      nodes,
+      edges: edges.filter((edge) => edgeStableId(edge) !== edgeIdToAvoid)
+    });
+    if (candidate.found && !samePath(candidate, baselinePath)) {
+      candidates.push(candidate);
+    }
+  });
+
+  if (!candidates.length) {
+    return emptyPath('No different route in current view');
+  }
+
+  return candidates.sort(comparePathCandidate)[0];
+}
+
+function samePath(left, right) {
+  return pathKey(left?.orderedEdgeIds || []) === pathKey(right?.orderedEdgeIds || []);
+}
+
+function pathKey(edgeIds) {
+  return edgeIds.map(String).join('/');
+}
+
+function comparePathCandidate(left, right) {
+  if (left.orderedNodeIds.length !== right.orderedNodeIds.length) {
+    return left.orderedNodeIds.length - right.orderedNodeIds.length;
+  }
+  return pathKey(left.orderedEdgeIds).localeCompare(pathKey(right.orderedEdgeIds));
 }
 
 function computeWeightedPath({ sourceId, targetId, nodes = [], edges = [], weightForEdge }) {

@@ -154,6 +154,7 @@ const comparedPaths = graph3dPath.computePathVariants({
 });
 const comparedById = new Map(comparedPaths.map((variant) => [variant.id, variant]));
 assert.deepEqual(comparedById.get('shortest').orderedNodeIds, ['a', 'd']);
+assert.deepEqual(comparedById.get('different').orderedNodeIds, ['a', 'b', 'd']);
 assert.deepEqual(comparedById.get('best-explained').orderedNodeIds, ['a', 'b', 'd']);
 assert.deepEqual(comparedById.get('wikilinks').orderedNodeIds, ['a', 'c', 'e', 'd']);
 assert.equal(comparedById.get('graphify').found, false);
@@ -171,6 +172,10 @@ const graphifyComparedPaths = graph3dPath.computePathVariants({
 assert.deepEqual(
   new Map(graphifyComparedPaths.map((variant) => [variant.id, variant])).get('graphify').orderedNodeIds,
   ['a', 'b', 'd']
+);
+assert.equal(
+  new Map(graphifyComparedPaths.map((variant) => [variant.id, variant])).get('graphify').sameAs,
+  'shortest'
 );
 
 const explainNodes = [

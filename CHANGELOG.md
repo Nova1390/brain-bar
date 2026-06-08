@@ -4,7 +4,7 @@ All notable changes to BrainBar are documented here.
 
 ## Unreleased
 
-- Added 3D Path Compare for switching a traced route between Shortest visible, Best explained, Wikilinks-only, and Graphify-only variants.
+- Added 3D Path Compare for switching a traced route between Shortest visible, Different route, Best explained, Wikilinks-only, and Graphify-only variants.
 - Added deterministic 3D Explain Path summaries under Shortest Path, including provenance badges, bridge notes, community crossing notes, and conservative metadata caveats.
 
 ## 0.9.3 - 2026-06-08

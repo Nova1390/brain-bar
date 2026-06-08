@@ -1554,8 +1554,10 @@ function renderPathCompare(activeVariant) {
     if (variant.id === activeVariant?.id) {
       classes.push('selected');
     }
-    const disabled = variant.found ? '' : 'disabled';
-    const detail = variant.found
+    const disabled = variant.found && !variant.sameAs ? '' : 'disabled';
+    const detail = variant.sameAs
+      ? variant.message
+      : variant.found
       ? `${variant.stepCount} ${variant.stepCount === 1 ? 'step' : 'steps'}`
       : variant.message;
     return `
@@ -1826,7 +1828,7 @@ function activePathVariant() {
 
 function applyPathVariant(variantId) {
   const variant = state.pathVariants.find((item) => item.id === variantId);
-  if (!variant || !variant.found) {
+  if (!variant || !variant.found || variant.sameAs) {
     return;
   }
   state.activePathVariantId = variant.id;
