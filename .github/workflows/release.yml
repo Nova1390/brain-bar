@@ -33,7 +33,33 @@ jobs:
             -destination 'platform=macOS' \
             CODE_SIGNING_ALLOWED=NO
 
+      - name: Import Developer ID certificate
+        env:
+          DEVELOPER_ID_APPLICATION_CERT_BASE64: ${{ secrets.DEVELOPER_ID_APPLICATION_CERT_BASE64 }}
+          DEVELOPER_ID_APPLICATION_CERT_PASSWORD: ${{ secrets.DEVELOPER_ID_APPLICATION_CERT_PASSWORD }}
+          SIGNING_KEYCHAIN_PASSWORD: ${{ secrets.SIGNING_KEYCHAIN_PASSWORD }}
+        run: scripts/import-developer-id-certificate.sh
+
+      - name: Prepare notarization key
+        env:
+          APP_STORE_CONNECT_API_KEY_BASE64: ${{ secrets.APP_STORE_CONNECT_API_KEY_BASE64 }}
+        run: |
+          test -n "$APP_STORE_CONNECT_API_KEY_BASE64" || {
+            echo "Missing APP_STORE_CONNECT_API_KEY_BASE64." >&2
+            exit 1
+          }
+          mkdir -p "$RUNNER_TEMP/notary"
+          printf "%s" "$APP_STORE_CONNECT_API_KEY_BASE64" | base64 --decode > "$RUNNER_TEMP/notary/AuthKey.p8"
+          chmod 600 "$RUNNER_TEMP/notary/AuthKey.p8"
+          echo "BRAINBAR_NOTARY_API_KEY_PATH=$RUNNER_TEMP/notary/AuthKey.p8" >> "$GITHUB_ENV"
+
       - name: Package
+        env:
+          BRAINBAR_SIGNING_MODE: developer-id
+          BRAINBAR_NOTARIZE: "1"
+          BRAINBAR_DEVELOPER_ID_IDENTITY: ${{ secrets.DEVELOPER_ID_APPLICATION_IDENTITY || 'Developer ID Application' }}
+          BRAINBAR_NOTARY_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          BRAINBAR_NOTARY_API_ISSUER: ${{ secrets.APP_STORE_CONNECT_API_ISSUER }}
         run: scripts/package-release.sh
 
       - name: Publish release asset

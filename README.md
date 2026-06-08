@@ -127,7 +127,7 @@ To install elsewhere:
 BRAIN_BAR_INSTALL_DIR=/Applications curl -fsSL https://raw.githubusercontent.com/Nova1390/brain-bar/main/install.sh | bash
 ```
 
-v1 releases are ad-hoc signed but not notarized. On first launch, macOS may block the app until you approve it manually:
+New public releases created by the release workflow are built to be Developer ID signed and notarized. If you install an older ad-hoc build, macOS may block the app until you approve it manually:
 
 1. Try to open BrainBar once.
 2. If macOS blocks it, open System Settings > Privacy & Security.
@@ -369,9 +369,21 @@ Test:
 xcodebuild test -project BrainBar.xcodeproj -scheme BrainBar -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO
 ```
 
-Package a release zip:
+Package a local ad-hoc release zip:
 
 ```sh
+scripts/package-release.sh
+```
+
+Package a Developer ID signed and notarized release zip:
+
+```sh
+BRAINBAR_SIGNING_MODE=developer-id \
+BRAINBAR_NOTARIZE=1 \
+BRAINBAR_DEVELOPER_ID_IDENTITY="Developer ID Application: Your Name (TEAMID)" \
+BRAINBAR_NOTARY_API_KEY_PATH=/path/to/AuthKey.p8 \
+BRAINBAR_NOTARY_API_KEY_ID=KEYID \
+BRAINBAR_NOTARY_API_ISSUER=ISSUER-UUID \
 scripts/package-release.sh
 ```
 
@@ -392,7 +404,7 @@ scripts/check-public-safety.sh
    git push origin v0.9.0
    ```
 
-4. GitHub Actions builds `BrainBar.zip` and attaches it to the release.
+4. GitHub Actions signs, notarizes, staples, builds `BrainBar.zip`, and attaches it to the release.
 
 The expected release asset name is:
 
@@ -420,12 +432,20 @@ end
 
 ## Signing And Notarization
 
-v1 ships ad-hoc signed and not notarized, with manual approval documented above. A production-ready release should add:
+Release tags are expected to publish a notarized `BrainBar.zip`. The release workflow requires these GitHub secrets:
 
-- Developer ID Application signing
-- `xcrun notarytool` submission in GitHub Actions
-- `xcrun stapler staple` before packaging
-- GitHub secrets for Apple signing credentials
+- `DEVELOPER_ID_APPLICATION_CERT_BASE64`: base64-encoded `.p12` Developer ID Application certificate
+- `DEVELOPER_ID_APPLICATION_CERT_PASSWORD`: password for the `.p12`
+- `APP_STORE_CONNECT_API_KEY_BASE64`: base64-encoded App Store Connect API private key
+- `APP_STORE_CONNECT_API_KEY_ID`: App Store Connect API key id
+- `APP_STORE_CONNECT_API_ISSUER`: App Store Connect issuer UUID
+
+Optional secrets:
+
+- `DEVELOPER_ID_APPLICATION_IDENTITY`: exact codesigning identity if multiple Developer ID identities exist
+- `SIGNING_KEYCHAIN_PASSWORD`: temporary CI keychain password
+
+The workflow fails before publishing if these signing or notarization credentials are missing.
 
 ## Privacy
 
