@@ -400,16 +400,16 @@ scripts/check-public-safety.sh
 3. Tag the release:
 
    ```sh
-   git tag v0.9.2
-   git push origin v0.9.2
+   git tag v0.9.3
+   git push origin v0.9.3
    ```
 
-4. GitHub Actions signs, notarizes, staples, builds `BrainBar.zip`, and attaches it to the release.
+4. GitHub Actions signs, notarizes, staples, builds `BrainBar.dmg`, verifies the mounted app, and attaches it to the release.
 
 The expected release asset name is:
 
 ```text
-BrainBar.zip
+BrainBar.dmg
 ```
 
 The installer downloads this asset from the latest GitHub Release.
@@ -420,9 +420,9 @@ The preferred v1 distribution is the simple release installer above. A later rel
 
 ```ruby
 cask "brain-bar" do
-  version "0.9.2"
-  sha256 "<release zip sha256>"
-  url "https://github.com/Nova1390/brain-bar/releases/download/v#{version}/BrainBar.zip"
+  version "0.9.3"
+  sha256 "<release dmg sha256>"
+  url "https://github.com/Nova1390/brain-bar/releases/download/v#{version}/BrainBar.dmg"
   name "BrainBar"
   desc "Native macOS menu bar control panel for local-first vault workflows"
   homepage "https://github.com/Nova1390/brain-bar"
@@ -432,7 +432,7 @@ end
 
 ## Signing And Notarization
 
-Release tags are expected to publish a notarized `BrainBar.zip`. The release workflow requires these GitHub secrets:
+Release tags are expected to publish a notarized `BrainBar.dmg`. The release workflow requires these GitHub secrets:
 
 - `DEVELOPER_ID_APPLICATION_CERT_BASE64`: base64-encoded `.p12` Developer ID Application certificate
 - `DEVELOPER_ID_APPLICATION_CERT_PASSWORD`: password for the `.p12`

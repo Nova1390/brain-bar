@@ -95,5 +95,25 @@ if [ "$NOTARIZE" = "1" ]; then
   spctl --assess --type execute --verbose=4 "$STAGED_APP"
 fi
 
-ditto -c -k --keepParent "$STAGED_APP" "$PRODUCTS_DIR/BrainBar.zip"
-printf "Packaged %s\n" "$PRODUCTS_DIR/BrainBar.zip"
+if [ "$NOTARIZE" = "1" ]; then
+  DMG_ROOT="$STAGING_DIR/dmg-root"
+  DMG_MOUNT="$STAGING_DIR/dmg-mount"
+  DMG_PATH="$PRODUCTS_DIR/BrainBar.dmg"
+  mkdir -p "$DMG_ROOT" "$DMG_MOUNT"
+  ditto "$STAGED_APP" "$DMG_ROOT/BrainBar.app"
+  hdiutil create -volname BrainBar -srcfolder "$DMG_ROOT" -ov -format UDZO "$DMG_PATH"
+  hdiutil attach "$DMG_PATH" -mountpoint "$DMG_MOUNT" -nobrowse -quiet
+  codesign --verify --deep --strict --verbose=2 "$DMG_MOUNT/BrainBar.app"
+  xcrun stapler validate "$DMG_MOUNT/BrainBar.app"
+  spctl --assess --type execute --verbose=4 "$DMG_MOUNT/BrainBar.app"
+  hdiutil detach "$DMG_MOUNT" -quiet
+  printf "Packaged %s\n" "$DMG_PATH"
+else
+  ZIP_PATH="$PRODUCTS_DIR/BrainBar.zip"
+  ZIP_VERIFY_DIR="$STAGING_DIR/zip-verify"
+  ditto -c -k --keepParent "$STAGED_APP" "$ZIP_PATH"
+  mkdir -p "$ZIP_VERIFY_DIR"
+  ditto -x -k "$ZIP_PATH" "$ZIP_VERIFY_DIR"
+  codesign --verify --deep --strict --verbose=2 "$ZIP_VERIFY_DIR/BrainBar.app"
+  printf "Packaged %s\n" "$ZIP_PATH"
+fi

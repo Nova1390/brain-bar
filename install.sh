@@ -3,15 +3,17 @@ set -euo pipefail
 
 REPO="Nova1390/brain-bar"
 APP_NAME="BrainBar"
-ASSET_NAME="BrainBar.zip"
+ASSET_NAME="BrainBar.dmg"
 INSTALL_DIR="${BRAIN_BAR_INSTALL_DIR:-$HOME/Applications}"
 APP_PATH="$INSTALL_DIR/$APP_NAME.app"
 CONFIG_DIR="$HOME/Library/Application Support/BrainBar"
 CONFIG_PATH="$CONFIG_DIR/config.json"
 DOWNLOAD_URL="https://github.com/$REPO/releases/latest/download/$ASSET_NAME"
 TMP_DIR="$(mktemp -d)"
+MOUNT_DIR="$TMP_DIR/mount"
 
 cleanup() {
+  hdiutil detach "$MOUNT_DIR" -quiet >/dev/null 2>&1 || true
   rm -rf "$TMP_DIR"
 }
 trap cleanup EXIT
@@ -73,15 +75,17 @@ fi
 mkdir -p "$INSTALL_DIR"
 printf "Downloading %s\n" "$DOWNLOAD_URL"
 curl -fsSL "$DOWNLOAD_URL" -o "$TMP_DIR/$ASSET_NAME"
-ditto -x -k "$TMP_DIR/$ASSET_NAME" "$TMP_DIR"
+mkdir -p "$MOUNT_DIR"
+hdiutil attach "$TMP_DIR/$ASSET_NAME" -mountpoint "$MOUNT_DIR" -nobrowse -quiet
 
-if [ ! -d "$TMP_DIR/$APP_NAME.app" ]; then
+if [ ! -d "$MOUNT_DIR/$APP_NAME.app" ]; then
   printf "Release asset did not contain %s.app\n" "$APP_NAME" >&2
   exit 1
 fi
 
 rm -rf "$APP_PATH"
-ditto "$TMP_DIR/$APP_NAME.app" "$APP_PATH"
+ditto "$MOUNT_DIR/$APP_NAME.app" "$APP_PATH"
+hdiutil detach "$MOUNT_DIR" -quiet
 create_config_if_missing
 
 printf "\nInstalled %s to %s\n" "$APP_NAME" "$APP_PATH"
