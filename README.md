@@ -448,20 +448,9 @@ end
 
 ## Signing And Notarization
 
-Release tags are expected to publish a notarized `BrainBar.dmg`. The release workflow requires these GitHub secrets:
+Public releases are built as Developer ID signed and Apple-notarized `BrainBar.dmg` assets.
 
-- `DEVELOPER_ID_APPLICATION_CERT_BASE64`: base64-encoded `.p12` Developer ID Application certificate
-- `DEVELOPER_ID_APPLICATION_CERT_PASSWORD`: password for the `.p12`
-- `APP_STORE_CONNECT_API_KEY_BASE64`: base64-encoded App Store Connect API private key
-- `APP_STORE_CONNECT_API_KEY_ID`: App Store Connect API key id
-- `APP_STORE_CONNECT_API_ISSUER`: App Store Connect issuer UUID
-
-Optional secrets:
-
-- `DEVELOPER_ID_APPLICATION_IDENTITY`: exact codesigning identity if multiple Developer ID identities exist
-- `SIGNING_KEYCHAIN_PASSWORD`: temporary CI keychain password
-
-The workflow fails before publishing if these signing or notarization credentials are missing.
+The release workflow fails before publishing if signing or notarization credentials are missing, then verifies the mounted DMG before upload. Maintainer setup details live in [RELEASING.md](RELEASING.md).
 
 ## Privacy
 
