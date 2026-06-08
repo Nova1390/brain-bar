@@ -1,0 +1,45 @@
+name: Verify Release DMG
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to verify
+        required: true
+        default: v0.9.3
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: macos-15
+
+    steps:
+      - name: Download release DMG
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/brainbar-release"
+          gh release download "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern "BrainBar.dmg" \
+            --dir "$RUNNER_TEMP/brainbar-release"
+          shasum -a 256 "$RUNNER_TEMP/brainbar-release/BrainBar.dmg"
+
+      - name: Validate mounted app
+        run: |
+          set -euo pipefail
+          DMG="$RUNNER_TEMP/brainbar-release/BrainBar.dmg"
+          MOUNT="$RUNNER_TEMP/brainbar-release/mount"
+          mkdir -p "$MOUNT"
+          hdiutil attach "$DMG" -mountpoint "$MOUNT" -nobrowse -readonly -quiet
+          trap 'hdiutil detach "$MOUNT" -quiet || true' EXIT
+
+          APP="$MOUNT/BrainBar.app"
+          test -d "$APP"
+          codesign --verify --deep --strict --verbose=2 "$APP"
+          xcrun stapler validate "$APP"
+          spctl --assess --type execute --verbose=4 "$APP"
