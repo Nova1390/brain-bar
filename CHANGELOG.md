@@ -4,6 +4,8 @@ All notable changes to BrainBar are documented here.
 
 ## Unreleased
 
+## 0.9.4 - 2026-06-09
+
 - Added 3D Community Spotlight for highlighting a selected visible community with top notes, bridge notes, and a focused camera move.
 - Optimized 3D Community Spotlight rendering for large communities by budgeting emphasized nodes and edges.
 - Added 3D Daily/Recent Orbit for highlighting recently changed notes and tracing the active recent note to its nearest visible key note.
@@ -11,6 +13,7 @@ All notable changes to BrainBar are documented here.
 - Added 3D Path Compare for switching a traced route between Shortest visible, Different route, Best explained, Wikilinks-only, and Graphify-only variants.
 - Clarified the 3D no-path state so disconnected nodes explain why compare variants are unavailable instead of showing only disabled options.
 - Added deterministic 3D Explain Path summaries under Shortest Path, including provenance badges, bridge notes, community crossing notes, and conservative metadata caveats.
+- Rewrote the README around the current 3D Explorer workflow, signed DMG install path, and release process.
 
 ## 0.9.3 - 2026-06-08
 

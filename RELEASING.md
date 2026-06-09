@@ -39,7 +39,7 @@ The release workflow fails before publishing if required signing or notarization
 Run the clean-runner verification workflow against a published tag:
 
 ```sh
-gh workflow run verify-release-dmg.yml --ref main -f tag=v0.9.3
+gh workflow run verify-release-dmg.yml --ref main -f tag=v0.9.4
 ```
 
 The verification run should report:

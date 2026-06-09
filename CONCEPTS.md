@@ -17,7 +17,7 @@ BrainBar is a local-first macOS control center for a Markdown or Obsidian-style 
 - **Menu bar popover**: the compact BrainBar surface opened from the macOS menu bar.
 - **Focus Window**: the larger native BrainBar window for graph exploration and longer inspection.
 - **2D graph**: the stable embedded Graphify/vis-network graph view, with BrainBar runtime skin and workflow controls injected at runtime.
-- **3D Beta**: the experimental BrainBar-owned 3D graph explorer in the Focus Window. It reads the same local graph metadata as 2D but renders through bundled 3D/canvas resources.
+- **3D Explorer**: the BrainBar-owned 3D graph explorer in the Focus Window. It reads the same local graph metadata as 2D but renders through bundled 3D/canvas resources.
 - **Source Lens**: the session-only graph edge filter for `All`, `Graphify`, and `Wikilinks`.
 - **Review Queue**: a generic local status panel for configured queue or preflight commands. BrainBar displays command output and optional manual actions; it is not the worker.
 - **Brain Check**: a configurable local command hook for the user's own vault validation script or CLI. BrainBar does not define what the check means.
@@ -68,7 +68,7 @@ BrainBar is a local-first macOS control center for a Markdown or Obsidian-style 
 
 - **BrainBar is not Graphify.** BrainBar embeds and controls Graphify output; Graphify generates the graph.
 - **BrainBar is not the vault.** It reads local files and opens source notes, but the vault remains user-owned.
-- **2D graph is not 3D Beta.** 2D is the stable embedded Graphify path. 3D Beta is a separate BrainBar-owned renderer.
+- **2D graph is not 3D Explorer.** 2D is the stable embedded Graphify path. 3D Explorer is a separate BrainBar-owned renderer.
 - **Source Lens is not Graph View Mode.** Source Lens filters edge provenance. Graph View Mode switches between 2D and 3D.
 - **Wikilinks is not a new raw value.** The internal raw value remains `obsidian`; the public label is `Wikilinks`.
 - **Graph Check is not Brain Check.** Graph Check is built from graph data in the viewer. Brain Check is a configurable external command hook.
@@ -78,7 +78,7 @@ BrainBar is a local-first macOS control center for a Markdown or Obsidian-style 
 - **Best explained is not most true.** It prefers available connection metadata and should not be described as the only meaningful path.
 - **Daily/Recent Orbit is not project detection.** It ranks visible recent notes by local metadata or date-like labels and uses visible degree for key notes.
 - **Graph Story is not AI narration.** It is a deterministic tour over visible graph signals and should skip unavailable categories instead of inventing interpretation.
-- **3D Beta is not a release-stable default unless explicitly promoted.** Keep language conservative unless product docs and QA criteria change.
+- **3D Explorer is still local graph visualization, not AI interpretation.** Keep language conservative unless product docs and QA criteria change.
 - **Brain KG is not a public dependency.** Treat it as optional local/generated context unless a concrete integration is present.
 
 ## Agent Rules
@@ -93,7 +93,7 @@ BrainBar is a local-first macOS control center for a Markdown or Obsidian-style 
 
 ## Open Terms To Clarify
 
-- Whether `3D Beta` should eventually become `3D` or another stable product name.
+- Whether `3D Explorer` should remain the durable user-facing name or become plain `3D` in all docs.
 - Whether `Brain Check` should remain a generic hook or gain an official default contract.
 - Whether `Graph Check` findings should stay read-only or eventually become guided workflows.
 - Whether `Brain KG` should stay an external/local workflow term or become a documented BrainBar integration point.
