@@ -133,6 +133,7 @@ final class BrainBarTests: XCTestCase {
         }
     }
 
+    @MainActor
     func testGraph3DPayloadIncludesNodeFileMetadata() throws {
         let vault = try temporaryDirectory()
         let graphDirectory = vault.appendingPathComponent("graphify-out")
