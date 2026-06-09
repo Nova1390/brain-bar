@@ -1538,7 +1538,7 @@ function renderPathPanel() {
     <section class="path-panel">
       <h4>${title}</h4>
       <p>${summary}</p>
-      ${renderPathCompare(activeVariant)}
+      ${hasPath ? renderPathCompare(activeVariant) : renderNoPathHint(source, target)}
       ${steps ? `<div class="path-step-list">${steps}${overflow}</div>` : ''}
       ${renderPathExplanation(explanation)}
     </section>
@@ -1546,7 +1546,7 @@ function renderPathPanel() {
 }
 
 function renderPathCompare(activeVariant) {
-  if (!state.pathTargetId || state.pathVariants.length <= 1) {
+  if (!state.pathTargetId || state.pathVariants.length <= 1 || !state.pathVariants.some((variant) => variant.found)) {
     return '';
   }
   const buttons = state.pathVariants.map((variant) => {
@@ -1571,6 +1571,29 @@ function renderPathCompare(activeVariant) {
     <div class="path-compare">
       <h5>Compare paths</h5>
       <div class="path-variant-list">${buttons}</div>
+    </div>
+  `;
+}
+
+function renderNoPathHint(source, target) {
+  if (!target) {
+    return '';
+  }
+  const sourceDegree = source ? degreeForNode(source.id) : 0;
+  const targetDegree = target ? degreeForNode(target.id) : 0;
+  const lensName = state.lens === 'all' ? 'All' : (state.lens === 'graphify' ? 'Graphify' : 'Wikilinks');
+  const reason = state.lens === 'all'
+    ? 'These notes appear to live in different disconnected groups of the visible graph.'
+    : `The ${lensName} view may be hiding the bridge between these notes.`;
+  return `
+    <div class="path-empty">
+      <h5>No route found</h5>
+      <p>${escapeHTML(reason)}</p>
+      <ul>
+        <li>${escapeHTML(source?.label || 'Source')} has ${sourceDegree} visible ${sourceDegree === 1 ? 'connection' : 'connections'}.</li>
+        <li>${escapeHTML(target.label || 'Target')} has ${targetDegree} visible ${targetDegree === 1 ? 'connection' : 'connections'}.</li>
+        <li>Try a direct neighbor, switch lens, or return to All before tracing again.</li>
+      </ul>
     </div>
   `;
 }

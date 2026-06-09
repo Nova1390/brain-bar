@@ -242,6 +242,7 @@ assert.ok(sparseExplanation.caveat.includes('metadata is unavailable'));
 const graph3dSource = readFileSync(join(root, 'BrainBar/Resources/Graph3D/graph3d.js'), 'utf8');
 assert.match(graph3dSource, /function applyFocusOrbit[\s\S]*clearPathMode\(false\)/);
 assert.match(graph3dSource, /Compare paths/);
+assert.match(graph3dSource, /No route found/);
 
 const obsidianDiff = runtime.computeLensDiff({
   lens: 'obsidian',
