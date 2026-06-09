@@ -244,7 +244,7 @@ struct Graph3DWebView: NSViewRepresentable {
     }
 }
 
-private extension Graph3DWebView {
+extension Graph3DWebView {
     static func graphPayloadScript(readAccessURL: URL) -> String {
         let graphJSONURL = readAccessURL.appendingPathComponent("graph.json")
         guard
@@ -256,6 +256,7 @@ private extension Graph3DWebView {
             return """
             window.__brainBarGraphJSONVersion = "missing";
             window.__brainBarGraphJSON = null;
+            window.__brainBarNodeFileMetadata = { byNodeId: {}, bySourceFile: {} };
             """
         }
 
@@ -267,6 +268,7 @@ private extension Graph3DWebView {
         return """
         window.__brainBarGraphJSONVersion = \(jsStringLiteral(version));
         window.__brainBarGraphJSON = \(json);
+        window.__brainBarNodeFileMetadata = \(GraphNodeFileMetadata.json(graphObject: object, readAccessURL: readAccessURL));
         """
     }
 

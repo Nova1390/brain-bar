@@ -9,6 +9,7 @@ const require = createRequire(import.meta.url);
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const runtime = require(join(root, 'BrainBar/Resources/Graph2D/brainbar-graph-runtime.js'));
 const graph3dPath = await import(pathToFileURL(join(root, 'BrainBar/Resources/Graph3D/graph3d-path-utils.mjs')));
+const graph3dRecent = await import(pathToFileURL(join(root, 'BrainBar/Resources/Graph3D/graph3d-recent-utils.mjs')));
 const fixture = JSON.parse(readFileSync(join(root, 'BrainBarTests/Fixtures/graph-runtime-fixture.json'), 'utf8'));
 
 const graphLinks = fixture.edges;
@@ -72,6 +73,71 @@ globalThis.__brainBarNodeFileMetadata = {
 };
 assert.equal(runtime.nodeTimestamp({ id: 'recentByMetadata', label: 'Recent', source_file: 'notes/Recent.md' }), 1780000000000);
 delete globalThis.__brainBarNodeFileMetadata;
+
+const recentMetadata = {
+  byNodeId: {
+    fresh: { source_file: 'notes/Fresh.md', mtime: 1780500000 },
+    older: { source_file: 'notes/Older.md', mtime: 1780000000 }
+  },
+  bySourceFile: {
+    'notes/BySource.md': { source_file: 'notes/BySource.md', mtime: 1780250000 }
+  }
+};
+assert.equal(
+  graph3dRecent.nodeTimestamp({ id: 'fresh', label: 'Fresh', source_file: 'notes/Fresh.md' }, recentMetadata),
+  1780500000000
+);
+assert.equal(
+  graph3dRecent.nodeTimestamp({ id: 'sourceOnly', label: 'By Source', source_file: 'notes/BySource.md' }, recentMetadata),
+  1780250000000
+);
+assert.equal(graph3dRecent.nodeTimestamp({ id: 'daily', label: '2026-06-09.md' }) > 0, true);
+
+const manyRecentNodes = Array.from({ length: 30 }, (_, index) => ({
+  id: `recent-${index}`,
+  label: `Recent ${index}`,
+  mtime: 1780000000 + index
+}));
+const cappedRecent = graph3dRecent.recentOrbitCandidates({ nodes: manyRecentNodes, limit: 24 });
+assert.equal(cappedRecent.length, 24);
+assert.equal(cappedRecent[0].id, 'recent-29');
+assert.equal(cappedRecent[23].id, 'recent-6');
+
+const recentPathNodes = [
+  { id: 'recent', label: 'Recent Note' },
+  { id: 'near-step', label: 'Near Step' },
+  { id: 'near-key', label: 'Near Key' },
+  { id: 'far-a', label: 'Far A' },
+  { id: 'far-b', label: 'Far B' },
+  { id: 'far-key', label: 'Far Key' }
+];
+const nearestKeyPath = graph3dRecent.nearestKeyNotePath({
+  sourceId: 'recent',
+  nodes: recentPathNodes,
+  edges: [
+    { id: 'recent-near-step', source: 'recent', target: 'near-step' },
+    { id: 'near-step-near-key', source: 'near-step', target: 'near-key' },
+    { id: 'recent-far-a', source: 'recent', target: 'far-a' },
+    { id: 'far-a-far-b', source: 'far-a', target: 'far-b' },
+    { id: 'far-b-far-key', source: 'far-b', target: 'far-key' }
+  ],
+  degreeByNode: new Map([
+    ['near-key', 12],
+    ['far-key', 80]
+  ])
+});
+assert.equal(nearestKeyPath.found, true);
+assert.equal(nearestKeyPath.targetId, 'near-key');
+assert.deepEqual(nearestKeyPath.orderedNodeIds, ['recent', 'near-step', 'near-key']);
+
+const noRecentKeyPath = graph3dRecent.nearestKeyNotePath({
+  sourceId: 'recent',
+  nodes: [{ id: 'recent' }, { id: 'key' }],
+  edges: [],
+  degreeByNode: new Map([['key', 9]])
+});
+assert.equal(noRecentKeyPath.found, false);
+assert.equal(noRecentKeyPath.message, 'No visible path to a key note in current view');
 
 assert.equal(runtime.describeWorkflowView('orphans').title, 'Needs Links');
 assert.equal(runtime.describeWorkflowView('hubs').title, 'Key Notes');

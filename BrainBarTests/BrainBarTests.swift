@@ -133,6 +133,31 @@ final class BrainBarTests: XCTestCase {
         }
     }
 
+    func testGraph3DPayloadIncludesNodeFileMetadata() throws {
+        let vault = try temporaryDirectory()
+        let graphDirectory = vault.appendingPathComponent("graphify-out")
+        let noteURL = vault.appendingPathComponent("Notes/Recent.md")
+        try FileManager.default.createDirectory(at: graphDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: noteURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "recent".write(to: noteURL, atomically: true, encoding: .utf8)
+        let graphJSON = """
+        {
+          "nodes": [
+            { "id": "recent", "label": "Recent", "source_file": "Notes/Recent.md" }
+          ],
+          "edges": []
+        }
+        """
+        try graphJSON.write(to: graphDirectory.appendingPathComponent("graph.json"), atomically: true, encoding: .utf8)
+
+        let script = Graph3DWebView.graphPayloadScript(readAccessURL: graphDirectory)
+
+        XCTAssertTrue(script.contains("window.__brainBarNodeFileMetadata ="))
+        XCTAssertTrue(script.contains(#""recent""#))
+        XCTAssertTrue(script.contains(#""Notes\/Recent.md""#) || script.contains(#""Notes/Recent.md""#))
+        XCTAssertTrue(script.contains(#""mtime""#))
+    }
+
     func testGraphNodeOpenURLUsesObsidianForMarkdownWhenEnabled() throws {
         let vault = try temporaryDirectory()
         let noteURL = vault.appendingPathComponent("Note.md")

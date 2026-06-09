@@ -146,57 +146,8 @@ struct GraphWebView: NSViewRepresentable {
     }
 }
 
-private extension GraphWebView {
-    static func userScripts() -> [WKUserScript] {
-        var scripts: [WKUserScript] = []
-        if let css = bundledResourceString(name: "brainbar-graph-theme", extension: "css", subdirectory: "Graph2D") {
-            scripts.append(
-                WKUserScript(
-                    source: styleInjectionScript(css: css),
-                    injectionTime: .atDocumentEnd,
-                    forMainFrameOnly: true
-                )
-            )
-        }
-        if let runtime = bundledResourceString(name: "brainbar-graph-runtime", extension: "js", subdirectory: "Graph2D") {
-            scripts.append(
-                WKUserScript(
-                    source: runtime,
-                    injectionTime: .atDocumentEnd,
-                    forMainFrameOnly: true
-                )
-            )
-        }
-        return scripts
-    }
-
-    static func graphMetadataScript(readAccessURL: URL) -> String {
-        let graphJSONURL = readAccessURL.appendingPathComponent("graph.json")
-        guard
-            let data = try? Data(contentsOf: graphJSONURL),
-            let object = try? JSONSerialization.jsonObject(with: data),
-            let normalizedData = try? JSONSerialization.data(withJSONObject: object),
-            let json = String(data: normalizedData, encoding: .utf8)
-        else {
-            return """
-            window.__brainBarGraphJSONVersion = "missing";
-            window.__brainBarGraphJSON = null;
-            window.__brainBarNodeFileMetadata = { byNodeId: {}, bySourceFile: {} };
-            """
-        }
-        let resourceValues = try? graphJSONURL.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey])
-        let modifiedAt = resourceValues?.contentModificationDate?.timeIntervalSince1970 ?? 0
-        let fileSize = resourceValues?.fileSize ?? data.count
-        let version = "\(graphJSONURL.path):\(modifiedAt):\(fileSize)"
-
-        return """
-        window.__brainBarGraphJSONVersion = \(jsStringLiteral(version));
-        window.__brainBarGraphJSON = \(json);
-        window.__brainBarNodeFileMetadata = \(nodeFileMetadataJSON(graphObject: object, readAccessURL: readAccessURL));
-        """
-    }
-
-    static func nodeFileMetadataJSON(graphObject: Any, readAccessURL: URL) -> String {
+enum GraphNodeFileMetadata {
+    static func json(graphObject: Any, readAccessURL: URL) -> String {
         guard
             let graph = graphObject as? [String: Any],
             let nodes = graph["nodes"] as? [[String: Any]]
@@ -244,7 +195,7 @@ private extension GraphWebView {
         return json
     }
 
-    static func resolvedVaultFileURL(_ sourceFile: String, vaultURL: URL) -> URL? {
+    private static func resolvedVaultFileURL(_ sourceFile: String, vaultURL: URL) -> URL? {
         guard
             !sourceFile.hasPrefix("/"),
             !sourceFile.split(separator: "/").contains(where: { $0 == ".." })
@@ -256,6 +207,57 @@ private extension GraphWebView {
             return nil
         }
         return resolved
+    }
+}
+
+private extension GraphWebView {
+    static func userScripts() -> [WKUserScript] {
+        var scripts: [WKUserScript] = []
+        if let css = bundledResourceString(name: "brainbar-graph-theme", extension: "css", subdirectory: "Graph2D") {
+            scripts.append(
+                WKUserScript(
+                    source: styleInjectionScript(css: css),
+                    injectionTime: .atDocumentEnd,
+                    forMainFrameOnly: true
+                )
+            )
+        }
+        if let runtime = bundledResourceString(name: "brainbar-graph-runtime", extension: "js", subdirectory: "Graph2D") {
+            scripts.append(
+                WKUserScript(
+                    source: runtime,
+                    injectionTime: .atDocumentEnd,
+                    forMainFrameOnly: true
+                )
+            )
+        }
+        return scripts
+    }
+
+    static func graphMetadataScript(readAccessURL: URL) -> String {
+        let graphJSONURL = readAccessURL.appendingPathComponent("graph.json")
+        guard
+            let data = try? Data(contentsOf: graphJSONURL),
+            let object = try? JSONSerialization.jsonObject(with: data),
+            let normalizedData = try? JSONSerialization.data(withJSONObject: object),
+            let json = String(data: normalizedData, encoding: .utf8)
+        else {
+            return """
+            window.__brainBarGraphJSONVersion = "missing";
+            window.__brainBarGraphJSON = null;
+            window.__brainBarNodeFileMetadata = { byNodeId: {}, bySourceFile: {} };
+            """
+        }
+        let resourceValues = try? graphJSONURL.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey])
+        let modifiedAt = resourceValues?.contentModificationDate?.timeIntervalSince1970 ?? 0
+        let fileSize = resourceValues?.fileSize ?? data.count
+        let version = "\(graphJSONURL.path):\(modifiedAt):\(fileSize)"
+
+        return """
+        window.__brainBarGraphJSONVersion = \(jsStringLiteral(version));
+        window.__brainBarGraphJSON = \(json);
+        window.__brainBarNodeFileMetadata = \(GraphNodeFileMetadata.json(graphObject: object, readAccessURL: readAccessURL));
+        """
     }
 
     static func reviewQueueTargetsScript(status: ReviewQueueStatus) -> String {

@@ -1,6 +1,7 @@
 import * as THREE from './vendor/three.module.min.js';
 import { OrbitControls } from './vendor/OrbitControls.js';
 import { computePathVariants, explainShortestPath } from './graph3d-path-utils.mjs';
+import { nearestKeyNotePath, recentOrbitCandidates } from './graph3d-recent-utils.mjs';
 
 const stage = document.getElementById('stage');
 const graphVisual = document.getElementById('graph-visual');
@@ -38,6 +39,9 @@ const spotlightFocusNodeLimit = 72;
 const spotlightSmallCommunityLimit = 80;
 const spotlightInternalEdgeLimit = 180;
 const spotlightBridgeEdgeLimit = 80;
+const recentOrbitNodeLimit = 24;
+const recentOrbitPanelLimit = 12;
+const recentOrbitKeyNoteLimit = 12;
 
 const pointTexture = createPointTexture();
 
@@ -76,6 +80,16 @@ const state = {
   communitySpotlightFocusNodeIds: new Set(),
   communitySpotlightOverlayEdgeIds: new Set(),
   communitySpotlightSummary: null,
+  recentOrbitMode: false,
+  recentOrbitNodeIds: new Set(),
+  recentOrbitActiveNodeId: null,
+  recentOrbitTargetNodeId: null,
+  recentOrbitPathNodeIds: new Set(),
+  recentOrbitPathEdgeIds: new Set(),
+  recentOrbitOrderedNodeIds: [],
+  recentOrbitOrderedEdgeIds: [],
+  recentOrbitItems: [],
+  recentOrbitMessage: '',
   pathMode: false,
   pathSourceId: null,
   pathTargetId: null,
@@ -279,6 +293,7 @@ function applyLens(fit = true) {
     clearFocusOrbit(false);
     clearPathMode(false);
     clearCommunitySpotlight(false);
+    clearRecentOrbit(false);
     markVisualCacheDirty();
 
     calculateLayout();
@@ -798,6 +813,7 @@ function drawVisualFrame({ width, height, pixelRatio }) {
     state.pathMode && state.pathOrderedNodeIds.length ? 1 : 0,
     state.focusMode ? 1 : 0,
     state.communitySpotlightName ? 1 : 0,
+    state.recentOrbitMode ? 1 : 0,
     state.selectedNode ? 1 : 0,
     hoverTrails.reduce((max, trail) => Math.max(max, trail.intensity), 0),
     edgeTrails.reduce((max, trail) => Math.max(max, trail.intensity), 0)
@@ -813,7 +829,7 @@ function drawVisualFrame({ width, height, pixelRatio }) {
 
   if (hoverAmount > 0.01) {
     visualContext.save();
-    const dimAlpha = state.focusMode ? 0.28 : (state.communitySpotlightName ? 0.18 : 0.1);
+    const dimAlpha = state.focusMode ? 0.28 : (state.communitySpotlightName || state.recentOrbitMode ? 0.18 : 0.1);
     visualContext.globalAlpha = dimAlpha * hoverAmount;
     visualContext.fillStyle = '#050812';
     visualContext.fillRect(0, 0, width, height);
@@ -1094,6 +1110,30 @@ function buildHighlightedEdges(hoverTrails, edgeTrails, width, height) {
     });
     return highlightedEdges;
   }
+  if (state.recentOrbitMode && state.recentOrbitPathEdgeIds.size) {
+    recentOrbitOverlayEdges().forEach((edge, index) => {
+      const source = state.projectedPoints.get(edge.source);
+      const target = state.projectedPoints.get(edge.target);
+      if (!source || !target) {
+        return;
+      }
+      const highlightedPath = new Path2D();
+      addCurvedEdge(
+        highlightedPath,
+        edge,
+        ambientProjectedPoint(source, width, height),
+        ambientProjectedPoint(target, width, height),
+        1
+      );
+      highlightedEdges.push({
+        path: highlightedPath,
+        color: index === 0 ? '#f4f7ff' : '#9dd8ca',
+        intensity: 0.82
+      });
+      seenEdges.add(edge.id);
+    });
+    return highlightedEdges;
+  }
   if (state.selectedNode) {
     const linkedEdges = state.edgesByNode.get(state.selectedNode.id) ?? [];
     linkedEdges.forEach((edge) => {
@@ -1264,6 +1304,12 @@ function communitySpotlightOverlayEdges() {
   return directEdges.concat(bridgeEdges).slice(0, 720);
 }
 
+function recentOrbitOverlayEdges() {
+  return state.recentOrbitOrderedEdgeIds
+    .map((edgeId) => state.edgeById.get(edgeId))
+    .filter(Boolean);
+}
+
 function addCurvedEdge(path, edge, source, target, strength = 1) {
   const control = curvedEdgeControl(edge, source, target, strength);
   path.moveTo(source.x, source.y);
@@ -1394,6 +1440,21 @@ function buildNodeFocusMap(hoverTrails, edgeTrails) {
     });
     return focus;
   }
+  if (state.recentOrbitMode && state.recentOrbitNodeIds.size) {
+    state.recentOrbitNodeIds.forEach((nodeId) => {
+      const isActive = state.recentOrbitActiveNodeId === nodeId;
+      const isTarget = state.recentOrbitTargetNodeId === nodeId;
+      const isPath = state.recentOrbitPathNodeIds.has(nodeId);
+      mergeNodeFocus(focus, nodeId, isActive || isTarget ? 1 : 0, isPath ? 0.82 : 0.58);
+    });
+    if (state.recentOrbitTargetNodeId) {
+      mergeNodeFocus(focus, state.recentOrbitTargetNodeId, 0.9, 0);
+    }
+    state.recentOrbitPathNodeIds.forEach((nodeId) => {
+      mergeNodeFocus(focus, nodeId, state.recentOrbitActiveNodeId === nodeId ? 1 : 0, 0.76);
+    });
+    return focus;
+  }
   if (state.selectedNode) {
     mergeNodeFocus(focus, state.selectedNode.id, 1, 0);
     const neighbors = state.adjacencyByNode.get(state.selectedNode.id) ?? new Set();
@@ -1488,8 +1549,11 @@ function renderNodeInfo(node) {
   if (!node) {
     nodeInfo.innerHTML = state.communitySpotlightName
       ? renderCommunitySpotlightPanel()
-      : '<p class="muted italic">Click a node to inspect it</p>';
+      : state.recentOrbitMode
+      ? renderRecentOrbitPanel()
+      : `${renderRecentOrbitEntry()}<p class="muted italic">Click a node to inspect it</p>`;
     wireCommunitySpotlightPanel();
+    wireRecentOrbitPanel();
     return;
   }
 
@@ -1513,7 +1577,7 @@ function renderNodeInfo(node) {
       <button data-depth="1" ${state.focusDepth === 1 && isFocused ? 'class="selected"' : ''}>Depth 1</button>
       <button data-depth="2" ${state.focusDepth === 2 && isFocused ? 'class="selected"' : ''}>Depth 2</button>
       <button data-depth="3" ${state.focusDepth === 3 && isFocused ? 'class="selected"' : ''}>Depth 3</button>
-      <button id="back-to-all" ${state.focusMode || state.pathMode ? '' : 'disabled'}>Back to all</button>
+      <button id="back-to-all" ${state.focusMode || state.pathMode || state.recentOrbitMode ? '' : 'disabled'}>Back to all</button>
     </div>
     <div class="path-actions">
       <button id="start-path" class="${state.pathSourceId === node.id && !state.pathTargetId ? 'selected' : ''}">Start path</button>
@@ -1522,6 +1586,7 @@ function renderNodeInfo(node) {
     ${focusStatus}
     ${pathStatus}
     ${state.communitySpotlightName ? renderCommunitySpotlightPanel() : ''}
+    ${state.recentOrbitMode ? renderRecentOrbitPanel() : ''}
     ${renderPathPanel()}
     <p><strong>Type:</strong> ${escapeHTML(node.type ?? node.file_type ?? 'document')}</p>
     <p><strong>Community:</strong> ${escapeHTML(node.community)}</p>
@@ -1550,6 +1615,7 @@ function renderNodeInfo(node) {
   document.getElementById('start-path')?.addEventListener('click', () => armPathSource(node));
   document.getElementById('clear-path')?.addEventListener('click', () => clearPathMode(true));
   wireCommunitySpotlightPanel();
+  wireRecentOrbitPanel();
   nodeInfo.querySelectorAll('.path-step[data-node-id]').forEach((pathButton) => {
     pathButton.addEventListener('click', () => {
       const pathNode = nodeForId(pathButton.dataset.nodeId);
@@ -1615,6 +1681,64 @@ function wireCommunitySpotlightPanel() {
       const node = nodeForId(button.dataset.nodeId);
       if (node) {
         selectNode(node, true, { preserveCommunitySpotlight: true });
+      }
+    });
+  });
+}
+
+function renderRecentOrbitEntry() {
+  const items = recentOrbitVisibleItems(recentOrbitNodeLimit);
+  if (!items.length) {
+    return '';
+  }
+  return `
+    <section class="recent-orbit-entry">
+      <button class="primary-button" id="start-recent-orbit">Recent Orbit</button>
+      <p class="muted">${items.length} recently changed or date-named notes in this view.</p>
+    </section>
+  `;
+}
+
+function renderRecentOrbitPanel() {
+  const items = state.recentOrbitItems.length
+    ? state.recentOrbitItems
+    : recentOrbitVisibleItems(recentOrbitNodeLimit);
+  const activeNode = nodeForId(state.recentOrbitActiveNodeId);
+  const targetNode = nodeForId(state.recentOrbitTargetNodeId);
+  const pathText = targetNode && state.recentOrbitOrderedNodeIds.length
+    ? `${Math.max(state.recentOrbitOrderedNodeIds.length - 1, 0)} steps to ${targetNode.label}`
+    : state.recentOrbitMessage || 'No visible path to a key note in current view';
+  const itemButtons = items.slice(0, recentOrbitPanelLimit).map((item, index) => `
+    <button class="recent-orbit-node ${item.id === state.recentOrbitActiveNodeId ? 'selected' : ''}" data-node-id="${escapeHTML(item.id)}">
+      <span>${index + 1}</span>
+      <strong>${escapeHTML(item.label)}</strong>
+      <small>${escapeHTML(formatRecentTimestamp(item.timestamp))}</small>
+    </button>
+  `).join('');
+
+  return `
+    <section class="recent-orbit-panel">
+      <div class="recent-orbit-heading">
+        <div>
+          <h4>Recent Orbit</h4>
+          <p>${items.length} recent notes · ${escapeHTML(activeNode?.label || 'No active note')}</p>
+        </div>
+        <button id="clear-recent-orbit">Back to all</button>
+      </div>
+      <p class="recent-orbit-summary">${escapeHTML(pathText)}</p>
+      <div class="recent-orbit-list">${itemButtons || '<p class="muted">No recent metadata in current view.</p>'}</div>
+    </section>
+  `;
+}
+
+function wireRecentOrbitPanel() {
+  document.getElementById('start-recent-orbit')?.addEventListener('click', () => applyRecentOrbit());
+  document.getElementById('clear-recent-orbit')?.addEventListener('click', () => clearRecentOrbit(true));
+  nodeInfo.querySelectorAll('.recent-orbit-node[data-node-id]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const node = nodeForId(button.dataset.nodeId);
+      if (node) {
+        applyRecentOrbit(node.id, true);
       }
     });
   });
@@ -1850,6 +1974,9 @@ function updateHud() {
   const spotlightText = state.communitySpotlightName
     ? `Spotlight · ${state.communitySpotlightName} · ${state.communitySpotlightNodeIds.size} nodes`
     : '';
+  const recentText = state.recentOrbitMode
+    ? `Recent Orbit · ${state.recentOrbitNodeIds.size} recent · ${nodeForId(state.recentOrbitTargetNodeId)?.label || state.recentOrbitMessage || 'no visible key-note path'}`
+    : '';
   const pathText = pathHudText();
   const base = pathText
     ? `${pathText} · ${lensLabel} · 3D`
@@ -1857,6 +1984,8 @@ function updateHud() {
     ? `${focusText} · ${lensLabel} · 3D`
     : state.communitySpotlightName
     ? `${spotlightText} · ${lensLabel} · 3D`
+    : state.recentOrbitMode
+    ? `${recentText} · ${lensLabel} · 3D`
     : `${lensLabel} · ${state.visibleNodes.length} nodes · ${state.visibleEdges.length} ${edgeLabel} · 3D`;
   const status = state.lastFrameStatus === 'Visible'
     ? ''
@@ -1904,6 +2033,7 @@ function applyCommunitySpotlight(communityName) {
   }
   clearFocusOrbit(false);
   clearPathMode(false);
+  clearRecentOrbit(false);
   state.communitySpotlightName = communityName;
   state.communitySpotlightNodeIds = spotlight.nodeIds;
   state.communitySpotlightEdgeIds = spotlight.edgeIds;
@@ -2022,6 +2152,147 @@ function edgeImportanceScore(edge, spotlightNodeIds, bridgeCounts) {
   return bridgeBoost + sourceBridge * 4 + targetBridge * 4 + Math.log1p(sourceDegree) + Math.log1p(targetDegree);
 }
 
+function recentOrbitVisibleItems(limit = recentOrbitNodeLimit) {
+  return recentOrbitCandidates({
+    nodes: state.visibleNodes,
+    metadata: window.__brainBarNodeFileMetadata || {},
+    limit
+  });
+}
+
+function applyRecentOrbit(preferredNodeId = null, selectActiveNode = false) {
+  const items = recentOrbitVisibleItems(recentOrbitNodeLimit);
+  if (!items.length) {
+    showOverlay('No recent metadata in current view');
+    return;
+  }
+
+  clearFocusOrbit(false);
+  clearPathMode(false);
+  clearCommunitySpotlight(false);
+
+  const preferred = preferredNodeId
+    ? items.find((item) => item.id === String(preferredNodeId))
+    : null;
+  const match = preferred
+    ? {
+      item: preferred,
+      path: nearestKeyNotePath({
+        sourceId: preferred.id,
+        nodes: state.visibleNodes,
+        edges: state.visibleEdges,
+        degreeByNode: state.degreeByNode,
+        keyNoteLimit: recentOrbitKeyNoteLimit
+      })
+    }
+    : firstRecentWithKeyPath(items) || {
+      item: items[0],
+      path: nearestKeyNotePath({
+        sourceId: items[0].id,
+        nodes: state.visibleNodes,
+        edges: state.visibleEdges,
+        degreeByNode: state.degreeByNode,
+        keyNoteLimit: recentOrbitKeyNoteLimit
+      })
+    };
+
+  if (!match.item) {
+    showOverlay('No recent metadata in current view');
+    return;
+  }
+
+  state.recentOrbitMode = true;
+  state.recentOrbitItems = items;
+  state.recentOrbitNodeIds = new Set(items.map((item) => item.id));
+  state.recentOrbitActiveNodeId = match.item.id;
+  applyRecentOrbitPathState(match.path);
+  state.recentOrbitMessage = match.path.found ? '' : match.path.message;
+
+  const activeNode = nodeForId(match.item.id);
+  if (selectActiveNode && activeNode) {
+    state.selectedNode = activeNode;
+    positionSelectedMarker(activeNode);
+  } else {
+    state.selectedNode = null;
+    selectedMarker.visible = false;
+  }
+  renderNodeInfo(state.selectedNode);
+  focusRecentOrbit(match.path, activeNode);
+  updateHud();
+  requestRender();
+}
+
+function firstRecentWithKeyPath(items) {
+  for (const item of items) {
+    const path = nearestKeyNotePath({
+      sourceId: item.id,
+      nodes: state.visibleNodes,
+      edges: state.visibleEdges,
+      degreeByNode: state.degreeByNode,
+      keyNoteLimit: recentOrbitKeyNoteLimit
+    });
+    if (path.found) {
+      return { item, path };
+    }
+  }
+  return null;
+}
+
+function applyRecentOrbitPathState(path) {
+  state.recentOrbitTargetNodeId = path?.targetId || null;
+  state.recentOrbitPathNodeIds = path?.nodeIds || new Set();
+  state.recentOrbitPathEdgeIds = path?.edgeIds || new Set();
+  state.recentOrbitOrderedNodeIds = path?.orderedNodeIds || [];
+  state.recentOrbitOrderedEdgeIds = path?.orderedEdgeIds || [];
+}
+
+function focusRecentOrbit(path, activeNode) {
+  const pathPositions = (path?.orderedNodeIds || [])
+    .map((nodeId) => state.positions.get(nodeId))
+    .filter(Boolean);
+  if (pathPositions.length >= 2) {
+    const bounds = pathPositions.reduce((box, position) => ({
+      minX: Math.min(box.minX, position.x),
+      maxX: Math.max(box.maxX, position.x),
+      minY: Math.min(box.minY, position.y),
+      maxY: Math.max(box.maxY, position.y),
+      minZ: Math.min(box.minZ, position.z),
+      maxZ: Math.max(box.maxZ, position.z)
+    }), { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity, minZ: Infinity, maxZ: -Infinity });
+    const center = new THREE.Vector3(
+      (bounds.minX + bounds.maxX) / 2,
+      (bounds.minY + bounds.maxY) / 2,
+      (bounds.minZ + bounds.maxZ) / 2
+    );
+    const span = Math.max(bounds.maxX - bounds.minX, bounds.maxY - bounds.minY, bounds.maxZ - bounds.minZ, 120);
+    const zoom = clamp(Math.min(stage.clientWidth / (span * 1.28), stage.clientHeight / (span * 1.04)), 0.22, 4.8);
+    orbitCameraTo(center, zoom, 'Recent Orbit');
+    return;
+  }
+  if (activeNode) {
+    focusNode(activeNode, 'Recent Orbit');
+  }
+}
+
+function clearRecentOrbit(render = true) {
+  state.recentOrbitMode = false;
+  state.recentOrbitNodeIds = new Set();
+  state.recentOrbitActiveNodeId = null;
+  state.recentOrbitTargetNodeId = null;
+  state.recentOrbitPathNodeIds = new Set();
+  state.recentOrbitPathEdgeIds = new Set();
+  state.recentOrbitOrderedNodeIds = [];
+  state.recentOrbitOrderedEdgeIds = [];
+  state.recentOrbitItems = [];
+  state.recentOrbitMessage = '';
+  if (render) {
+    fitCameraToGraph('Back to all');
+    renderNodeInfo(state.selectedNode);
+    updateHud();
+    requestRender();
+  }
+}
+
 function focusCommunitySpotlight(spotlight) {
   const positions = Array.from(spotlight.nodeIds)
     .map((nodeId) => state.positions.get(nodeId))
@@ -2058,6 +2329,7 @@ function applyFocusOrbit(node, depth = 1, focusCamera = true) {
   }
   clearPathMode(false);
   clearCommunitySpotlight(false);
+  clearRecentOrbit(false);
   const focus = computeFocusOrbit(node.id, depth);
   state.focusMode = true;
   state.focusDepth = focus.depth;
@@ -2081,6 +2353,7 @@ function armPathSource(node) {
   }
   clearFocusOrbit(false);
   clearCommunitySpotlight(false);
+  clearRecentOrbit(false);
   state.pathMode = true;
   state.pathSourceId = node.id;
   state.pathTargetId = null;
@@ -2106,6 +2379,7 @@ function applyPathToNode(targetNode) {
   }
   clearFocusOrbit(false);
   clearCommunitySpotlight(false);
+  clearRecentOrbit(false);
   const variants = computePathVariants({
     sourceId: sourceNode.id,
     targetId: targetNode.id,
@@ -2181,6 +2455,7 @@ function backToAll() {
   clearFocusOrbit(false);
   clearPathMode(false);
   clearCommunitySpotlight(false);
+  clearRecentOrbit(false);
   fitCameraToGraph('All');
   renderNodeInfo(state.selectedNode);
   updateHud();
@@ -2469,6 +2744,17 @@ function distanceToSegment(point, start, end) {
 function compactNodeLabel(label) {
   const normalized = String(label || 'Untitled').replace(/\s+/g, ' ').trim();
   return normalized.length > 42 ? `${normalized.slice(0, 39)}...` : normalized;
+}
+
+function formatRecentTimestamp(timestamp) {
+  if (!timestamp) {
+    return 'recent';
+  }
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) {
+    return 'recent';
+  }
+  return date.toISOString().slice(0, 10);
 }
 
 function rectanglesOverlap(left, right) {
