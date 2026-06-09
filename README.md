@@ -1,6 +1,6 @@
 # BrainBar
 
-> A local-first macOS graph explorer and workflow control center for Markdown, Obsidian-style vaults, and Graphify output.
+> A local-first 3D control center for your Markdown graph.
 
 [![Latest release](https://img.shields.io/github/v/release/Nova1390/brain-bar?style=flat-square)](https://github.com/Nova1390/brain-bar/releases/latest)
 [![macOS 14+](https://img.shields.io/badge/macOS-14%2B-111827?style=flat-square&logo=apple)](https://www.apple.com/macos/)
@@ -8,11 +8,11 @@
 [![Graphify](https://img.shields.io/badge/Graphify-compatible-6D7DFF?style=flat-square)](https://github.com/safishamsi/graphify)
 [![License: MIT](https://img.shields.io/badge/license-MIT-0f172a?style=flat-square)](LICENSE)
 
-![BrainBar social preview](docs/brainbar-social-preview.png)
-
-BrainBar turns a local Graphify knowledge graph into a native macOS control surface. It helps you open the graph, inspect notes, trace connections, resume recent context, and run local checks without uploading vault content or rewriting generated graph files.
+BrainBar turns local Graphify output into a native macOS workspace for exploring a second brain. Open a 3D map of your notes, focus a single neighborhood, trace the shortest visible route between two ideas, explain why that route exists, and re-enter from what changed recently.
 
 It is built for people who already keep useful things in local Markdown and want the graph to become an operating surface, not just a pretty hairball.
+
+![BrainBar 3D explorer entry points](docs/brainbar-3d-entrypoints.png)
 
 ## Install
 
@@ -49,18 +49,16 @@ Public releases from `v0.9.3` onward are Developer ID signed, Apple-notarized, s
 
 ## Why BrainBar
 
-- **Explore locally.** BrainBar reads local Graphify output and local source files. It does not upload vault content.
-- **Open source notes fast.** Select a graph node, inspect its metadata, and open the backing file from the app.
-- **Turn paths into context.** Shortest Path, Explain Path, and Path Compare make connections easier to inspect.
-- **Recover recent work.** Daily/Recent Orbit highlights recently changed notes and traces them back toward key notes.
-- **Understand the whole graph in steps.** Graph Story creates a deterministic tour through recent notes, key notes, communities, bridge notes, and areas that may need links.
-- **Keep diagnostics separate.** 2D stays available for operational graph views such as Needs Links, Key Notes, Recent, Wikilinks, Graphify, and Graph Check.
+- **A graph you can act on.** Select a node, open its source note, focus its neighbors, or start a path to another idea.
+- **Local by default.** BrainBar reads local Graphify output and local source files. It does not upload vault content.
+- **Paths with meaning.** Shortest Path, Explain Path, and Path Compare turn connections into readable context.
+- **Recent context recovery.** Recent Orbit highlights newly changed notes and shows how they connect back to key notes.
+- **Guided orientation.** Graph Story walks through recent notes, key notes, large communities, bridge notes, and areas that need links.
+- **Diagnostics stay available.** 2D remains the operational view for Needs Links, Key Notes, Recent, Wikilinks, Graphify, and Graph Check.
 
 ## 3D Explorer
 
-The 3D Explorer is BrainBar's main human exploration surface. It uses the same local graph metadata as the 2D view, but renders through BrainBar-owned bundled 3D resources.
-
-![BrainBar 3D Explorer](docs/brainbar-readme-3d-beta.png)
+The 3D Explorer is BrainBar's main human exploration surface. It keeps the whole graph visible, but gives you runtime-only modes for making one part understandable at a time.
 
 ### Focus Orbit
 
@@ -106,6 +104,8 @@ Recent Orbit answers: "What changed recently?"
 
 It highlights recent notes using file modification metadata when available, falls back to date-like labels or paths, and traces one active recent note to its nearest visible key note.
 
+![BrainBar Recent Orbit](docs/brainbar-recent-orbit.png)
+
 ### Graph Story
 
 Graph Story is a guided, deterministic tour through the current visible graph:
@@ -117,6 +117,8 @@ Graph Story is a guided, deterministic tour through the current visible graph:
 - Areas that may need links
 
 The tour adapts to the current Source Lens and community filters. Empty categories are skipped.
+
+![BrainBar Graph Story](docs/brainbar-graph-story.png)
 
 ## 2D Operational Graph
 
