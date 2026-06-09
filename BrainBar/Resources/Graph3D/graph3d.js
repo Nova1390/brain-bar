@@ -2,6 +2,7 @@ import * as THREE from './vendor/three.module.min.js';
 import { OrbitControls } from './vendor/OrbitControls.js';
 import { computePathVariants, explainShortestPath } from './graph3d-path-utils.mjs';
 import { nearestKeyNotePath, recentOrbitCandidates } from './graph3d-recent-utils.mjs';
+import { buildGraphStorySteps } from './graph3d-story-utils.mjs';
 
 const stage = document.getElementById('stage');
 const graphVisual = document.getElementById('graph-visual');
@@ -42,6 +43,11 @@ const spotlightBridgeEdgeLimit = 80;
 const recentOrbitNodeLimit = 24;
 const recentOrbitPanelLimit = 12;
 const recentOrbitKeyNoteLimit = 12;
+const graphStoryRecentLimit = 12;
+const graphStoryKeyNoteLimit = 12;
+const graphStoryCommunityLimit = 3;
+const graphStoryBridgeLimit = 10;
+const graphStoryEdgeLimit = 160;
 
 const pointTexture = createPointTexture();
 
@@ -90,6 +96,15 @@ const state = {
   recentOrbitOrderedEdgeIds: [],
   recentOrbitItems: [],
   recentOrbitMessage: '',
+  graphStoryMode: false,
+  graphStorySteps: [],
+  graphStoryStepIndex: 0,
+  graphStoryNodeIds: new Set(),
+  graphStoryEdgeIds: new Set(),
+  graphStoryFocusNodeIds: new Set(),
+  graphStoryActiveNodeId: null,
+  graphStoryActiveCommunityName: null,
+  graphStoryMessage: '',
   pathMode: false,
   pathSourceId: null,
   pathTargetId: null,
@@ -294,6 +309,7 @@ function applyLens(fit = true) {
     clearPathMode(false);
     clearCommunitySpotlight(false);
     clearRecentOrbit(false);
+    clearGraphStory(false);
     markVisualCacheDirty();
 
     calculateLayout();
@@ -814,6 +830,7 @@ function drawVisualFrame({ width, height, pixelRatio }) {
     state.focusMode ? 1 : 0,
     state.communitySpotlightName ? 1 : 0,
     state.recentOrbitMode ? 1 : 0,
+    state.graphStoryMode ? 1 : 0,
     state.selectedNode ? 1 : 0,
     hoverTrails.reduce((max, trail) => Math.max(max, trail.intensity), 0),
     edgeTrails.reduce((max, trail) => Math.max(max, trail.intensity), 0)
@@ -829,7 +846,7 @@ function drawVisualFrame({ width, height, pixelRatio }) {
 
   if (hoverAmount > 0.01) {
     visualContext.save();
-    const dimAlpha = state.focusMode ? 0.28 : (state.communitySpotlightName || state.recentOrbitMode ? 0.18 : 0.1);
+    const dimAlpha = state.focusMode ? 0.28 : (state.communitySpotlightName || state.recentOrbitMode || state.graphStoryMode ? 0.18 : 0.1);
     visualContext.globalAlpha = dimAlpha * hoverAmount;
     visualContext.fillStyle = '#050812';
     visualContext.fillRect(0, 0, width, height);
@@ -1134,6 +1151,30 @@ function buildHighlightedEdges(hoverTrails, edgeTrails, width, height) {
     });
     return highlightedEdges;
   }
+  if (state.graphStoryMode && state.graphStoryEdgeIds.size) {
+    graphStoryOverlayEdges().forEach((edge) => {
+      const source = state.projectedPoints.get(edge.source);
+      const target = state.projectedPoints.get(edge.target);
+      if (!source || !target) {
+        return;
+      }
+      const highlightedPath = new Path2D();
+      addCurvedEdge(
+        highlightedPath,
+        edge,
+        ambientProjectedPoint(source, width, height),
+        ambientProjectedPoint(target, width, height),
+        0.94
+      );
+      highlightedEdges.push({
+        path: highlightedPath,
+        color: state.graphStoryActiveCommunityName ? colorForCommunity(state.graphStoryActiveCommunityName) : '#d8e6ff',
+        intensity: 0.7
+      });
+      seenEdges.add(edge.id);
+    });
+    return highlightedEdges;
+  }
   if (state.selectedNode) {
     const linkedEdges = state.edgesByNode.get(state.selectedNode.id) ?? [];
     linkedEdges.forEach((edge) => {
@@ -1310,6 +1351,13 @@ function recentOrbitOverlayEdges() {
     .filter(Boolean);
 }
 
+function graphStoryOverlayEdges() {
+  return Array.from(state.graphStoryEdgeIds)
+    .map((edgeId) => state.edgeById.get(edgeId))
+    .filter(Boolean)
+    .slice(0, graphStoryEdgeLimit);
+}
+
 function addCurvedEdge(path, edge, source, target, strength = 1) {
   const control = curvedEdgeControl(edge, source, target, strength);
   path.moveTo(source.x, source.y);
@@ -1455,6 +1503,19 @@ function buildNodeFocusMap(hoverTrails, edgeTrails) {
     });
     return focus;
   }
+  if (state.graphStoryMode && state.graphStoryNodeIds.size) {
+    const focusNodeIds = state.graphStoryFocusNodeIds.size
+      ? state.graphStoryFocusNodeIds
+      : state.graphStoryNodeIds;
+    focusNodeIds.forEach((nodeId) => {
+      const node = nodeForId(nodeId);
+      const degree = node ? degreeForNode(node.id) : 0;
+      const isActive = state.graphStoryActiveNodeId === nodeId;
+      const amount = clamp(0.48 + Math.log1p(degree) * 0.08, 0.48, 0.86);
+      mergeNodeFocus(focus, nodeId, isActive ? 1 : 0, amount);
+    });
+    return focus;
+  }
   if (state.selectedNode) {
     mergeNodeFocus(focus, state.selectedNode.id, 1, 0);
     const neighbors = state.adjacencyByNode.get(state.selectedNode.id) ?? new Set();
@@ -1551,9 +1612,12 @@ function renderNodeInfo(node) {
       ? renderCommunitySpotlightPanel()
       : state.recentOrbitMode
       ? renderRecentOrbitPanel()
-      : `${renderRecentOrbitEntry()}<p class="muted italic">Click a node to inspect it</p>`;
+      : state.graphStoryMode
+      ? renderGraphStoryPanel()
+      : `${renderGraphStoryEntry()}${renderRecentOrbitEntry()}<p class="muted italic">Click a node to inspect it</p>`;
     wireCommunitySpotlightPanel();
     wireRecentOrbitPanel();
+    wireGraphStoryPanel();
     return;
   }
 
@@ -1577,7 +1641,7 @@ function renderNodeInfo(node) {
       <button data-depth="1" ${state.focusDepth === 1 && isFocused ? 'class="selected"' : ''}>Depth 1</button>
       <button data-depth="2" ${state.focusDepth === 2 && isFocused ? 'class="selected"' : ''}>Depth 2</button>
       <button data-depth="3" ${state.focusDepth === 3 && isFocused ? 'class="selected"' : ''}>Depth 3</button>
-      <button id="back-to-all" ${state.focusMode || state.pathMode || state.recentOrbitMode ? '' : 'disabled'}>Back to all</button>
+      <button id="back-to-all" ${state.focusMode || state.pathMode || state.recentOrbitMode || state.graphStoryMode ? '' : 'disabled'}>Back to all</button>
     </div>
     <div class="path-actions">
       <button id="start-path" class="${state.pathSourceId === node.id && !state.pathTargetId ? 'selected' : ''}">Start path</button>
@@ -1587,6 +1651,7 @@ function renderNodeInfo(node) {
     ${pathStatus}
     ${state.communitySpotlightName ? renderCommunitySpotlightPanel() : ''}
     ${state.recentOrbitMode ? renderRecentOrbitPanel() : ''}
+    ${state.graphStoryMode ? renderGraphStoryPanel() : ''}
     ${renderPathPanel()}
     <p><strong>Type:</strong> ${escapeHTML(node.type ?? node.file_type ?? 'document')}</p>
     <p><strong>Community:</strong> ${escapeHTML(node.community)}</p>
@@ -1616,6 +1681,7 @@ function renderNodeInfo(node) {
   document.getElementById('clear-path')?.addEventListener('click', () => clearPathMode(true));
   wireCommunitySpotlightPanel();
   wireRecentOrbitPanel();
+  wireGraphStoryPanel();
   nodeInfo.querySelectorAll('.path-step[data-node-id]').forEach((pathButton) => {
     pathButton.addEventListener('click', () => {
       const pathNode = nodeForId(pathButton.dataset.nodeId);
@@ -1739,6 +1805,79 @@ function wireRecentOrbitPanel() {
       const node = nodeForId(button.dataset.nodeId);
       if (node) {
         applyRecentOrbit(node.id, true);
+      }
+    });
+  });
+}
+
+function renderGraphStoryEntry() {
+  const steps = graphStoryVisibleSteps();
+  if (!steps.length) {
+    return '';
+  }
+  return `
+    <section class="graph-story-entry">
+      <button class="primary-button" id="start-graph-story">Graph Story</button>
+      <p class="muted">${steps.length} guided steps through this visible graph.</p>
+    </section>
+  `;
+}
+
+function renderGraphStoryPanel() {
+  const step = currentGraphStoryStep();
+  if (!step) {
+    return `
+      <section class="graph-story-panel">
+        <div class="graph-story-heading">
+          <div>
+            <h4>Graph Story</h4>
+            <p>No story steps in current view.</p>
+          </div>
+          <button id="clear-graph-story">Exit tour</button>
+        </div>
+      </section>
+    `;
+  }
+  const canGoBack = state.graphStoryStepIndex > 0;
+  const canGoNext = state.graphStoryStepIndex < state.graphStorySteps.length - 1;
+  const itemButtons = (step.items || []).slice(0, 12).map((item, index) => `
+    <button class="graph-story-node ${item.id === state.graphStoryActiveNodeId ? 'selected' : ''}" data-node-id="${escapeHTML(item.id)}">
+      <span>${index + 1}</span>
+      <strong>${escapeHTML(item.label)}</strong>
+      <small>${escapeHTML(item.detail || '')}</small>
+    </button>
+  `).join('');
+  return `
+    <section class="graph-story-panel">
+      <div class="graph-story-heading">
+        <div>
+          <h4>Graph Story</h4>
+          <p>Step ${state.graphStoryStepIndex + 1} of ${state.graphStorySteps.length} · ${escapeHTML(step.title)}</p>
+        </div>
+        <button id="clear-graph-story">Exit tour</button>
+      </div>
+      <p class="graph-story-summary">${escapeHTML(step.summary || state.graphStoryMessage || '')}</p>
+      <div class="graph-story-controls">
+        <button id="graph-story-back" ${canGoBack ? '' : 'disabled'}>Back</button>
+        <button id="graph-story-next" ${canGoNext ? '' : 'disabled'}>Next</button>
+      </div>
+      <div class="graph-story-list">${itemButtons || '<p class="muted">No notes to list for this step.</p>'}</div>
+    </section>
+  `;
+}
+
+function wireGraphStoryPanel() {
+  document.getElementById('start-graph-story')?.addEventListener('click', () => startGraphStory());
+  document.getElementById('clear-graph-story')?.addEventListener('click', () => clearGraphStory(true));
+  document.getElementById('graph-story-back')?.addEventListener('click', () => applyGraphStoryStep(state.graphStoryStepIndex - 1));
+  document.getElementById('graph-story-next')?.addEventListener('click', () => applyGraphStoryStep(state.graphStoryStepIndex + 1));
+  nodeInfo.querySelectorAll('.graph-story-node[data-node-id]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const node = nodeForId(button.dataset.nodeId);
+      if (node) {
+        state.graphStoryActiveNodeId = node.id;
+        selectNode(node, true);
+        renderNodeInfo(node);
       }
     });
   });
@@ -1889,7 +2028,7 @@ function renderLegend() {
   legend.innerHTML = '';
   state.communities.forEach((community) => {
     const row = document.createElement('div');
-    row.className = `legend-item ${state.communitySpotlightName === community.name ? 'spotlighted' : ''}`;
+    row.className = `legend-item ${state.communitySpotlightName === community.name || state.graphStoryActiveCommunityName === community.name ? 'spotlighted' : ''}`;
     row.innerHTML = `
       <input type="checkbox" ${state.communityEnabled.has(community.name) ? 'checked' : ''}>
       <button class="legend-label community-spotlight-button" data-community-name="${escapeHTML(community.name)}"><span class="color-dot" style="background:${community.color}"></span> ${escapeHTML(community.name)}</button>
@@ -1977,6 +2116,10 @@ function updateHud() {
   const recentText = state.recentOrbitMode
     ? `Recent Orbit · ${state.recentOrbitNodeIds.size} recent · ${nodeForId(state.recentOrbitTargetNodeId)?.label || state.recentOrbitMessage || 'no visible key-note path'}`
     : '';
+  const storyStep = currentGraphStoryStep();
+  const storyText = state.graphStoryMode && storyStep
+    ? `Graph Story · ${state.graphStoryStepIndex + 1}/${state.graphStorySteps.length} · ${storyStep.title}`
+    : '';
   const pathText = pathHudText();
   const base = pathText
     ? `${pathText} · ${lensLabel} · 3D`
@@ -1986,6 +2129,8 @@ function updateHud() {
     ? `${spotlightText} · ${lensLabel} · 3D`
     : state.recentOrbitMode
     ? `${recentText} · ${lensLabel} · 3D`
+    : state.graphStoryMode
+    ? `${storyText || 'Graph Story'} · ${lensLabel} · 3D`
     : `${lensLabel} · ${state.visibleNodes.length} nodes · ${state.visibleEdges.length} ${edgeLabel} · 3D`;
   const status = state.lastFrameStatus === 'Visible'
     ? ''
@@ -2034,6 +2179,7 @@ function applyCommunitySpotlight(communityName) {
   clearFocusOrbit(false);
   clearPathMode(false);
   clearRecentOrbit(false);
+  clearGraphStory(false);
   state.communitySpotlightName = communityName;
   state.communitySpotlightNodeIds = spotlight.nodeIds;
   state.communitySpotlightEdgeIds = spotlight.edgeIds;
@@ -2160,6 +2306,140 @@ function recentOrbitVisibleItems(limit = recentOrbitNodeLimit) {
   });
 }
 
+function graphStoryVisibleSteps() {
+  return buildGraphStorySteps({
+    nodes: state.visibleNodes,
+    edges: state.visibleEdges,
+    communities: state.communities.filter((community) => state.communityEnabled.has(community.name)),
+    degreeByNode: state.degreeByNode,
+    metadata: window.__brainBarNodeFileMetadata || {},
+    limits: {
+      recent: graphStoryRecentLimit,
+      keyNotes: graphStoryKeyNoteLimit,
+      communities: graphStoryCommunityLimit,
+      bridgeNotes: graphStoryBridgeLimit,
+      edges: graphStoryEdgeLimit
+    }
+  });
+}
+
+function startGraphStory() {
+  const steps = graphStoryVisibleSteps();
+  if (!steps.length) {
+    showOverlay('No Graph Story steps in current view');
+    return;
+  }
+  clearFocusOrbit(false);
+  clearPathMode(false);
+  clearCommunitySpotlight(false);
+  clearRecentOrbit(false);
+  state.graphStoryMode = true;
+  state.graphStorySteps = steps;
+  state.graphStoryStepIndex = 0;
+  applyGraphStoryStep(0, true);
+}
+
+function applyGraphStoryStep(index, render = true) {
+  if (!state.graphStorySteps.length) {
+    clearGraphStory(render);
+    return;
+  }
+  const nextIndex = clamp(Math.round(Number(index) || 0), 0, state.graphStorySteps.length - 1);
+  const step = state.graphStorySteps[nextIndex];
+  state.graphStoryMode = true;
+  state.graphStoryStepIndex = nextIndex;
+  state.graphStoryNodeIds = new Set(step.nodeIds || []);
+  state.graphStoryFocusNodeIds = new Set(step.focusNodeIds || step.nodeIds || []);
+  state.graphStoryEdgeIds = new Set(step.edgeIds || []);
+  state.graphStoryActiveNodeId = step.activeNodeId || Array.from(state.graphStoryFocusNodeIds)[0] || null;
+  state.graphStoryActiveCommunityName = step.activeCommunityName || null;
+  state.graphStoryMessage = step.summary || '';
+  state.selectedNode = null;
+  selectedMarker.visible = false;
+
+  if (step.type === 'community' && step.activeCommunityName) {
+    const spotlight = computeCommunitySpotlight(step.activeCommunityName);
+    state.graphStoryNodeIds = spotlight.nodeIds;
+    state.graphStoryFocusNodeIds = spotlight.focusNodeIds;
+    state.graphStoryEdgeIds = spotlight.overlayEdgeIds;
+    state.graphStoryActiveNodeId = step.activeNodeId || spotlight.topNodes[0]?.id || null;
+  }
+
+  if (state.graphStoryActiveNodeId) {
+    const activeNode = nodeForId(state.graphStoryActiveNodeId);
+    if (activeNode && !state.selectedNode) {
+      positionSelectedMarker(activeNode);
+    }
+  }
+
+  focusGraphStoryStep(step);
+  if (render) {
+    renderNodeInfo(state.selectedNode);
+    updateHud();
+    requestRender();
+  }
+}
+
+function currentGraphStoryStep() {
+  return state.graphStorySteps[state.graphStoryStepIndex] || null;
+}
+
+function clearGraphStory(render = true) {
+  state.graphStoryMode = false;
+  state.graphStorySteps = [];
+  state.graphStoryStepIndex = 0;
+  state.graphStoryNodeIds = new Set();
+  state.graphStoryEdgeIds = new Set();
+  state.graphStoryFocusNodeIds = new Set();
+  state.graphStoryActiveNodeId = null;
+  state.graphStoryActiveCommunityName = null;
+  state.graphStoryMessage = '';
+  if (render) {
+    selectedMarker.visible = !!state.selectedNode;
+    if (state.selectedNode) {
+      positionSelectedMarker(state.selectedNode);
+    } else {
+      fitCameraToGraph('Back to all');
+    }
+    renderNodeInfo(state.selectedNode);
+    updateHud();
+    requestRender();
+  }
+}
+
+function focusGraphStoryStep(step) {
+  const focusIds = state.graphStoryFocusNodeIds.size
+    ? state.graphStoryFocusNodeIds
+    : state.graphStoryNodeIds;
+  const positions = Array.from(focusIds)
+    .map((nodeId) => state.positions.get(nodeId))
+    .filter(Boolean);
+  if (!positions.length) {
+    return;
+  }
+  const bounds = positions.reduce((box, position) => ({
+    minX: Math.min(box.minX, position.x),
+    maxX: Math.max(box.maxX, position.x),
+    minY: Math.min(box.minY, position.y),
+    maxY: Math.max(box.maxY, position.y),
+    minZ: Math.min(box.minZ, position.z),
+    maxZ: Math.max(box.maxZ, position.z)
+  }), { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity, minZ: Infinity, maxZ: -Infinity });
+  const center = new THREE.Vector3(
+    (bounds.minX + bounds.maxX) / 2,
+    (bounds.minY + bounds.maxY) / 2,
+    (bounds.minZ + bounds.maxZ) / 2
+  );
+  const span = Math.max(
+    bounds.maxX - bounds.minX,
+    bounds.maxY - bounds.minY,
+    bounds.maxZ - bounds.minZ,
+    step?.type === 'community' ? 260 : 140
+  );
+  const zoom = clamp(Math.min(stage.clientWidth / (span * 1.18), stage.clientHeight / (span * 0.94)), 0.2, 4.8);
+  orbitCameraTo(center, zoom, 'Graph Story');
+}
+
 function applyRecentOrbit(preferredNodeId = null, selectActiveNode = false) {
   const items = recentOrbitVisibleItems(recentOrbitNodeLimit);
   if (!items.length) {
@@ -2170,6 +2450,7 @@ function applyRecentOrbit(preferredNodeId = null, selectActiveNode = false) {
   clearFocusOrbit(false);
   clearPathMode(false);
   clearCommunitySpotlight(false);
+  clearGraphStory(false);
 
   const preferred = preferredNodeId
     ? items.find((item) => item.id === String(preferredNodeId))
@@ -2330,6 +2611,7 @@ function applyFocusOrbit(node, depth = 1, focusCamera = true) {
   clearPathMode(false);
   clearCommunitySpotlight(false);
   clearRecentOrbit(false);
+  clearGraphStory(false);
   const focus = computeFocusOrbit(node.id, depth);
   state.focusMode = true;
   state.focusDepth = focus.depth;
@@ -2354,6 +2636,7 @@ function armPathSource(node) {
   clearFocusOrbit(false);
   clearCommunitySpotlight(false);
   clearRecentOrbit(false);
+  clearGraphStory(false);
   state.pathMode = true;
   state.pathSourceId = node.id;
   state.pathTargetId = null;
@@ -2380,6 +2663,7 @@ function applyPathToNode(targetNode) {
   clearFocusOrbit(false);
   clearCommunitySpotlight(false);
   clearRecentOrbit(false);
+  clearGraphStory(false);
   const variants = computePathVariants({
     sourceId: sourceNode.id,
     targetId: targetNode.id,
@@ -2456,6 +2740,7 @@ function backToAll() {
   clearPathMode(false);
   clearCommunitySpotlight(false);
   clearRecentOrbit(false);
+  clearGraphStory(false);
   fitCameraToGraph('All');
   renderNodeInfo(state.selectedNode);
   updateHud();
@@ -2676,6 +2961,9 @@ function edgeAtEvent(event) {
 function candidateEdgesNearPoint(point, threshold) {
   if (state.focusMode && state.focusEdgeIds.size) {
     return focusOverlayEdges();
+  }
+  if (state.graphStoryMode && state.graphStoryEdgeIds.size) {
+    return graphStoryOverlayEdges();
   }
 
   const candidateIds = new Set();
@@ -3018,6 +3306,7 @@ function installWindowAPI() {
       state.selectedNode = null;
       clearFocusOrbit(false);
       clearPathMode(false);
+      clearGraphStory(false);
       prepareCommunities(state.graph);
       applyLens(true);
     } catch (error) {
@@ -3030,6 +3319,7 @@ function installWindowAPI() {
     state.selectedNode = null;
     clearFocusOrbit(false);
     clearPathMode(false);
+    clearGraphStory(false);
     applyLens(true);
   };
 

@@ -10,6 +10,7 @@ const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const runtime = require(join(root, 'BrainBar/Resources/Graph2D/brainbar-graph-runtime.js'));
 const graph3dPath = await import(pathToFileURL(join(root, 'BrainBar/Resources/Graph3D/graph3d-path-utils.mjs')));
 const graph3dRecent = await import(pathToFileURL(join(root, 'BrainBar/Resources/Graph3D/graph3d-recent-utils.mjs')));
+const graph3dStory = await import(pathToFileURL(join(root, 'BrainBar/Resources/Graph3D/graph3d-story-utils.mjs')));
 const fixture = JSON.parse(readFileSync(join(root, 'BrainBarTests/Fixtures/graph-runtime-fixture.json'), 'utf8'));
 
 const graphLinks = fixture.edges;
@@ -138,6 +139,74 @@ const noRecentKeyPath = graph3dRecent.nearestKeyNotePath({
 });
 assert.equal(noRecentKeyPath.found, false);
 assert.equal(noRecentKeyPath.message, 'No visible path to a key note in current view');
+
+const storyNodes = [
+  { id: 'recent-a', label: 'Recent A', community: 'Community 1' },
+  { id: 'key-a', label: 'Key A', community: 'Community 1' },
+  { id: 'bridge-a', label: 'Bridge A', community: 'Community 1' },
+  { id: 'bridge-b', label: 'Bridge B', community: 'Community 2' },
+  { id: 'community-b', label: 'Community B', community: 'Community 2' },
+  { id: 'orphan', label: 'Orphan', community: 'Community 3' }
+];
+const storyEdges = [
+  { id: 'recent-key', source: 'recent-a', target: 'key-a' },
+  { id: 'key-bridge-a', source: 'key-a', target: 'bridge-a' },
+  { id: 'bridge-cross', source: 'bridge-a', target: 'bridge-b' },
+  { id: 'bridge-community-b', source: 'bridge-b', target: 'community-b' }
+];
+const storyDegree = new Map([
+  ['recent-a', 1],
+  ['key-a', 5],
+  ['bridge-a', 4],
+  ['bridge-b', 3],
+  ['community-b', 1],
+  ['orphan', 0]
+]);
+const storySteps = graph3dStory.buildGraphStorySteps({
+  nodes: storyNodes,
+  edges: storyEdges,
+  communities: [
+    { name: 'Community 1', count: 3 },
+    { name: 'Community 2', count: 2 },
+    { name: 'Community 3', count: 1 }
+  ],
+  degreeByNode: storyDegree,
+  metadata: {
+    byNodeId: {
+      'recent-a': { mtime: 1780500000 }
+    }
+  },
+  limits: {
+    recent: 12,
+    keyNotes: 12,
+    communities: 3,
+    bridgeNotes: 10,
+    edges: 160
+  }
+});
+assert.deepEqual(storySteps.map((step) => step.id), [
+  'recent',
+  'key-notes',
+  'community-1',
+  'community-2',
+  'community-3',
+  'bridge-notes',
+  'needs-attention'
+]);
+assert.equal(storySteps.find((step) => step.id === 'key-notes').items[0].id, 'key-a');
+assert.equal(storySteps.find((step) => step.id === 'community-1').activeCommunityName, 'Community 1');
+assert.equal(storySteps.find((step) => step.id === 'bridge-notes').items[0].id, 'bridge-a');
+assert.equal(storySteps.find((step) => step.id === 'needs-attention').items[0].id, 'orphan');
+
+const storyWithoutOptionalSteps = graph3dStory.buildGraphStorySteps({
+  nodes: storyNodes.filter((node) => node.id !== 'orphan').map((node) => ({ ...node, label: node.label.replace('Recent', 'Plain') })),
+  edges: storyEdges,
+  degreeByNode: storyDegree,
+  metadata: {},
+  limits: { communities: 0 }
+});
+assert.equal(storyWithoutOptionalSteps.some((step) => step.id === 'recent'), false);
+assert.equal(storyWithoutOptionalSteps.some((step) => step.id === 'needs-attention'), false);
 
 assert.equal(runtime.describeWorkflowView('orphans').title, 'Needs Links');
 assert.equal(runtime.describeWorkflowView('hubs').title, 'Key Notes');
@@ -311,6 +380,10 @@ assert.match(graph3dSource, /Compare paths/);
 assert.match(graph3dSource, /No route found/);
 assert.match(graph3dSource, /Community Spotlight/);
 assert.match(graph3dSource, /bridge notes/);
+assert.match(graph3dSource, /Graph Story/);
+assert.match(graph3dSource, /function applyFocusOrbit[\s\S]*clearGraphStory\(false\)/);
+assert.match(graph3dSource, /function applyPathToNode[\s\S]*clearGraphStory\(false\)/);
+assert.match(graph3dSource, /function applyRecentOrbit[\s\S]*clearGraphStory\(false\)/);
 
 const obsidianDiff = runtime.computeLensDiff({
   lens: 'obsidian',
@@ -377,6 +450,7 @@ assert.ok(resetAll.nodeUpdates.every((update) => update.hidden === false));
   'BrainBar/Resources/Graph3D/graph3d.css',
   'BrainBar/Resources/Graph3D/graph3d.js',
   'BrainBar/Resources/Graph3D/graph3d-path-utils.mjs',
+  'BrainBar/Resources/Graph3D/graph3d-story-utils.mjs',
   'BrainBar/Resources/Graph3D/vendor/three.module.min.js',
   'BrainBar/Resources/Graph3D/vendor/OrbitControls.js'
 ].forEach((relativePath) => {

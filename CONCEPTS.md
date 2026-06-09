@@ -44,6 +44,7 @@ BrainBar is a local-first macOS control center for a Markdown or Obsidian-style 
 - **Best explained path**: a Path Compare variant that prefers routes with clearer Wikilink or Graphify metadata. It is still deterministic graph analysis, not semantic proof.
 - **Community Spotlight**: a 3D runtime view that highlights one visible community, dims surrounding context, and lists top notes plus bridge notes.
 - **Daily/Recent Orbit**: a 3D runtime view for recently changed or date-named notes. It highlights recent notes and traces one active recent note to its nearest visible key note when a path exists.
+- **Graph Story**: a 3D runtime guided tour through deterministic graph signals such as recent notes, key notes, large communities, bridge notes, and needs-attention areas.
 
 ## Internal Architecture Terms
 
@@ -57,6 +58,7 @@ BrainBar is a local-first macOS control center for a Markdown or Obsidian-style 
 - **Path variants**: runtime-only 3D path results for `Shortest visible`, `Different route`, `Best explained`, `Wikilinks only`, and `Graphify only`.
 - **Community spotlight state**: runtime-only 3D state for the selected community, highlighted node ids, highlighted edge ids, top notes, and bridge notes.
 - **Recent orbit state**: runtime-only 3D state for recent node ids, active recent node, nearest key-note target, and the active recent-to-key path.
+- **Graph story state**: runtime-only 3D state for the active tour step, highlighted nodes/edges, active community, and current guided-tour message.
 - **Edge provenance**: runtime classification for a connection as `Wikilink`, `Graphify`, or `Unknown`, based on Graphify metadata and exported wikilink data.
 - **Review Queue status payload**: JSON printed by a configured local status command. Required shape includes `pending_count`; `items` are optional.
 - **Review Queue graph targets**: optional item fields `source_file` and `node_id` used only to highlight matching graph nodes.
@@ -75,6 +77,7 @@ BrainBar is a local-first macOS control center for a Markdown or Obsidian-style 
 - **Explain Path is not AI reasoning.** It summarizes visible graph metadata conservatively and should not invent meaning beyond the current path data.
 - **Best explained is not most true.** It prefers available connection metadata and should not be described as the only meaningful path.
 - **Daily/Recent Orbit is not project detection.** It ranks visible recent notes by local metadata or date-like labels and uses visible degree for key notes.
+- **Graph Story is not AI narration.** It is a deterministic tour over visible graph signals and should skip unavailable categories instead of inventing interpretation.
 - **3D Beta is not a release-stable default unless explicitly promoted.** Keep language conservative unless product docs and QA criteria change.
 - **Brain KG is not a public dependency.** Treat it as optional local/generated context unless a concrete integration is present.
 

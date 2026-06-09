@@ -334,13 +334,15 @@ h2 {
     rgba(7, 9, 17, 0.42);
 }
 
-.recent-orbit-entry {
+.recent-orbit-entry,
+.graph-story-entry {
   display: grid;
   gap: 6px;
   margin: 0 0 12px;
 }
 
-.recent-orbit-entry p {
+.recent-orbit-entry p,
+.graph-story-entry p {
   margin: 0 !important;
 }
 
@@ -353,6 +355,18 @@ h2 {
   border-radius: 11px;
   background:
     linear-gradient(180deg, rgba(86, 202, 155, 0.12), rgba(244, 246, 255, 0.045)),
+    rgba(7, 9, 17, 0.42);
+}
+
+.graph-story-panel {
+  display: grid;
+  gap: 9px;
+  margin: 10px 0 12px;
+  padding: 10px;
+  border: 1px solid rgba(190, 202, 255, 0.20);
+  border-radius: 11px;
+  background:
+    linear-gradient(180deg, rgba(135, 154, 255, 0.14), rgba(244, 246, 255, 0.045)),
     rgba(7, 9, 17, 0.42);
 }
 
@@ -370,21 +384,33 @@ h2 {
   gap: 10px;
 }
 
+.graph-story-heading {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 10px;
+}
+
 .spotlight-heading h4,
 .recent-orbit-heading h4,
+.graph-story-heading h4,
 .spotlight-panel h5 {
   margin: 0;
 }
 
 .spotlight-heading p,
 .recent-orbit-heading p,
+.graph-story-heading p,
+.graph-story-summary,
 .recent-orbit-summary,
 .spotlight-summary {
   margin: 0 !important;
 }
 
 .spotlight-heading button,
-.recent-orbit-heading button {
+.recent-orbit-heading button,
+.graph-story-heading button,
+.graph-story-controls button {
   min-height: 26px;
   padding: 5px 8px;
   border: 1px solid rgba(244, 246, 255, 0.12);
@@ -392,6 +418,16 @@ h2 {
   background: rgba(244, 246, 255, 0.055);
   color: rgba(244, 246, 255, 0.78);
   font: 680 11px -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+}
+
+.graph-story-controls {
+  display: flex;
+  gap: 6px;
+}
+
+.graph-story-controls button:disabled {
+  cursor: default;
+  opacity: 0.42;
 }
 
 .spotlight-panel h5 {
@@ -412,8 +448,14 @@ h2 {
   gap: 5px;
 }
 
+.graph-story-list {
+  display: grid;
+  gap: 5px;
+}
+
 .spotlight-node,
-.recent-orbit-node {
+.recent-orbit-node,
+.graph-story-node {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
@@ -433,11 +475,13 @@ h2 {
   grid-template-columns: auto minmax(0, 1fr);
 }
 
-.recent-orbit-node small {
+.recent-orbit-node small,
+.graph-story-node small {
   grid-column: 2;
 }
 
-.recent-orbit-node strong {
+.recent-orbit-node strong,
+.graph-story-node strong {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -445,7 +489,8 @@ h2 {
 }
 
 .spotlight-node small,
-.recent-orbit-node small {
+.recent-orbit-node small,
+.graph-story-node small {
   color: rgba(244, 246, 255, 0.42);
   font-size: 10px;
   font-variant-numeric: tabular-nums;
@@ -454,8 +499,12 @@ h2 {
 .spotlight-node:hover,
 .recent-orbit-node:hover,
 .recent-orbit-node.selected,
+.graph-story-node:hover,
+.graph-story-node.selected,
 .spotlight-heading button:hover,
-.recent-orbit-heading button:hover {
+.recent-orbit-heading button:hover,
+.graph-story-heading button:hover,
+.graph-story-controls button:hover {
   border-color: rgba(170, 186, 255, 0.28);
   background: rgba(132, 154, 255, 0.14);
 }
