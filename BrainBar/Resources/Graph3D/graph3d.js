@@ -66,6 +66,10 @@ const state = {
   focusNodeIds: new Set(),
   focusEdgeIds: new Set(),
   focusNodeDistance: new Map(),
+  communitySpotlightName: null,
+  communitySpotlightNodeIds: new Set(),
+  communitySpotlightEdgeIds: new Set(),
+  communitySpotlightSummary: null,
   pathMode: false,
   pathSourceId: null,
   pathTargetId: null,
@@ -268,6 +272,7 @@ function applyLens(fit = true) {
     state.hoverIntensity = 0;
     clearFocusOrbit(false);
     clearPathMode(false);
+    clearCommunitySpotlight(false);
     markVisualCacheDirty();
 
     calculateLayout();
@@ -786,6 +791,7 @@ function drawVisualFrame({ width, height, pixelRatio }) {
   const activeAmount = Math.max(
     state.pathMode && state.pathOrderedNodeIds.length ? 1 : 0,
     state.focusMode ? 1 : 0,
+    state.communitySpotlightName ? 1 : 0,
     state.selectedNode ? 1 : 0,
     hoverTrails.reduce((max, trail) => Math.max(max, trail.intensity), 0),
     edgeTrails.reduce((max, trail) => Math.max(max, trail.intensity), 0)
@@ -801,7 +807,8 @@ function drawVisualFrame({ width, height, pixelRatio }) {
 
   if (hoverAmount > 0.01) {
     visualContext.save();
-    visualContext.globalAlpha = (state.focusMode ? 0.28 : 0.1) * hoverAmount;
+    const dimAlpha = state.focusMode ? 0.28 : (state.communitySpotlightName ? 0.18 : 0.1);
+    visualContext.globalAlpha = dimAlpha * hoverAmount;
     visualContext.fillStyle = '#050812';
     visualContext.fillRect(0, 0, width, height);
     visualContext.restore();
@@ -1057,6 +1064,30 @@ function buildHighlightedEdges(hoverTrails, edgeTrails, width, height) {
     });
     return highlightedEdges;
   }
+  if (state.communitySpotlightName && state.communitySpotlightEdgeIds.size) {
+    communitySpotlightOverlayEdges().forEach((edge) => {
+      const source = state.projectedPoints.get(edge.source);
+      const target = state.projectedPoints.get(edge.target);
+      if (!source || !target) {
+        return;
+      }
+      const highlightedPath = new Path2D();
+      addCurvedEdge(
+        highlightedPath,
+        edge,
+        ambientProjectedPoint(source, width, height),
+        ambientProjectedPoint(target, width, height),
+        0.9
+      );
+      highlightedEdges.push({
+        path: highlightedPath,
+        color: colorForCommunity(state.communitySpotlightName),
+        intensity: 0.64
+      });
+      seenEdges.add(edge.id);
+    });
+    return highlightedEdges;
+  }
   if (state.selectedNode) {
     const linkedEdges = state.edgesByNode.get(state.selectedNode.id) ?? [];
     linkedEdges.forEach((edge) => {
@@ -1210,6 +1241,23 @@ function focusOverlayEdges() {
   return directEdges.concat(otherEdges).slice(0, 720);
 }
 
+function communitySpotlightOverlayEdges() {
+  const directEdges = [];
+  const bridgeEdges = [];
+  state.communitySpotlightEdgeIds.forEach((edgeId) => {
+    const edge = state.edgeById.get(edgeId);
+    if (!edge) {
+      return;
+    }
+    if (state.communitySpotlightNodeIds.has(edge.source) && state.communitySpotlightNodeIds.has(edge.target)) {
+      directEdges.push(edge);
+    } else {
+      bridgeEdges.push(edge);
+    }
+  });
+  return directEdges.concat(bridgeEdges).slice(0, 720);
+}
+
 function addCurvedEdge(path, edge, source, target, strength = 1) {
   const control = curvedEdgeControl(edge, source, target, strength);
   path.moveTo(source.x, source.y);
@@ -1328,6 +1376,15 @@ function buildNodeFocusMap(hoverTrails, edgeTrails) {
     });
     return focus;
   }
+  if (state.communitySpotlightName && state.communitySpotlightNodeIds.size) {
+    state.communitySpotlightNodeIds.forEach((nodeId) => {
+      const node = nodeForId(nodeId);
+      const degree = node ? degreeForNode(node.id) : 0;
+      const amount = clamp(0.42 + Math.log1p(degree) * 0.08, 0.42, 0.82);
+      mergeNodeFocus(focus, nodeId, state.selectedNode?.id === nodeId ? 1 : 0, amount);
+    });
+    return focus;
+  }
   if (state.selectedNode) {
     mergeNodeFocus(focus, state.selectedNode.id, 1, 0);
     const neighbors = state.adjacencyByNode.get(state.selectedNode.id) ?? new Set();
@@ -1420,7 +1477,10 @@ function renderSidebar() {
 
 function renderNodeInfo(node) {
   if (!node) {
-    nodeInfo.innerHTML = '<p class="muted italic">Click a node to inspect it</p>';
+    nodeInfo.innerHTML = state.communitySpotlightName
+      ? renderCommunitySpotlightPanel()
+      : '<p class="muted italic">Click a node to inspect it</p>';
+    wireCommunitySpotlightPanel();
     return;
   }
 
@@ -1452,6 +1512,7 @@ function renderNodeInfo(node) {
     </div>
     ${focusStatus}
     ${pathStatus}
+    ${state.communitySpotlightName ? renderCommunitySpotlightPanel() : ''}
     ${renderPathPanel()}
     <p><strong>Type:</strong> ${escapeHTML(node.type ?? node.file_type ?? 'document')}</p>
     <p><strong>Community:</strong> ${escapeHTML(node.community)}</p>
@@ -1479,6 +1540,7 @@ function renderNodeInfo(node) {
   document.getElementById('back-to-all')?.addEventListener('click', () => backToAll());
   document.getElementById('start-path')?.addEventListener('click', () => armPathSource(node));
   document.getElementById('clear-path')?.addEventListener('click', () => clearPathMode(true));
+  wireCommunitySpotlightPanel();
   nodeInfo.querySelectorAll('.path-step[data-node-id]').forEach((pathButton) => {
     pathButton.addEventListener('click', () => {
       const pathNode = nodeForId(pathButton.dataset.nodeId);
@@ -1499,6 +1561,51 @@ function renderNodeInfo(node) {
         } else {
           applyFocusOrbit(neighbor, state.focusMode ? state.focusDepth : 1);
         }
+      }
+    });
+  });
+}
+
+function renderCommunitySpotlightPanel() {
+  const spotlight = state.communitySpotlightSummary;
+  if (!spotlight) {
+    return '';
+  }
+  const topButtons = spotlight.topNodes.map((item, index) => `
+    <button class="spotlight-node" data-node-id="${escapeHTML(item.id)}">
+      <span>${index + 1}</span>${escapeHTML(item.label)}<small>${item.degree}</small>
+    </button>
+  `).join('');
+  const bridgeButtons = spotlight.bridgeNodes.map((item) => `
+    <button class="spotlight-node" data-node-id="${escapeHTML(item.id)}">
+      <span>*</span>${escapeHTML(item.label)}<small>${item.bridgeCount} bridge ${item.bridgeCount === 1 ? 'edge' : 'edges'}</small>
+    </button>
+  `).join('');
+  return `
+    <section class="spotlight-panel">
+      <div class="spotlight-heading">
+        <div>
+          <h4>Community Spotlight</h4>
+          <p>${escapeHTML(spotlight.name)} · ${spotlight.nodeCount} notes · ${spotlight.edgeCount} internal edges</p>
+        </div>
+        <button id="clear-spotlight">Clear</button>
+      </div>
+      <p class="spotlight-summary">${escapeHTML(spotlight.summary)}</p>
+      <h5>Top notes</h5>
+      <div class="spotlight-list">${topButtons || '<p class="muted">No notes in this community.</p>'}</div>
+      <h5>Bridge notes</h5>
+      <div class="spotlight-list">${bridgeButtons || '<p class="muted">No visible bridge notes.</p>'}</div>
+    </section>
+  `;
+}
+
+function wireCommunitySpotlightPanel() {
+  document.getElementById('clear-spotlight')?.addEventListener('click', () => clearCommunitySpotlight(true));
+  nodeInfo.querySelectorAll('.spotlight-node[data-node-id]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const node = nodeForId(button.dataset.nodeId);
+      if (node) {
+        selectNode(node, true, { preserveCommunitySpotlight: true });
       }
     });
   });
@@ -1648,11 +1755,11 @@ function topNeighborsForNode(nodeId, limit = 12) {
 function renderLegend() {
   legend.innerHTML = '';
   state.communities.forEach((community) => {
-    const row = document.createElement('label');
-    row.className = 'legend-item';
+    const row = document.createElement('div');
+    row.className = `legend-item ${state.communitySpotlightName === community.name ? 'spotlighted' : ''}`;
     row.innerHTML = `
       <input type="checkbox" ${state.communityEnabled.has(community.name) ? 'checked' : ''}>
-      <span class="legend-label"><span class="color-dot" style="background:${community.color}"></span> ${escapeHTML(community.name)}</span>
+      <button class="legend-label community-spotlight-button" data-community-name="${escapeHTML(community.name)}"><span class="color-dot" style="background:${community.color}"></span> ${escapeHTML(community.name)}</button>
       <span class="legend-count">${community.count}</span>
     `;
     row.querySelector('input').addEventListener('change', (event) => {
@@ -1662,6 +1769,13 @@ function renderLegend() {
         state.communityEnabled.delete(community.name);
       }
       applyLens(false);
+    });
+    row.querySelector('.community-spotlight-button')?.addEventListener('click', () => {
+      if (state.communitySpotlightName === community.name) {
+        clearCommunitySpotlight(true);
+      } else {
+        applyCommunitySpotlight(community.name);
+      }
     });
     legend.appendChild(row);
   });
@@ -1724,11 +1838,16 @@ function updateHud() {
   const focusText = state.focusMode
     ? `Focused · depth ${state.focusDepth} · ${state.focusNodeIds.size} nodes`
     : '';
+  const spotlightText = state.communitySpotlightName
+    ? `Spotlight · ${state.communitySpotlightName} · ${state.communitySpotlightNodeIds.size} nodes`
+    : '';
   const pathText = pathHudText();
   const base = pathText
     ? `${pathText} · ${lensLabel} · 3D`
     : state.focusMode
     ? `${focusText} · ${lensLabel} · 3D`
+    : state.communitySpotlightName
+    ? `${spotlightText} · ${lensLabel} · 3D`
     : `${lensLabel} · ${state.visibleNodes.length} nodes · ${state.visibleEdges.length} ${edgeLabel} · 3D`;
   const status = state.lastFrameStatus === 'Visible'
     ? ''
@@ -1769,11 +1888,126 @@ function selectNode(node, focusCamera = false, options = {}) {
   requestRender();
 }
 
+function applyCommunitySpotlight(communityName) {
+  const spotlight = computeCommunitySpotlight(communityName);
+  if (!spotlight.nodeIds.size) {
+    return;
+  }
+  clearFocusOrbit(false);
+  clearPathMode(false);
+  state.communitySpotlightName = communityName;
+  state.communitySpotlightNodeIds = spotlight.nodeIds;
+  state.communitySpotlightEdgeIds = spotlight.edgeIds;
+  state.communitySpotlightSummary = spotlight;
+  state.selectedNode = null;
+  selectedMarker.visible = false;
+  renderSidebar();
+  focusCommunitySpotlight(spotlight);
+  updateHud();
+  requestRender();
+}
+
+function clearCommunitySpotlight(render = true) {
+  state.communitySpotlightName = null;
+  state.communitySpotlightNodeIds = new Set();
+  state.communitySpotlightEdgeIds = new Set();
+  state.communitySpotlightSummary = null;
+  if (render) {
+    renderSidebar();
+    updateHud();
+    requestRender();
+  }
+}
+
+function computeCommunitySpotlight(communityName) {
+  const nodes = state.visibleNodes.filter((node) => node.community === communityName);
+  const nodeIds = new Set(nodes.map((node) => node.id));
+  const internalEdges = [];
+  const bridgeCounts = new Map();
+  const edgeIds = new Set();
+
+  state.visibleEdges.forEach((edge) => {
+    const sourceInside = nodeIds.has(edge.source);
+    const targetInside = nodeIds.has(edge.target);
+    if (sourceInside && targetInside) {
+      internalEdges.push(edge);
+      edgeIds.add(edge.id);
+    } else if (sourceInside || targetInside) {
+      const insideId = sourceInside ? edge.source : edge.target;
+      bridgeCounts.set(insideId, (bridgeCounts.get(insideId) ?? 0) + 1);
+      edgeIds.add(edge.id);
+    }
+  });
+
+  const topNodes = nodes
+    .map((node) => ({
+      id: node.id,
+      label: node.label,
+      degree: degreeForNode(node.id)
+    }))
+    .sort((left, right) => right.degree - left.degree || left.label.localeCompare(right.label))
+    .slice(0, 8);
+  const bridgeNodes = nodes
+    .map((node) => ({
+      id: node.id,
+      label: node.label,
+      degree: degreeForNode(node.id),
+      bridgeCount: bridgeCounts.get(node.id) ?? 0
+    }))
+    .filter((node) => node.bridgeCount > 0)
+    .sort((left, right) => right.bridgeCount - left.bridgeCount || right.degree - left.degree || left.label.localeCompare(right.label))
+    .slice(0, 6);
+  const topLabels = topNodes.slice(0, 3).map((node) => node.label).join(', ');
+  return {
+    name: communityName,
+    nodeIds,
+    edgeIds,
+    nodeCount: nodes.length,
+    edgeCount: internalEdges.length,
+    topNodes,
+    bridgeNodes,
+    summary: topLabels
+      ? `This community is centered around ${topLabels}.`
+      : 'This community is visible in the current graph view.'
+  };
+}
+
+function focusCommunitySpotlight(spotlight) {
+  const positions = Array.from(spotlight.nodeIds)
+    .map((nodeId) => state.positions.get(nodeId))
+    .filter(Boolean);
+  if (!positions.length) {
+    return;
+  }
+  const bounds = positions.reduce((box, position) => ({
+    minX: Math.min(box.minX, position.x),
+    maxX: Math.max(box.maxX, position.x),
+    minY: Math.min(box.minY, position.y),
+    maxY: Math.max(box.maxY, position.y),
+    minZ: Math.min(box.minZ, position.z),
+    maxZ: Math.max(box.maxZ, position.z)
+  }), { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity, minZ: Infinity, maxZ: -Infinity });
+  const center = new THREE.Vector3(
+    (bounds.minX + bounds.maxX) / 2,
+    (bounds.minY + bounds.maxY) / 2,
+    (bounds.minZ + bounds.maxZ) / 2
+  );
+  const span = Math.max(
+    bounds.maxX - bounds.minX,
+    bounds.maxY - bounds.minY,
+    bounds.maxZ - bounds.minZ,
+    180
+  );
+  const zoom = clamp(Math.min(stage.clientWidth / (span * 1.18), stage.clientHeight / (span * 0.92)), 0.18, 4.2);
+  orbitCameraTo(center, zoom, 'Community Spotlight');
+}
+
 function applyFocusOrbit(node, depth = 1, focusCamera = true) {
   if (!node) {
     return;
   }
   clearPathMode(false);
+  clearCommunitySpotlight(false);
   const focus = computeFocusOrbit(node.id, depth);
   state.focusMode = true;
   state.focusDepth = focus.depth;
@@ -1796,6 +2030,7 @@ function armPathSource(node) {
     return;
   }
   clearFocusOrbit(false);
+  clearCommunitySpotlight(false);
   state.pathMode = true;
   state.pathSourceId = node.id;
   state.pathTargetId = null;
@@ -1820,6 +2055,7 @@ function applyPathToNode(targetNode) {
     return;
   }
   clearFocusOrbit(false);
+  clearCommunitySpotlight(false);
   const variants = computePathVariants({
     sourceId: sourceNode.id,
     targetId: targetNode.id,
@@ -1894,6 +2130,7 @@ function clearPathMode(render = true) {
 function backToAll() {
   clearFocusOrbit(false);
   clearPathMode(false);
+  clearCommunitySpotlight(false);
   fitCameraToGraph('All');
   renderNodeInfo(state.selectedNode);
   updateHud();

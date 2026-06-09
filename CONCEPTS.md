@@ -42,6 +42,7 @@ BrainBar is a local-first macOS control center for a Markdown or Obsidian-style 
 - **Explain Path**: a deterministic, local-only explanation of a 3D shortest path using visible graph metadata such as edge provenance, communities, labels, and bridge nodes.
 - **Path Compare**: a 3D path panel control for comparing deterministic route variants between the same selected source and target.
 - **Best explained path**: a Path Compare variant that prefers routes with clearer Wikilink or Graphify metadata. It is still deterministic graph analysis, not semantic proof.
+- **Community Spotlight**: a 3D runtime view that highlights one visible community, dims surrounding context, and lists top notes plus bridge notes.
 
 ## Internal Architecture Terms
 
@@ -53,6 +54,7 @@ BrainBar is a local-first macOS control center for a Markdown or Obsidian-style 
 - **3D runtime**: `BrainBar/Resources/Graph3D/graph3d.js`. It owns the 3D explorer's session state, rendering, focus orbit, path mode, and sidebar behavior.
 - **Path utilities**: `BrainBar/Resources/Graph3D/graph3d-path-utils.mjs`. It contains reusable 3D path logic such as unweighted shortest-path BFS.
 - **Path variants**: runtime-only 3D path results for `Shortest visible`, `Different route`, `Best explained`, `Wikilinks only`, and `Graphify only`.
+- **Community spotlight state**: runtime-only 3D state for the selected community, highlighted node ids, highlighted edge ids, top notes, and bridge notes.
 - **Edge provenance**: runtime classification for a connection as `Wikilink`, `Graphify`, or `Unknown`, based on Graphify metadata and exported wikilink data.
 - **Review Queue status payload**: JSON printed by a configured local status command. Required shape includes `pending_count`; `items` are optional.
 - **Review Queue graph targets**: optional item fields `source_file` and `node_id` used only to highlight matching graph nodes.

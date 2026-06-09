@@ -243,6 +243,8 @@ const graph3dSource = readFileSync(join(root, 'BrainBar/Resources/Graph3D/graph3
 assert.match(graph3dSource, /function applyFocusOrbit[\s\S]*clearPathMode\(false\)/);
 assert.match(graph3dSource, /Compare paths/);
 assert.match(graph3dSource, /No route found/);
+assert.match(graph3dSource, /Community Spotlight/);
+assert.match(graph3dSource, /bridge notes/);
 
 const obsidianDiff = runtime.computeLensDiff({
   lens: 'obsidian',

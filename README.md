@@ -78,6 +78,8 @@ Selecting a connection shows a compact edge inspector with source node, target n
 
 ![BrainBar 3D Beta](docs/brainbar-readme-3d-beta.png)
 
+Community Spotlight lets you click a community in the 3D sidebar to dim the rest of the graph, inspect its top notes, and find bridge notes that connect it to surrounding areas.
+
 #### Shortest Path
 
 Pick one note, start a path, then click another note. BrainBar traces the shortest visible route through the 3D graph, dims the surrounding noise, and keeps the ordered path inspectable in the sidebar.
