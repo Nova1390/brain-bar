@@ -34,6 +34,10 @@ const ambientFrameInterval = 50;
 const ambientMotionScale = prefersReducedMotion ? 0.45 : 1;
 const ambientLocalAmplitude = 5.4 * ambientMotionScale;
 const ambientSampleTarget = 520;
+const spotlightFocusNodeLimit = 72;
+const spotlightSmallCommunityLimit = 80;
+const spotlightInternalEdgeLimit = 180;
+const spotlightBridgeEdgeLimit = 80;
 
 const pointTexture = createPointTexture();
 
@@ -69,6 +73,8 @@ const state = {
   communitySpotlightName: null,
   communitySpotlightNodeIds: new Set(),
   communitySpotlightEdgeIds: new Set(),
+  communitySpotlightFocusNodeIds: new Set(),
+  communitySpotlightOverlayEdgeIds: new Set(),
   communitySpotlightSummary: null,
   pathMode: false,
   pathSourceId: null,
@@ -1244,7 +1250,7 @@ function focusOverlayEdges() {
 function communitySpotlightOverlayEdges() {
   const directEdges = [];
   const bridgeEdges = [];
-  state.communitySpotlightEdgeIds.forEach((edgeId) => {
+  state.communitySpotlightOverlayEdgeIds.forEach((edgeId) => {
     const edge = state.edgeById.get(edgeId);
     if (!edge) {
       return;
@@ -1377,7 +1383,10 @@ function buildNodeFocusMap(hoverTrails, edgeTrails) {
     return focus;
   }
   if (state.communitySpotlightName && state.communitySpotlightNodeIds.size) {
-    state.communitySpotlightNodeIds.forEach((nodeId) => {
+    const focusNodeIds = state.communitySpotlightFocusNodeIds.size
+      ? state.communitySpotlightFocusNodeIds
+      : state.communitySpotlightNodeIds;
+    focusNodeIds.forEach((nodeId) => {
       const node = nodeForId(nodeId);
       const degree = node ? degreeForNode(node.id) : 0;
       const amount = clamp(0.42 + Math.log1p(degree) * 0.08, 0.42, 0.82);
@@ -1898,6 +1907,8 @@ function applyCommunitySpotlight(communityName) {
   state.communitySpotlightName = communityName;
   state.communitySpotlightNodeIds = spotlight.nodeIds;
   state.communitySpotlightEdgeIds = spotlight.edgeIds;
+  state.communitySpotlightFocusNodeIds = spotlight.focusNodeIds;
+  state.communitySpotlightOverlayEdgeIds = spotlight.overlayEdgeIds;
   state.communitySpotlightSummary = spotlight;
   state.selectedNode = null;
   selectedMarker.visible = false;
@@ -1911,6 +1922,8 @@ function clearCommunitySpotlight(render = true) {
   state.communitySpotlightName = null;
   state.communitySpotlightNodeIds = new Set();
   state.communitySpotlightEdgeIds = new Set();
+  state.communitySpotlightFocusNodeIds = new Set();
+  state.communitySpotlightOverlayEdgeIds = new Set();
   state.communitySpotlightSummary = null;
   if (render) {
     renderSidebar();
@@ -1923,6 +1936,7 @@ function computeCommunitySpotlight(communityName) {
   const nodes = state.visibleNodes.filter((node) => node.community === communityName);
   const nodeIds = new Set(nodes.map((node) => node.id));
   const internalEdges = [];
+  const bridgeEdges = [];
   const bridgeCounts = new Map();
   const edgeIds = new Set();
 
@@ -1935,18 +1949,19 @@ function computeCommunitySpotlight(communityName) {
     } else if (sourceInside || targetInside) {
       const insideId = sourceInside ? edge.source : edge.target;
       bridgeCounts.set(insideId, (bridgeCounts.get(insideId) ?? 0) + 1);
+      bridgeEdges.push(edge);
       edgeIds.add(edge.id);
     }
   });
 
-  const topNodes = nodes
+  const rankedNodes = nodes
     .map((node) => ({
       id: node.id,
       label: node.label,
       degree: degreeForNode(node.id)
     }))
-    .sort((left, right) => right.degree - left.degree || left.label.localeCompare(right.label))
-    .slice(0, 8);
+    .sort((left, right) => right.degree - left.degree || left.label.localeCompare(right.label));
+  const topNodes = rankedNodes.slice(0, 8);
   const bridgeNodes = nodes
     .map((node) => ({
       id: node.id,
@@ -1957,11 +1972,35 @@ function computeCommunitySpotlight(communityName) {
     .filter((node) => node.bridgeCount > 0)
     .sort((left, right) => right.bridgeCount - left.bridgeCount || right.degree - left.degree || left.label.localeCompare(right.label))
     .slice(0, 6);
+  const pinnedFocusNodeIds = new Set([
+    ...topNodes.map((node) => node.id),
+    ...bridgeNodes.map((node) => node.id)
+  ]);
+  const focusNodeIds = nodes.length <= spotlightSmallCommunityLimit
+    ? new Set(nodeIds)
+    : new Set([
+      ...pinnedFocusNodeIds,
+      ...rankedNodes
+        .map((node) => node.id)
+        .filter((nodeId) => !pinnedFocusNodeIds.has(nodeId))
+        .slice(0, Math.max(0, spotlightFocusNodeLimit - pinnedFocusNodeIds.size))
+    ]);
+  const rankedInternalEdges = internalEdges
+    .slice()
+    .sort((left, right) => edgeImportanceScore(right, nodeIds, bridgeCounts) - edgeImportanceScore(left, nodeIds, bridgeCounts) || left.id.localeCompare(right.id))
+    .slice(0, spotlightInternalEdgeLimit);
+  const rankedBridgeEdges = bridgeEdges
+    .slice()
+    .sort((left, right) => edgeImportanceScore(right, nodeIds, bridgeCounts) - edgeImportanceScore(left, nodeIds, bridgeCounts) || left.id.localeCompare(right.id))
+    .slice(0, spotlightBridgeEdgeLimit);
+  const overlayEdgeIds = new Set(rankedInternalEdges.concat(rankedBridgeEdges).map((edge) => edge.id));
   const topLabels = topNodes.slice(0, 3).map((node) => node.label).join(', ');
   return {
     name: communityName,
     nodeIds,
     edgeIds,
+    focusNodeIds,
+    overlayEdgeIds,
     nodeCount: nodes.length,
     edgeCount: internalEdges.length,
     topNodes,
@@ -1970,6 +2009,17 @@ function computeCommunitySpotlight(communityName) {
       ? `This community is centered around ${topLabels}.`
       : 'This community is visible in the current graph view.'
   };
+}
+
+function edgeImportanceScore(edge, spotlightNodeIds, bridgeCounts) {
+  const sourceInside = spotlightNodeIds.has(edge.source);
+  const targetInside = spotlightNodeIds.has(edge.target);
+  const sourceDegree = degreeForNode(edge.source);
+  const targetDegree = degreeForNode(edge.target);
+  const bridgeBoost = sourceInside !== targetInside ? 80 : 0;
+  const sourceBridge = sourceInside ? (bridgeCounts.get(edge.source) ?? 0) : 0;
+  const targetBridge = targetInside ? (bridgeCounts.get(edge.target) ?? 0) : 0;
+  return bridgeBoost + sourceBridge * 4 + targetBridge * 4 + Math.log1p(sourceDegree) + Math.log1p(targetDegree);
 }
 
 function focusCommunitySpotlight(spotlight) {
