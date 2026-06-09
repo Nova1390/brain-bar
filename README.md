@@ -14,6 +14,22 @@ It is built for people who already keep useful things in local Markdown and want
 
 ![BrainBar 3D explorer entry points](docs/brainbar-3d-entrypoints.png)
 
+## What BrainBar Does
+
+BrainBar reads existing Graphify output from a local Markdown or Obsidian-style vault. It does not generate the graph from scratch, vendor Graphify, upload vault content, or rewrite generated Graphify files.
+
+Graph exploration features are runtime-only. Focus, Source Lens, Shortest Path, Recent Orbit, Graph Story, and 2D graph views change the current app session; they do not write back to the vault.
+
+## What Is In v0.9.4
+
+- 3D Explorer with Focus Orbit and depth controls.
+- Shortest Path, Explain Path, and Path Compare for visible graph routes.
+- Community Spotlight for inspecting one visible community at a time.
+- Recent Orbit for resuming from recently changed notes.
+- Graph Story for a deterministic guided tour through the visible graph.
+- Stable 2D operational views for graph checks and diagnostics.
+- Public GitHub Releases as Developer ID signed, Apple-notarized DMGs.
+
 ## Install
 
 ```sh
@@ -36,6 +52,25 @@ BRAIN_BAR_FORCE=1 curl -fsSL https://raw.githubusercontent.com/Nova1390/brain-ba
 
 Public releases from `v0.9.3` onward are Developer ID signed, Apple-notarized, stapled, packaged as `BrainBar.dmg`, and verified on a clean GitHub-hosted macOS runner.
 
+## First Run
+
+BrainBar expects Graphify output to already exist inside the configured vault.
+
+1. Install or update [Graphify](https://github.com/safishamsi/graphify) separately.
+2. Configure BrainBar with your local vault path, either in Settings or with `BRAIN_BAR_VAULT_PATH` during install.
+3. Confirm the configured vault contains:
+
+```text
+graphify-out/
+|-- graph.html
+|-- graph.json
+`-- GRAPH_REPORT.md
+```
+
+4. Open BrainBar from the menu bar.
+5. Use Refresh Graph if the graph output is stale or missing.
+6. Open the Focus Window and start with the 3D Explorer.
+
 ## The Wow Loop
 
 1. Open BrainBar from the menu bar.
@@ -55,6 +90,7 @@ Public releases from `v0.9.3` onward are Developer ID signed, Apple-notarized, s
 - **Recent context recovery.** Recent Orbit highlights newly changed notes and shows how they connect back to key notes.
 - **Guided orientation.** Graph Story walks through recent notes, key notes, large communities, bridge notes, and areas that need links.
 - **Diagnostics stay available.** 2D remains the operational view for Needs Links, Key Notes, Recent, Wikilinks, Graphify, and Graph Check.
+- **No account required.** BrainBar is a local app over local files and local commands.
 
 ## 3D Explorer
 
@@ -94,6 +130,8 @@ When alternative routes exist, Path Compare can switch the same source and targe
 
 If a variant is unavailable in the current view, BrainBar says so instead of pretending every pair has every kind of path.
 
+Unavailable variants are normal when the visible graph has only one route, no route between the selected nodes, or active Source Lens/community filters hide the needed edges.
+
 ### Community Spotlight
 
 Click a community to dim the rest of the graph, show the selected community, list top notes, and surface bridge notes that connect it to surrounding areas. Large communities use conservative render budgets so the spotlight stays responsive.
@@ -103,6 +141,8 @@ Click a community to dim the rest of the graph, show the selected community, lis
 Recent Orbit answers: "What changed recently?"
 
 It highlights recent notes using file modification metadata when available, falls back to date-like labels or paths, and traces one active recent note to its nearest visible key note.
+
+Use it when you want to resume from recent work and see how that work connects back to the graph.
 
 ![BrainBar Recent Orbit](docs/brainbar-recent-orbit.png)
 
@@ -117,6 +157,8 @@ Graph Story is a guided, deterministic tour through the current visible graph:
 - Areas that may need links
 
 The tour adapts to the current Source Lens and community filters. Empty categories are skipped.
+
+Use it when you want orientation: a short guided pass through what matters in the visible graph.
 
 ![BrainBar Graph Story](docs/brainbar-graph-story.png)
 
@@ -191,37 +233,13 @@ Development and tests can override it:
 BRAIN_BAR_CONFIG=/tmp/brainbar-config.json open ~/Applications/BrainBar.app
 ```
 
-Default shape:
+Installer variables:
 
-```json
-{
-  "commands": {
-    "brainCheck": null,
-    "refreshGraph": {
-      "arguments": ["update", "."],
-      "executable": "graphify",
-      "workingDirectory": "vault"
-    }
-  },
-  "graphHtmlRelativePath": "graphify-out/graph.html",
-  "graphReportRelativePath": "graphify-out/GRAPH_REPORT.md",
-  "notificationsEnabled": false,
-  "projectDashboardRelativePath": "Project Dashboard.md",
-  "reviewQueue": {
-    "backgroundWatcherEnabled": false,
-    "isEnabled": false,
-    "manualCommand": null,
-    "preflightCommand": null,
-    "timeoutSeconds": 10,
-    "watcherIntervalSeconds": 300
-  },
-  "serverPort": 8765,
-  "useObsidianURLScheme": false,
-  "vaultPath": ""
-}
-```
+- `BRAIN_BAR_VAULT_PATH`: prefill the configured local vault path.
+- `BRAIN_BAR_FORCE=1`: replace an existing install non-interactively.
+- `BRAIN_BAR_INSTALL_DIR`: override the install directory, defaulting to `~/Applications`.
 
-`workingDirectory: "vault"` runs the command inside the configured vault. Commands are executed with `Process`, not through a shell.
+See [Configuration](docs/configuration.md) for the full config shape and command behavior.
 
 ## Requirements
 
@@ -246,18 +264,16 @@ Before changing product vocabulary or graph architecture terms, read [CONCEPTS.m
 Maintainer release tags publish a notarized `BrainBar.dmg` through GitHub Actions:
 
 ```sh
-git tag v0.9.4
-git push origin v0.9.4
+git tag vX.Y.Z
+git push origin vX.Y.Z
 ```
 
-The release workflow runs public safety checks, graph runtime checks, Xcode tests, Developer ID signing, Apple notarization, stapling, DMG creation, and mounted-app validation before uploading the asset.
-
-Required and optional signing secrets are documented in [RELEASING.md](RELEASING.md).
+The release workflow runs public safety checks, graph runtime checks, Xcode tests, Developer ID signing, Apple notarization, stapling, DMG creation, and mounted-app validation before uploading the asset. Required and optional signing secrets are documented in [RELEASING.md](RELEASING.md).
 
 After publication, maintainers can run the clean-runner verification workflow:
 
 ```sh
-gh workflow run verify-release-dmg.yml --ref main -f tag=v0.9.4
+gh workflow run verify-release-dmg.yml --ref main -f tag=vX.Y.Z
 ```
 
 ## Update
@@ -280,6 +296,14 @@ To remove local config too:
 BRAIN_BAR_REMOVE_CONFIG=1 curl -fsSL https://raw.githubusercontent.com/Nova1390/brain-bar/main/uninstall.sh | bash
 ```
 
+## Troubleshooting
+
+- **The graph is empty.** Check that `vaultPath` points at the intended vault and that `graphify-out/graph.json` exists there.
+- **Refresh Graph fails.** Make sure `graphify` is available on `PATH`, or update the configured refresh command.
+- **No path found.** The selected nodes may be disconnected in the visible graph, or the active Source Lens/community filters may hide the route.
+- **Recent Orbit is empty.** BrainBar needs file modification metadata or date-like labels/paths to identify recent notes.
+- **macOS blocks the app.** Install the latest notarized DMG release instead of an older non-notarized build.
+
 ## Privacy
 
 BrainBar is local-first:
@@ -289,6 +313,7 @@ BrainBar is local-first:
 - It runs local commands that you configure.
 - It does not upload vault content.
 - It does not write to the vault from graph exploration features.
+- It does not call remote AI services.
 
 ## License
 
