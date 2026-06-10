@@ -5,6 +5,7 @@ All notable changes to BrainBar are documented here.
 ## Unreleased
 
 - Added 3D Search Reveal so search results can fly the camera to a visible node, highlight its local neighborhood, and act as a path target when `Start path` is armed.
+- Improved 3D Explorer polish and performance with centralized interaction-mode cleanup, shared camera fitting, calmer label budgets, cached active overlays, capped large-community spotlight rendering, and grid-based pointer hit testing.
 
 ## 0.9.4 - 2026-06-09
 

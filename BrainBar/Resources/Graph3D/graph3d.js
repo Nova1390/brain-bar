@@ -1,6 +1,13 @@
 import * as THREE from './vendor/three.module.min.js';
 import { OrbitControls } from './vendor/OrbitControls.js';
 import { computePathVariants, explainShortestPath } from './graph3d-path-utils.mjs';
+import {
+  activeModeFromState,
+  buildProjectedNodeGrid,
+  labelBudgetForMode,
+  nearbyProjectedNodeIds,
+  spotlightBudgets
+} from './graph3d-polish-utils.mjs';
 import { nearestKeyNotePath, recentOrbitCandidates } from './graph3d-recent-utils.mjs';
 import { searchGraphNodes } from './graph3d-search-utils.mjs';
 import { buildGraphStorySteps } from './graph3d-story-utils.mjs';
@@ -127,6 +134,17 @@ const state = {
   cameraPreset: 'Fit',
   lastFrameStatus: 'Waiting',
   visibleProjectedNodeCount: 0,
+  visibleGraphRevision: 0,
+  visualRevision: 0,
+  projectedPointGrid: null,
+  overlayCache: { key: '', edges: [] },
+  spotlightCache: new Map(),
+  performanceStats: {
+    staticRebuildMs: 0,
+    overlayFrameMs: 0,
+    highlightedEdgeCount: 0,
+    lastHitTestCandidateCount: 0
+  },
   pointer: new THREE.Vector2(),
   raycaster: new THREE.Raycaster(),
   nodeIndexById: new Map(),
@@ -312,12 +330,9 @@ function applyLens(fit = true) {
     state.hoverTrails = new Map();
     state.edgeTrails = new Map();
     state.hoverIntensity = 0;
-    clearFocusOrbit(false);
-    clearPathMode(false);
-    clearCommunitySpotlight(false);
-    clearRecentOrbit(false);
-    clearGraphStory(false);
-    clearSearchReveal(false);
+    clearInteractiveModes();
+    state.visibleGraphRevision += 1;
+    state.spotlightCache.clear();
     markVisualCacheDirty();
 
     calculateLayout();
@@ -334,6 +349,21 @@ function applyLens(fit = true) {
   } catch (error) {
     reportDiagnostic(error.message || '3D graph render failed', true);
   }
+}
+
+function activeMode() {
+  return activeModeFromState(state);
+}
+
+function clearInteractiveModes({ preservePathSource = false } = {}) {
+  clearFocusOrbit(false);
+  if (!(preservePathSource && state.pathMode && state.pathSourceId && !state.pathTargetId)) {
+    clearPathMode(false);
+  }
+  clearCommunitySpotlight(false);
+  clearRecentOrbit(false);
+  clearGraphStory(false);
+  clearSearchReveal(false);
 }
 
 function isObsidianEdge(edge) {
@@ -671,6 +701,49 @@ function boundsForVisibleNodes() {
   }, { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity, minZ: Infinity, maxZ: -Infinity });
 }
 
+function boundsForPositions(positions) {
+  return positions.reduce((bounds, position) => ({
+    minX: Math.min(bounds.minX, position.x),
+    maxX: Math.max(bounds.maxX, position.x),
+    minY: Math.min(bounds.minY, position.y),
+    maxY: Math.max(bounds.maxY, position.y),
+    minZ: Math.min(bounds.minZ, position.z),
+    maxZ: Math.max(bounds.maxZ, position.z)
+  }), { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity, minZ: Infinity, maxZ: -Infinity });
+}
+
+function fitCameraToPositions(positions, preset, options = {}) {
+  const validPositions = (positions || []).filter(Boolean);
+  if (!validPositions.length) {
+    return;
+  }
+  const bounds = boundsForPositions(validPositions);
+  const center = new THREE.Vector3(
+    (bounds.minX + bounds.maxX) / 2,
+    (bounds.minY + bounds.maxY) / 2,
+    (bounds.minZ + bounds.maxZ) / 2
+  );
+  const span = Math.max(
+    bounds.maxX - bounds.minX,
+    bounds.maxY - bounds.minY,
+    bounds.maxZ - bounds.minZ,
+    options.minimumSpan ?? 160
+  );
+  const widthPadding = options.widthPadding ?? 1.18;
+  const heightPadding = options.heightPadding ?? 0.96;
+  const minZoom = options.minZoom ?? 0.2;
+  const maxZoom = options.maxZoom ?? 4.8;
+  const zoom = clamp(Math.min(stage.clientWidth / (span * widthPadding), stage.clientHeight / (span * heightPadding)), minZoom, maxZoom);
+  orbitCameraTo(center, zoom, preset);
+}
+
+function fitCameraToNodeIds(nodeIds, preset, options = {}) {
+  const positions = Array.from(nodeIds || [])
+    .map((nodeId) => state.positions.get(nodeId))
+    .filter(Boolean);
+  fitCameraToPositions(positions, preset, options);
+}
+
 function resize() {
   const rect = stage.getBoundingClientRect();
   const width = Math.max(Math.floor(rect.width), 1);
@@ -705,6 +778,7 @@ function renderVisualOverlay() {
     return;
   }
 
+  const startedAt = performance.now();
   const metrics = ensureVisualCanvas();
   if (!metrics) {
     return;
@@ -723,6 +797,7 @@ function renderVisualOverlay() {
   }
 
   drawVisualFrame(metrics);
+  state.performanceStats.overlayFrameMs = performance.now() - startedAt;
 }
 
 function ensureVisualCanvas() {
@@ -751,6 +826,7 @@ function ensureVisualCanvas() {
 }
 
 function rebuildStaticVisualLayer({ width, height, pixelRatio }) {
+  const startedAt = performance.now();
   camera.updateMatrixWorld();
   const projected = new Map();
   const vector = new THREE.Vector3();
@@ -780,6 +856,7 @@ function rebuildStaticVisualLayer({ width, height, pixelRatio }) {
 
   state.visibleProjectedNodeCount = projectedNodeCount;
   state.projectedPoints = projected;
+  state.projectedPointGrid = buildProjectedNodeGrid(projected);
   staticVisualContext.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
   staticVisualContext.globalAlpha = 1;
   staticVisualContext.clearRect(0, 0, width, height);
@@ -828,6 +905,7 @@ function rebuildStaticVisualLayer({ width, height, pixelRatio }) {
   });
 
   state.visualCacheDirty = false;
+  state.performanceStats.staticRebuildMs = performance.now() - startedAt;
 }
 
 function drawVisualFrame({ width, height, pixelRatio }) {
@@ -905,6 +983,7 @@ function drawAmbientNodeMotion(width, height) {
 function drawActiveVisualOverlay(hoverTrails, edgeTrails, hoverAmount, width, height) {
   const nodeFocus = buildNodeFocusMap(hoverTrails, edgeTrails);
   const highlightedEdges = buildHighlightedEdges(hoverTrails, edgeTrails, width, height);
+  state.performanceStats.highlightedEdgeCount = highlightedEdges.length;
   const labelCandidates = [];
   if (hoverAmount > 0.01) {
     visualContext.save();
@@ -996,7 +1075,13 @@ function drawActiveNodeLabels(candidates, width, height) {
     return;
   }
 
-  const maxLabels = state.selectedNode ? 16 : 10;
+  const maxLabels = labelBudgetForMode(activeMode(), {
+    hasSelected: !!state.selectedNode,
+    hasHover: !!state.hoveredNode || !!state.hoveredEdge
+  });
+  if (maxLabels <= 0) {
+    return;
+  }
   const placedLabels = [];
   const orderedCandidates = candidates
     .sort((left, right) => {
@@ -1059,179 +1144,113 @@ function drawActiveNodeLabels(candidates, width, height) {
   visualContext.restore();
 }
 
+function cachedOverlayEdges(cacheKey, entries) {
+  const key = `${state.visualRevision}:${cacheKey}`;
+  if (state.overlayCache.key === key) {
+    return state.overlayCache.edges;
+  }
+  const highlightedEdges = [];
+  entries.forEach((entry) => {
+    const source = state.projectedPoints.get(entry.edge.source);
+    const target = state.projectedPoints.get(entry.edge.target);
+    if (!source || !target) {
+      return;
+    }
+    const highlightedPath = new Path2D();
+    addCurvedEdge(highlightedPath, entry.edge, source, target, entry.strength ?? 1);
+    highlightedEdges.push({
+      path: highlightedPath,
+      color: entry.color,
+      intensity: entry.intensity
+    });
+  });
+  state.overlayCache = { key, edges: highlightedEdges };
+  return highlightedEdges;
+}
+
 function buildHighlightedEdges(hoverTrails, edgeTrails, width, height) {
   const highlightedEdges = [];
   const seenEdges = new Set();
   if (state.pathMode) {
     if (state.pathOrderedEdgeIds.length) {
-      pathOverlayEdges().forEach((edge, index) => {
-        const source = state.projectedPoints.get(edge.source);
-        const target = state.projectedPoints.get(edge.target);
-        if (!source || !target) {
-          return;
-        }
-        const highlightedPath = new Path2D();
-        addCurvedEdge(
-          highlightedPath,
+      return cachedOverlayEdges(
+        `path:${state.activePathVariantId}:${state.pathOrderedEdgeIds.join('|')}`,
+        pathOverlayEdges().map((edge, index) => ({
           edge,
-          ambientProjectedPoint(source, width, height),
-          ambientProjectedPoint(target, width, height),
-          1.04
-        );
-        highlightedEdges.push({
-          path: highlightedPath,
           color: index === 0 ? '#f6f8ff' : '#aebdff',
-          intensity: 1
-        });
-        seenEdges.add(edge.id);
-      });
+          intensity: 1,
+          strength: 1.04
+        }))
+      );
     }
     return highlightedEdges;
   }
   if (state.focusMode && state.focusEdgeIds.size) {
-    focusOverlayEdges().forEach((edge) => {
-      const source = state.projectedPoints.get(edge.source);
-      const target = state.projectedPoints.get(edge.target);
-      if (!source || !target) {
-        return;
-      }
-      const highlightedPath = new Path2D();
-      addCurvedEdge(
-        highlightedPath,
+    const edges = focusOverlayEdges();
+    return cachedOverlayEdges(
+      `focus:${state.focusNodeId}:${state.focusDepth}:${edges.map((edge) => edge.id).join('|')}`,
+      edges.map((edge) => ({
         edge,
-        ambientProjectedPoint(source, width, height),
-        ambientProjectedPoint(target, width, height),
-        1
-      );
-      highlightedEdges.push({
-        path: highlightedPath,
         color: colorForEdge(edge),
         intensity: edge.source === state.focusNodeId || edge.target === state.focusNodeId ? 1 : 0.56
-      });
-      seenEdges.add(edge.id);
-    });
-    return highlightedEdges;
+      }))
+    );
   }
   if (state.communitySpotlightName && state.communitySpotlightEdgeIds.size) {
-    communitySpotlightOverlayEdges().forEach((edge) => {
-      const source = state.projectedPoints.get(edge.source);
-      const target = state.projectedPoints.get(edge.target);
-      if (!source || !target) {
-        return;
-      }
-      const highlightedPath = new Path2D();
-      addCurvedEdge(
-        highlightedPath,
+    const edges = communitySpotlightOverlayEdges();
+    return cachedOverlayEdges(
+      `community:${state.communitySpotlightName}:${edges.map((edge) => edge.id).join('|')}`,
+      edges.map((edge) => ({
         edge,
-        ambientProjectedPoint(source, width, height),
-        ambientProjectedPoint(target, width, height),
-        0.9
-      );
-      highlightedEdges.push({
-        path: highlightedPath,
         color: colorForCommunity(state.communitySpotlightName),
-        intensity: 0.64
-      });
-      seenEdges.add(edge.id);
-    });
-    return highlightedEdges;
+        intensity: 0.64,
+        strength: 0.9
+      }))
+    );
   }
   if (state.recentOrbitMode && state.recentOrbitPathEdgeIds.size) {
-    recentOrbitOverlayEdges().forEach((edge, index) => {
-      const source = state.projectedPoints.get(edge.source);
-      const target = state.projectedPoints.get(edge.target);
-      if (!source || !target) {
-        return;
-      }
-      const highlightedPath = new Path2D();
-      addCurvedEdge(
-        highlightedPath,
+    return cachedOverlayEdges(
+      `recent:${state.recentOrbitActiveNodeId}:${state.recentOrbitTargetNodeId}:${state.recentOrbitOrderedEdgeIds.join('|')}`,
+      recentOrbitOverlayEdges().map((edge, index) => ({
         edge,
-        ambientProjectedPoint(source, width, height),
-        ambientProjectedPoint(target, width, height),
-        1
-      );
-      highlightedEdges.push({
-        path: highlightedPath,
         color: index === 0 ? '#f4f7ff' : '#9dd8ca',
         intensity: 0.82
-      });
-      seenEdges.add(edge.id);
-    });
-    return highlightedEdges;
+      }))
+    );
   }
   if (state.graphStoryMode && state.graphStoryEdgeIds.size) {
-    graphStoryOverlayEdges().forEach((edge) => {
-      const source = state.projectedPoints.get(edge.source);
-      const target = state.projectedPoints.get(edge.target);
-      if (!source || !target) {
-        return;
-      }
-      const highlightedPath = new Path2D();
-      addCurvedEdge(
-        highlightedPath,
+    const edges = graphStoryOverlayEdges();
+    return cachedOverlayEdges(
+      `story:${state.graphStoryStepIndex}:${edges.map((edge) => edge.id).join('|')}`,
+      edges.map((edge) => ({
         edge,
-        ambientProjectedPoint(source, width, height),
-        ambientProjectedPoint(target, width, height),
-        0.94
-      );
-      highlightedEdges.push({
-        path: highlightedPath,
         color: state.graphStoryActiveCommunityName ? colorForCommunity(state.graphStoryActiveCommunityName) : '#d8e6ff',
-        intensity: 0.7
-      });
-      seenEdges.add(edge.id);
-    });
-    return highlightedEdges;
+        intensity: 0.7,
+        strength: 0.94
+      }))
+    );
   }
   if (state.searchRevealNodeId && state.searchRevealEdgeIds.size) {
-    searchRevealOverlayEdges().forEach((edge) => {
-      const source = state.projectedPoints.get(edge.source);
-      const target = state.projectedPoints.get(edge.target);
-      if (!source || !target) {
-        return;
-      }
-      const highlightedPath = new Path2D();
-      addCurvedEdge(
-        highlightedPath,
+    const edges = searchRevealOverlayEdges();
+    return cachedOverlayEdges(
+      `search:${state.searchRevealNodeId}:${edges.map((edge) => edge.id).join('|')}`,
+      edges.map((edge) => ({
         edge,
-        ambientProjectedPoint(source, width, height),
-        ambientProjectedPoint(target, width, height),
-        1
-      );
-      highlightedEdges.push({
-        path: highlightedPath,
         color: accentColorForCommunity(nodeForId(state.searchRevealNodeId)?.community ?? ''),
         intensity: 0.78
-      });
-      seenEdges.add(edge.id);
-    });
-    return highlightedEdges;
+      }))
+    );
   }
   if (state.selectedNode) {
     const linkedEdges = state.edgesByNode.get(state.selectedNode.id) ?? [];
-    linkedEdges.forEach((edge) => {
-      const source = state.projectedPoints.get(edge.source);
-      const target = state.projectedPoints.get(edge.target);
-      if (!source || !target) {
-        return;
-      }
-      const highlightedPath = new Path2D();
-      addCurvedEdge(
-        highlightedPath,
+    return cachedOverlayEdges(
+      `selected:${state.selectedNode.id}:${linkedEdges.map((edge) => edge.id).join('|')}`,
+      linkedEdges.map((edge) => ({
         edge,
-        ambientProjectedPoint(source, width, height),
-        ambientProjectedPoint(target, width, height),
-        1
-      );
-      highlightedEdges.push({
-        path: highlightedPath,
         color: accentColorForCommunity(state.selectedNode.community),
         intensity: 1
-      });
-      seenEdges.add(edge.id);
-    });
-    return highlightedEdges;
+      }))
+    );
   }
   hoverTrails.forEach((trail) => {
     const linkedEdges = state.edgesByNode.get(trail.node.id) ?? [];
@@ -1624,6 +1643,9 @@ function requestRender() {
 
 function markVisualCacheDirty() {
   state.visualCacheDirty = true;
+  state.visualRevision += 1;
+  state.projectedPointGrid = null;
+  state.overlayCache = { key: '', edges: [] };
 }
 
 function startAmbientMotion() {
@@ -2254,11 +2276,7 @@ function revealSearchNode(node) {
   if (!node) {
     return;
   }
-  clearFocusOrbit(false);
-  clearPathMode(false);
-  clearCommunitySpotlight(false);
-  clearRecentOrbit(false);
-  clearGraphStory(false);
+  clearInteractiveModes();
 
   const topNeighbors = topNeighborsForNode(node.id, searchRevealNeighborLimit);
   const neighborIds = new Set(topNeighbors.map((neighbor) => neighbor.id));
@@ -2297,11 +2315,7 @@ function applyCommunitySpotlight(communityName) {
   if (!spotlight.nodeIds.size) {
     return;
   }
-  clearFocusOrbit(false);
-  clearPathMode(false);
-  clearRecentOrbit(false);
-  clearGraphStory(false);
-  clearSearchReveal(false);
+  clearInteractiveModes();
   state.communitySpotlightName = communityName;
   state.communitySpotlightNodeIds = spotlight.nodeIds;
   state.communitySpotlightEdgeIds = spotlight.edgeIds;
@@ -2331,6 +2345,11 @@ function clearCommunitySpotlight(render = true) {
 }
 
 function computeCommunitySpotlight(communityName) {
+  const cacheKey = `${state.visibleGraphRevision}:${communityName}`;
+  const cached = state.spotlightCache.get(cacheKey);
+  if (cached) {
+    return cached;
+  }
   const nodes = state.visibleNodes.filter((node) => node.community === communityName);
   const nodeIds = new Set(nodes.map((node) => node.id));
   const internalEdges = [];
@@ -2374,26 +2393,32 @@ function computeCommunitySpotlight(communityName) {
     ...topNodes.map((node) => node.id),
     ...bridgeNodes.map((node) => node.id)
   ]);
-  const focusNodeIds = nodes.length <= spotlightSmallCommunityLimit
+  const budgets = spotlightBudgets(nodes.length, {
+    largeThreshold: spotlightSmallCommunityLimit,
+    smallFocusNodeLimit: spotlightFocusNodeLimit,
+    smallInternalEdgeLimit: spotlightInternalEdgeLimit,
+    smallBridgeEdgeLimit: spotlightBridgeEdgeLimit
+  });
+  const focusNodeIds = budgets.useAllNodes
     ? new Set(nodeIds)
     : new Set([
       ...pinnedFocusNodeIds,
       ...rankedNodes
         .map((node) => node.id)
         .filter((nodeId) => !pinnedFocusNodeIds.has(nodeId))
-        .slice(0, Math.max(0, spotlightFocusNodeLimit - pinnedFocusNodeIds.size))
+        .slice(0, Math.max(0, budgets.focusNodeLimit - pinnedFocusNodeIds.size))
     ]);
   const rankedInternalEdges = internalEdges
     .slice()
     .sort((left, right) => edgeImportanceScore(right, nodeIds, bridgeCounts) - edgeImportanceScore(left, nodeIds, bridgeCounts) || left.id.localeCompare(right.id))
-    .slice(0, spotlightInternalEdgeLimit);
+    .slice(0, budgets.internalEdgeLimit);
   const rankedBridgeEdges = bridgeEdges
     .slice()
     .sort((left, right) => edgeImportanceScore(right, nodeIds, bridgeCounts) - edgeImportanceScore(left, nodeIds, bridgeCounts) || left.id.localeCompare(right.id))
-    .slice(0, spotlightBridgeEdgeLimit);
+    .slice(0, budgets.bridgeEdgeLimit);
   const overlayEdgeIds = new Set(rankedInternalEdges.concat(rankedBridgeEdges).map((edge) => edge.id));
   const topLabels = topNodes.slice(0, 3).map((node) => node.label).join(', ');
-  return {
+  const spotlight = {
     name: communityName,
     nodeIds,
     edgeIds,
@@ -2407,6 +2432,8 @@ function computeCommunitySpotlight(communityName) {
       ? `This community is centered around ${topLabels}.`
       : 'This community is visible in the current graph view.'
   };
+  state.spotlightCache.set(cacheKey, spotlight);
+  return spotlight;
 }
 
 function edgeImportanceScore(edge, spotlightNodeIds, bridgeCounts) {
@@ -2451,11 +2478,7 @@ function startGraphStory() {
     showOverlay('No Graph Story steps in current view');
     return;
   }
-  clearFocusOrbit(false);
-  clearPathMode(false);
-  clearCommunitySpotlight(false);
-  clearRecentOrbit(false);
-  clearSearchReveal(false);
+  clearInteractiveModes();
   state.graphStoryMode = true;
   state.graphStorySteps = steps;
   state.graphStoryStepIndex = 0;
@@ -2534,33 +2557,12 @@ function focusGraphStoryStep(step) {
   const focusIds = state.graphStoryFocusNodeIds.size
     ? state.graphStoryFocusNodeIds
     : state.graphStoryNodeIds;
-  const positions = Array.from(focusIds)
-    .map((nodeId) => state.positions.get(nodeId))
-    .filter(Boolean);
-  if (!positions.length) {
-    return;
-  }
-  const bounds = positions.reduce((box, position) => ({
-    minX: Math.min(box.minX, position.x),
-    maxX: Math.max(box.maxX, position.x),
-    minY: Math.min(box.minY, position.y),
-    maxY: Math.max(box.maxY, position.y),
-    minZ: Math.min(box.minZ, position.z),
-    maxZ: Math.max(box.maxZ, position.z)
-  }), { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity, minZ: Infinity, maxZ: -Infinity });
-  const center = new THREE.Vector3(
-    (bounds.minX + bounds.maxX) / 2,
-    (bounds.minY + bounds.maxY) / 2,
-    (bounds.minZ + bounds.maxZ) / 2
-  );
-  const span = Math.max(
-    bounds.maxX - bounds.minX,
-    bounds.maxY - bounds.minY,
-    bounds.maxZ - bounds.minZ,
-    step?.type === 'community' ? 260 : 140
-  );
-  const zoom = clamp(Math.min(stage.clientWidth / (span * 1.18), stage.clientHeight / (span * 0.94)), 0.2, 4.8);
-  orbitCameraTo(center, zoom, 'Graph Story');
+  fitCameraToNodeIds(focusIds, 'Graph Story', {
+    minimumSpan: step?.type === 'community' ? 260 : 140,
+    widthPadding: 1.18,
+    heightPadding: 0.94,
+    maxZoom: 4.8
+  });
 }
 
 function applyRecentOrbit(preferredNodeId = null, selectActiveNode = false) {
@@ -2570,11 +2572,7 @@ function applyRecentOrbit(preferredNodeId = null, selectActiveNode = false) {
     return;
   }
 
-  clearFocusOrbit(false);
-  clearPathMode(false);
-  clearCommunitySpotlight(false);
-  clearGraphStory(false);
-  clearSearchReveal(false);
+  clearInteractiveModes();
 
   const preferred = preferredNodeId
     ? items.find((item) => item.id === String(preferredNodeId))
@@ -2651,32 +2649,8 @@ function applyRecentOrbitPathState(path) {
   state.recentOrbitOrderedEdgeIds = path?.orderedEdgeIds || [];
 }
 
-function focusRecentOrbit(path, activeNode) {
-  const pathPositions = (path?.orderedNodeIds || [])
-    .map((nodeId) => state.positions.get(nodeId))
-    .filter(Boolean);
-  if (pathPositions.length >= 2) {
-    const bounds = pathPositions.reduce((box, position) => ({
-      minX: Math.min(box.minX, position.x),
-      maxX: Math.max(box.maxX, position.x),
-      minY: Math.min(box.minY, position.y),
-      maxY: Math.max(box.maxY, position.y),
-      minZ: Math.min(box.minZ, position.z),
-      maxZ: Math.max(box.maxZ, position.z)
-    }), { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity, minZ: Infinity, maxZ: -Infinity });
-    const center = new THREE.Vector3(
-      (bounds.minX + bounds.maxX) / 2,
-      (bounds.minY + bounds.maxY) / 2,
-      (bounds.minZ + bounds.maxZ) / 2
-    );
-    const span = Math.max(bounds.maxX - bounds.minX, bounds.maxY - bounds.minY, bounds.maxZ - bounds.minZ, 120);
-    const zoom = clamp(Math.min(stage.clientWidth / (span * 1.28), stage.clientHeight / (span * 1.04)), 0.22, 4.8);
-    orbitCameraTo(center, zoom, 'Recent Orbit');
-    return;
-  }
-  if (activeNode) {
-    focusNode(activeNode, 'Recent Orbit');
-  }
+function focusRecentOrbit() {
+  fitCameraWithTilt('Recent Orbit', 1.12, 0.54);
 }
 
 function clearRecentOrbit(render = true) {
@@ -2699,44 +2673,20 @@ function clearRecentOrbit(render = true) {
 }
 
 function focusCommunitySpotlight(spotlight) {
-  const positions = Array.from(spotlight.nodeIds)
-    .map((nodeId) => state.positions.get(nodeId))
-    .filter(Boolean);
-  if (!positions.length) {
-    return;
-  }
-  const bounds = positions.reduce((box, position) => ({
-    minX: Math.min(box.minX, position.x),
-    maxX: Math.max(box.maxX, position.x),
-    minY: Math.min(box.minY, position.y),
-    maxY: Math.max(box.maxY, position.y),
-    minZ: Math.min(box.minZ, position.z),
-    maxZ: Math.max(box.maxZ, position.z)
-  }), { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity, minZ: Infinity, maxZ: -Infinity });
-  const center = new THREE.Vector3(
-    (bounds.minX + bounds.maxX) / 2,
-    (bounds.minY + bounds.maxY) / 2,
-    (bounds.minZ + bounds.maxZ) / 2
-  );
-  const span = Math.max(
-    bounds.maxX - bounds.minX,
-    bounds.maxY - bounds.minY,
-    bounds.maxZ - bounds.minZ,
-    180
-  );
-  const zoom = clamp(Math.min(stage.clientWidth / (span * 1.18), stage.clientHeight / (span * 0.92)), 0.18, 4.2);
-  orbitCameraTo(center, zoom, 'Community Spotlight');
+  fitCameraToNodeIds(spotlight.focusNodeIds?.size ? spotlight.focusNodeIds : spotlight.nodeIds, 'Community Spotlight', {
+    minimumSpan: 180,
+    widthPadding: 1.18,
+    heightPadding: 0.92,
+    minZoom: 0.18,
+    maxZoom: 4.2
+  });
 }
 
 function applyFocusOrbit(node, depth = 1, focusCamera = true) {
   if (!node) {
     return;
   }
-  clearPathMode(false);
-  clearCommunitySpotlight(false);
-  clearRecentOrbit(false);
-  clearGraphStory(false);
-  clearSearchReveal(false);
+  clearInteractiveModes();
   const focus = computeFocusOrbit(node.id, depth);
   state.focusMode = true;
   state.focusDepth = focus.depth;
@@ -2758,11 +2708,7 @@ function armPathSource(node) {
   if (!node) {
     return;
   }
-  clearFocusOrbit(false);
-  clearCommunitySpotlight(false);
-  clearRecentOrbit(false);
-  clearGraphStory(false);
-  clearSearchReveal(false);
+  clearInteractiveModes();
   state.pathMode = true;
   state.pathSourceId = node.id;
   state.pathTargetId = null;
@@ -2786,11 +2732,7 @@ function applyPathToNode(targetNode) {
   if (!sourceNode || !targetNode || sourceNode.id === targetNode.id) {
     return;
   }
-  clearFocusOrbit(false);
-  clearCommunitySpotlight(false);
-  clearRecentOrbit(false);
-  clearGraphStory(false);
-  clearSearchReveal(false);
+  clearInteractiveModes({ preservePathSource: true });
   const variants = computePathVariants({
     sourceId: sourceNode.id,
     targetId: targetNode.id,
@@ -2863,12 +2805,7 @@ function clearPathMode(render = true) {
 }
 
 function backToAll() {
-  clearFocusOrbit(false);
-  clearPathMode(false);
-  clearCommunitySpotlight(false);
-  clearRecentOrbit(false);
-  clearGraphStory(false);
-  clearSearchReveal(false);
+  clearInteractiveModes();
   fitCameraToGraph('All');
   renderNodeInfo(state.selectedNode);
   updateHud();
@@ -2961,67 +2898,23 @@ function focusNode(node, preset = 'Node focus') {
 
 function focusSearchReveal(node) {
   const nodeIds = new Set([node.id, ...state.searchRevealNeighborIds]);
-  fitCameraToNodeIds(nodeIds, 'Search reveal', 180, 4.8);
+  fitCameraToNodeIds(nodeIds, 'Search reveal', {
+    minimumSpan: 180,
+    maxZoom: 4.8
+  });
 }
 
 function focusPath(path, preset = 'Shortest path') {
   const positions = path.orderedNodeIds
     .map((nodeId) => state.positions.get(nodeId))
     .filter(Boolean);
-  if (!positions.length) {
-    return;
-  }
-  const bounds = positions.reduce((box, position) => ({
-    minX: Math.min(box.minX, position.x),
-    maxX: Math.max(box.maxX, position.x),
-    minY: Math.min(box.minY, position.y),
-    maxY: Math.max(box.maxY, position.y),
-    minZ: Math.min(box.minZ, position.z),
-    maxZ: Math.max(box.maxZ, position.z)
-  }), { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity, minZ: Infinity, maxZ: -Infinity });
-  const center = new THREE.Vector3(
-    (bounds.minX + bounds.maxX) / 2,
-    (bounds.minY + bounds.maxY) / 2,
-    (bounds.minZ + bounds.maxZ) / 2
-  );
-  const span = Math.max(
-    bounds.maxX - bounds.minX,
-    bounds.maxY - bounds.minY,
-    bounds.maxZ - bounds.minZ,
-    160
-  );
-  const zoom = clamp(Math.min(stage.clientWidth / (span * 1.25), stage.clientHeight / (span * 0.95)), 0.28, 3.8);
-  orbitCameraTo(center, zoom, preset);
-}
-
-function fitCameraToNodeIds(nodeIds, preset, minimumSpan = 160, maxZoom = 4.8) {
-  const positions = Array.from(nodeIds || [])
-    .map((nodeId) => state.positions.get(nodeId))
-    .filter(Boolean);
-  if (!positions.length) {
-    return;
-  }
-  const bounds = positions.reduce((box, position) => ({
-    minX: Math.min(box.minX, position.x),
-    maxX: Math.max(box.maxX, position.x),
-    minY: Math.min(box.minY, position.y),
-    maxY: Math.max(box.maxY, position.y),
-    minZ: Math.min(box.minZ, position.z),
-    maxZ: Math.max(box.maxZ, position.z)
-  }), { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity, minZ: Infinity, maxZ: -Infinity });
-  const center = new THREE.Vector3(
-    (bounds.minX + bounds.maxX) / 2,
-    (bounds.minY + bounds.maxY) / 2,
-    (bounds.minZ + bounds.maxZ) / 2
-  );
-  const span = Math.max(
-    bounds.maxX - bounds.minX,
-    bounds.maxY - bounds.minY,
-    bounds.maxZ - bounds.minZ,
-    minimumSpan
-  );
-  const zoom = clamp(Math.min(stage.clientWidth / (span * 1.18), stage.clientHeight / (span * 0.96)), 0.2, maxZoom);
-  orbitCameraTo(center, zoom, preset);
+  fitCameraToPositions(positions, preset, {
+    minimumSpan: 160,
+    widthPadding: 1.25,
+    heightPadding: 0.95,
+    minZoom: 0.28,
+    maxZoom: 3.8
+  });
 }
 
 function orbitCameraTo(position, zoom, preset) {
@@ -3123,15 +3016,26 @@ function edgeAtEvent(event) {
 
 function candidateEdgesNearPoint(point, threshold) {
   if (state.focusMode && state.focusEdgeIds.size) {
-    return focusOverlayEdges();
+    const edges = focusOverlayEdges();
+    state.performanceStats.lastHitTestCandidateCount = edges.length;
+    return edges;
   }
   if (state.graphStoryMode && state.graphStoryEdgeIds.size) {
-    return graphStoryOverlayEdges();
+    const edges = graphStoryOverlayEdges();
+    state.performanceStats.lastHitTestCandidateCount = edges.length;
+    return edges;
   }
 
   const candidateIds = new Set();
   const nodeRadius = clamp(54 / Math.max(camera.zoom, 0.45), 18, 72);
-  state.projectedPoints.forEach((projected, nodeId) => {
+  const nearbyNodeIds = state.projectedPointGrid
+    ? nearbyProjectedNodeIds(state.projectedPointGrid, point, nodeRadius)
+    : Array.from(state.projectedPoints.keys());
+  nearbyNodeIds.forEach((nodeId) => {
+    const projected = state.projectedPoints.get(nodeId);
+    if (!projected) {
+      return;
+    }
     if (
       Math.abs(projected.x - point.x) > nodeRadius ||
       Math.abs(projected.y - point.y) > nodeRadius
@@ -3156,6 +3060,7 @@ function candidateEdgesNearPoint(point, threshold) {
       break;
     }
   }
+  state.performanceStats.lastHitTestCandidateCount = candidates.length;
   return candidates;
 }
 
@@ -3468,9 +3373,7 @@ function installWindowAPI() {
       state.graph = normalizeGraph(payload);
       state.lens = lens;
       state.selectedNode = null;
-      clearFocusOrbit(false);
-      clearPathMode(false);
-      clearGraphStory(false);
+      clearInteractiveModes();
       prepareCommunities(state.graph);
       applyLens(true);
     } catch (error) {
@@ -3481,9 +3384,7 @@ function installWindowAPI() {
   window.brainBarApplyGraphLens = (lens) => {
     state.lens = lens;
     state.selectedNode = null;
-    clearFocusOrbit(false);
-    clearPathMode(false);
-    clearGraphStory(false);
+    clearInteractiveModes();
     applyLens(true);
   };
 
@@ -3492,8 +3393,10 @@ function installWindowAPI() {
   window.brainBarTopView = topView;
   window.brainBarResetTilt = resetTilt;
   window.brainBarRendererDiagnostics = () => ({
+    activeMode: activeMode(),
     nodes: state.visibleNodes.length,
     edges: state.visibleEdges.length,
+    highlightedEdges: state.performanceStats.highlightedEdgeCount,
     lens: state.lens,
     communities: state.communities.length,
     cameraPreset: state.cameraPreset,
@@ -3503,6 +3406,9 @@ function installWindowAPI() {
     points: renderer?.info?.render?.points ?? 0,
     lines: renderer?.info?.render?.lines ?? 0,
     visibleProjectedNodeCount: state.visibleProjectedNodeCount,
+    staticRebuildMs: Number(state.performanceStats.staticRebuildMs.toFixed(2)),
+    overlayFrameMs: Number(state.performanceStats.overlayFrameMs.toFixed(2)),
+    hitTestCandidateCount: state.performanceStats.lastHitTestCandidateCount,
     stageWidth: stage.clientWidth,
     stageHeight: stage.clientHeight,
     diagnostic: state.lastDiagnostic

@@ -9,6 +9,7 @@ const require = createRequire(import.meta.url);
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const runtime = require(join(root, 'BrainBar/Resources/Graph2D/brainbar-graph-runtime.js'));
 const graph3dPath = await import(pathToFileURL(join(root, 'BrainBar/Resources/Graph3D/graph3d-path-utils.mjs')));
+const graph3dPolish = await import(pathToFileURL(join(root, 'BrainBar/Resources/Graph3D/graph3d-polish-utils.mjs')));
 const graph3dRecent = await import(pathToFileURL(join(root, 'BrainBar/Resources/Graph3D/graph3d-recent-utils.mjs')));
 const graph3dSearch = await import(pathToFileURL(join(root, 'BrainBar/Resources/Graph3D/graph3d-search-utils.mjs')));
 const graph3dStory = await import(pathToFileURL(join(root, 'BrainBar/Resources/Graph3D/graph3d-story-utils.mjs')));
@@ -239,6 +240,36 @@ assert.equal(
 assert.equal(runtime.describeWorkflowView('orphans').title, 'Needs Links');
 assert.equal(runtime.describeWorkflowView('hubs').title, 'Key Notes');
 
+assert.equal(graph3dPolish.activeModeFromState({}), 'none');
+assert.equal(graph3dPolish.activeModeFromState({ pathMode: true, searchRevealNodeId: 'a' }), 'path');
+assert.equal(graph3dPolish.activeModeFromState({ communitySpotlightName: 'Community 1' }), 'community');
+assert.equal(graph3dPolish.labelBudgetForMode('none'), 0);
+assert.equal(graph3dPolish.labelBudgetForMode('none', { hasHover: true }), 8);
+assert.equal(graph3dPolish.labelBudgetForMode('path'), 14);
+assert.equal(graph3dPolish.labelBudgetForMode('community'), 12);
+assert.deepEqual(graph3dPolish.spotlightBudgets(40), {
+  focusNodeLimit: 80,
+  internalEdgeLimit: 180,
+  bridgeEdgeLimit: 80,
+  useAllNodes: true
+});
+assert.deepEqual(graph3dPolish.spotlightBudgets(120), {
+  focusNodeLimit: 40,
+  internalEdgeLimit: 100,
+  bridgeEdgeLimit: 60,
+  useAllNodes: false
+});
+
+const projectedGrid = graph3dPolish.buildProjectedNodeGrid(new Map([
+  ['near-a', { x: 10, y: 10 }],
+  ['near-b', { x: 70, y: 65 }],
+  ['far', { x: 260, y: 260 }]
+]), { cellSize: 72 });
+assert.deepEqual(
+  new Set(graph3dPolish.nearbyProjectedNodeIds(projectedGrid, { x: 30, y: 30 }, 80)),
+  new Set(['near-a', 'near-b'])
+);
+
 const workflowState = runtime.workflowViewState({
   nodes: [...fixture.nodes, { id: 'e', label: 'Epsilon', source_file: 'notes/Epsilon.md' }],
   edges: fixture.edges,
@@ -403,18 +434,19 @@ assert.ok(sparseExplanation.badges.includes('1 Unknown'));
 assert.ok(sparseExplanation.caveat.includes('metadata is unavailable'));
 
 const graph3dSource = readFileSync(join(root, 'BrainBar/Resources/Graph3D/graph3d.js'), 'utf8');
-assert.match(graph3dSource, /function applyFocusOrbit[\s\S]*clearPathMode\(false\)/);
+assert.match(graph3dSource, /function clearInteractiveModes[\s\S]*clearFocusOrbit\(false\)[\s\S]*clearPathMode\(false\)[\s\S]*clearGraphStory\(false\)/);
 assert.match(graph3dSource, /Compare paths/);
 assert.match(graph3dSource, /No route found/);
 assert.match(graph3dSource, /Community Spotlight/);
 assert.match(graph3dSource, /bridge notes/);
 assert.match(graph3dSource, /Graph Story/);
-assert.match(graph3dSource, /function applyFocusOrbit[\s\S]*clearGraphStory\(false\)/);
-assert.match(graph3dSource, /function applyPathToNode[\s\S]*clearGraphStory\(false\)/);
-assert.match(graph3dSource, /function applyRecentOrbit[\s\S]*clearGraphStory\(false\)/);
+assert.match(graph3dSource, /function applyFocusOrbit[\s\S]*clearInteractiveModes\(\)/);
+assert.match(graph3dSource, /function applyPathToNode[\s\S]*clearInteractiveModes\(\{ preservePathSource: true \}\)/);
+assert.match(graph3dSource, /function applyRecentOrbit[\s\S]*clearInteractiveModes\(\)/);
+assert.match(graph3dSource, /function focusRecentOrbit\(\)[\s\S]*fitCameraWithTilt\('Recent Orbit'/);
 assert.match(graph3dSource, /function renderSearchResults[\s\S]*searchGraphNodes/);
 assert.match(graph3dSource, /function handleSearchResultClick[\s\S]*selectNode\(node, true\)/);
-assert.match(graph3dSource, /function revealSearchNode[\s\S]*clearFocusOrbit\(false\)[\s\S]*clearRecentOrbit\(false\)[\s\S]*clearGraphStory\(false\)/);
+assert.match(graph3dSource, /function revealSearchNode[\s\S]*clearInteractiveModes\(\)/);
 assert.match(graph3dSource, /Revealed from search/);
 
 const obsidianDiff = runtime.computeLensDiff({
