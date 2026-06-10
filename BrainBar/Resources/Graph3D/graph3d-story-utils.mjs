@@ -31,6 +31,32 @@ export function buildGraphStorySteps({
   return steps;
 }
 
+export function graphStoryPresentation(step = {}, {
+  stepIndex = 0,
+  totalSteps = 1,
+  activeNodeId = null,
+  previewLimit = 3
+} = {}) {
+  const items = Array.isArray(step.items) ? step.items : [];
+  const primary = items.find((item) => item.id === activeNodeId)
+    || items.find((item) => item.id === step.activeNodeId)
+    || items[0]
+    || null;
+  const supportingItems = items
+    .filter((item) => item.id !== primary?.id)
+    .slice(0, Math.max(0, previewLimit));
+  const copy = storyCopyForStep(step, primary);
+
+  return {
+    eyebrow: `Step ${stepIndex + 1} of ${Math.max(totalSteps, 1)}`,
+    title: copy.title,
+    summary: copy.summary,
+    takeaway: copy.takeaway,
+    primary,
+    supportingItems
+  };
+}
+
 export function keyNoteStoryStep({ nodes = [], edges = [], degreeByNode = new Map(), limit = defaultLimits.keyNotes, edgeLimit = defaultLimits.edges } = {}) {
   const items = rankedNodesByDegree(nodes, degreeByNode)
     .filter((item) => item.degree > 0)
@@ -228,6 +254,48 @@ function recentStoryStep({ nodes, edges, metadata, limit, edgeLimit }) {
       detail: item.timestamp ? new Date(item.timestamp).toISOString().slice(0, 10) : 'recent'
     }))
   };
+}
+
+function storyCopyForStep(step, primary) {
+  const primaryLabel = primary?.label || 'the highlighted note';
+  switch (step.type) {
+  case 'recent':
+    return {
+      title: 'Pick up where the graph changed',
+      summary: 'These are the newest visible notes in the current lens.',
+      takeaway: `${primaryLabel} is the strongest return point for recent context.`
+    };
+  case 'key-notes':
+    return {
+      title: 'Find the anchors',
+      summary: 'These notes hold the most visible connections in this view.',
+      takeaway: 'Use them as landmarks before diving into specific clusters.'
+    };
+  case 'community':
+    return {
+      title: step.activeCommunityName ? `Read ${step.activeCommunityName} as a cluster` : 'Read this visible community',
+      summary: step.summary || 'This is one of the largest visible communities.',
+      takeaway: `${primaryLabel} is a useful entry point into this cluster.`
+    };
+  case 'bridge-notes':
+    return {
+      title: 'See what connects distant areas',
+      summary: 'These notes carry links across visible community boundaries.',
+      takeaway: `${primaryLabel} helps explain how separate regions meet.`
+    };
+  case 'needs-attention':
+    return {
+      title: 'Notice weak spots',
+      summary: 'These notes or small groups have little visible context.',
+      takeaway: 'They may need links, cleanup, or they may be intentionally isolated.'
+    };
+  default:
+    return {
+      title: step.title || 'Graph Story',
+      summary: step.summary || 'This step highlights one readable part of the visible graph.',
+      takeaway: primary ? `${primaryLabel} is the best starting point here.` : 'Move through the tour to orient yourself.'
+    };
+  }
 }
 
 function rankedNodesByDegree(nodes, degreeByNode) {

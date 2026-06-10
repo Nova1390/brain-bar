@@ -439,6 +439,47 @@ h2 {
   gap: 6px;
 }
 
+.graph-story-copy {
+  display: grid;
+  gap: 7px;
+}
+
+.graph-story-copy h3 {
+  margin: 0 !important;
+  color: rgba(250, 252, 255, 0.94);
+  font-size: 15px;
+  line-height: 1.25;
+}
+
+.graph-story-copy p {
+  margin: 0 !important;
+}
+
+.graph-story-takeaway {
+  color: rgba(210, 218, 255, 0.76);
+}
+
+.graph-story-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.graph-story-actions button {
+  min-height: 30px;
+  padding: 6px 8px;
+  border: 1px solid rgba(244, 246, 255, 0.12);
+  border-radius: 8px;
+  background: rgba(244, 246, 255, 0.06);
+  color: rgba(244, 246, 255, 0.84);
+  font: 720 11px -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+}
+
+.graph-story-actions button:disabled {
+  cursor: default;
+  opacity: 0.42;
+}
+
 .graph-story-controls button:disabled {
   cursor: default;
   opacity: 0.42;
@@ -462,14 +503,24 @@ h2 {
   gap: 5px;
 }
 
-.graph-story-list {
+.graph-story-supporting {
   display: grid;
   gap: 5px;
 }
 
+.graph-story-supporting h5 {
+  margin: 2px 0 0;
+  color: rgba(244, 246, 255, 0.48);
+  font-size: 10px;
+  font-weight: 760;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
 .spotlight-node,
 .recent-orbit-node,
-.graph-story-node {
+.graph-story-primary-node,
+.graph-story-support-node {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
@@ -489,13 +540,42 @@ h2 {
   grid-template-columns: auto minmax(0, 1fr);
 }
 
+.graph-story-primary-node {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 4px;
+  min-height: 54px;
+  border-color: rgba(170, 186, 255, 0.30);
+  background:
+    linear-gradient(180deg, rgba(132, 154, 255, 0.20), rgba(244, 246, 255, 0.06)),
+    rgba(16, 19, 35, 0.68);
+}
+
+.graph-story-primary-node span {
+  color: rgba(244, 246, 255, 0.48);
+  font-size: 10px;
+  font-weight: 760;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.graph-story-support-node {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .recent-orbit-node small,
-.graph-story-node small {
+.graph-story-primary-node small,
+.graph-story-support-node small {
   grid-column: 2;
 }
 
+.graph-story-primary-node small,
+.graph-story-support-node small {
+  grid-column: auto;
+}
+
 .recent-orbit-node strong,
-.graph-story-node strong {
+.graph-story-primary-node strong,
+.graph-story-support-node strong {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -504,7 +584,8 @@ h2 {
 
 .spotlight-node small,
 .recent-orbit-node small,
-.graph-story-node small {
+.graph-story-primary-node small,
+.graph-story-support-node small {
   color: rgba(244, 246, 255, 0.42);
   font-size: 10px;
   font-variant-numeric: tabular-nums;
@@ -513,12 +594,13 @@ h2 {
 .spotlight-node:hover,
 .recent-orbit-node:hover,
 .recent-orbit-node.selected,
-.graph-story-node:hover,
-.graph-story-node.selected,
+.graph-story-primary-node:hover,
+.graph-story-support-node:hover,
 .spotlight-heading button:hover,
 .recent-orbit-heading button:hover,
 .graph-story-heading button:hover,
-.graph-story-controls button:hover {
+.graph-story-controls button:hover,
+.graph-story-actions button:not(:disabled):hover {
   border-color: rgba(170, 186, 255, 0.28);
   background: rgba(132, 154, 255, 0.14);
 }

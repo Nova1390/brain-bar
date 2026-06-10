@@ -199,6 +199,28 @@ assert.equal(storySteps.find((step) => step.id === 'key-notes').items[0].id, 'ke
 assert.equal(storySteps.find((step) => step.id === 'community-1').activeCommunityName, 'Community 1');
 assert.equal(storySteps.find((step) => step.id === 'bridge-notes').items[0].id, 'bridge-a');
 assert.equal(storySteps.find((step) => step.id === 'needs-attention').items[0].id, 'orphan');
+storySteps.forEach((step, index) => {
+  const presentation = graph3dStory.graphStoryPresentation(step, {
+    stepIndex: index,
+    totalSteps: storySteps.length,
+    activeNodeId: step.activeNodeId,
+    previewLimit: 3
+  });
+  assert.match(presentation.eyebrow, /^Step \d+ of \d+$/);
+  assert.ok(presentation.title);
+  assert.ok(presentation.summary);
+  assert.ok(presentation.takeaway);
+  assert.ok(presentation.primary);
+  assert.ok(presentation.supportingItems.length <= 3);
+});
+const keyPresentation = graph3dStory.graphStoryPresentation(storySteps.find((step) => step.id === 'key-notes'), {
+  stepIndex: 1,
+  totalSteps: storySteps.length,
+  activeNodeId: 'bridge-a',
+  previewLimit: 3
+});
+assert.equal(keyPresentation.primary.id, 'bridge-a');
+assert.equal(keyPresentation.supportingItems.some((item) => item.id === 'bridge-a'), false);
 
 const storyWithoutOptionalSteps = graph3dStory.buildGraphStorySteps({
   nodes: storyNodes.filter((node) => node.id !== 'orphan').map((node) => ({ ...node, label: node.label.replace('Recent', 'Plain') })),

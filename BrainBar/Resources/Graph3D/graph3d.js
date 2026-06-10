@@ -10,7 +10,7 @@ import {
 } from './graph3d-polish-utils.mjs';
 import { nearestKeyNotePath, recentOrbitCandidates } from './graph3d-recent-utils.mjs';
 import { searchGraphNodes } from './graph3d-search-utils.mjs';
-import { buildGraphStorySteps } from './graph3d-story-utils.mjs';
+import { buildGraphStorySteps, graphStoryPresentation } from './graph3d-story-utils.mjs';
 
 const stage = document.getElementById('stage');
 const graphVisual = document.getElementById('graph-visual');
@@ -55,7 +55,8 @@ const graphStoryRecentLimit = 12;
 const graphStoryKeyNoteLimit = 12;
 const graphStoryCommunityLimit = 3;
 const graphStoryBridgeLimit = 10;
-const graphStoryEdgeLimit = 160;
+const graphStoryEdgeLimit = 80;
+const graphStoryPreviewLimit = 3;
 const searchResultLimit = 20;
 const searchRevealNeighborLimit = 16;
 
@@ -1913,9 +1914,24 @@ function renderGraphStoryPanel() {
   }
   const canGoBack = state.graphStoryStepIndex > 0;
   const canGoNext = state.graphStoryStepIndex < state.graphStorySteps.length - 1;
-  const itemButtons = (step.items || []).slice(0, 12).map((item, index) => `
-    <button class="graph-story-node ${item.id === state.graphStoryActiveNodeId ? 'selected' : ''}" data-node-id="${escapeHTML(item.id)}">
-      <span>${index + 1}</span>
+  const story = graphStoryPresentation(step, {
+    stepIndex: state.graphStoryStepIndex,
+    totalSteps: state.graphStorySteps.length,
+    activeNodeId: state.graphStoryActiveNodeId,
+    previewLimit: graphStoryPreviewLimit
+  });
+  const activeNode = story.primary?.id ? nodeForId(story.primary.id) : null;
+  const openDisabled = activeNode?.sourceFile ? '' : 'disabled';
+  const focusDisabled = activeNode ? '' : 'disabled';
+  const primaryButton = story.primary
+    ? `<button class="graph-story-primary-node" data-node-id="${escapeHTML(story.primary.id)}">
+        <span>Start here</span>
+        <strong>${escapeHTML(story.primary.label)}</strong>
+        <small>${escapeHTML(story.primary.detail || '')}</small>
+      </button>`
+    : '<p class="muted">No primary note for this step.</p>';
+  const supportingButtons = story.supportingItems.map((item) => `
+    <button class="graph-story-support-node" data-node-id="${escapeHTML(item.id)}">
       <strong>${escapeHTML(item.label)}</strong>
       <small>${escapeHTML(item.detail || '')}</small>
     </button>
@@ -1925,16 +1941,25 @@ function renderGraphStoryPanel() {
       <div class="graph-story-heading">
         <div>
           <h4>Graph Story</h4>
-          <p>Step ${state.graphStoryStepIndex + 1} of ${state.graphStorySteps.length} · ${escapeHTML(step.title)}</p>
+          <p>${escapeHTML(story.eyebrow)}</p>
         </div>
         <button id="clear-graph-story">Exit tour</button>
       </div>
-      <p class="graph-story-summary">${escapeHTML(step.summary || state.graphStoryMessage || '')}</p>
+      <div class="graph-story-copy">
+        <h3>${escapeHTML(story.title)}</h3>
+        <p>${escapeHTML(story.summary || state.graphStoryMessage || '')}</p>
+        <p class="graph-story-takeaway">${escapeHTML(story.takeaway)}</p>
+      </div>
+      <div class="graph-story-primary">${primaryButton}</div>
+      <div class="graph-story-actions">
+        <button id="graph-story-focus-note" ${focusDisabled}>Focus note</button>
+        <button id="graph-story-open-note" ${openDisabled}>Open note</button>
+      </div>
       <div class="graph-story-controls">
         <button id="graph-story-back" ${canGoBack ? '' : 'disabled'}>Back</button>
         <button id="graph-story-next" ${canGoNext ? '' : 'disabled'}>Next</button>
       </div>
-      <div class="graph-story-list">${itemButtons || '<p class="muted">No notes to list for this step.</p>'}</div>
+      ${supportingButtons ? `<div class="graph-story-supporting"><h5>Also highlighted</h5>${supportingButtons}</div>` : ''}
     </section>
   `;
 }
@@ -1944,14 +1969,21 @@ function wireGraphStoryPanel() {
   document.getElementById('clear-graph-story')?.addEventListener('click', () => clearGraphStory(true));
   document.getElementById('graph-story-back')?.addEventListener('click', () => applyGraphStoryStep(state.graphStoryStepIndex - 1));
   document.getElementById('graph-story-next')?.addEventListener('click', () => applyGraphStoryStep(state.graphStoryStepIndex + 1));
-  nodeInfo.querySelectorAll('.graph-story-node[data-node-id]').forEach((button) => {
+  document.getElementById('graph-story-focus-note')?.addEventListener('click', () => {
+    const node = nodeForId(state.graphStoryActiveNodeId);
+    if (node) {
+      applyFocusOrbit(node, state.focusDepth || 1);
+    }
+  });
+  document.getElementById('graph-story-open-note')?.addEventListener('click', () => {
+    const node = nodeForId(state.graphStoryActiveNodeId);
+    if (node) {
+      sendNodeAction('openNode', node);
+    }
+  });
+  nodeInfo.querySelectorAll('.graph-story-primary-node[data-node-id], .graph-story-support-node[data-node-id]').forEach((button) => {
     button.addEventListener('click', () => {
-      const node = nodeForId(button.dataset.nodeId);
-      if (node) {
-        state.graphStoryActiveNodeId = node.id;
-        selectNode(node, true);
-        renderNodeInfo(node);
-      }
+      activateGraphStoryNode(button.dataset.nodeId);
     });
   });
 }
@@ -2530,6 +2562,21 @@ function currentGraphStoryStep() {
   return state.graphStorySteps[state.graphStoryStepIndex] || null;
 }
 
+function activateGraphStoryNode(nodeId) {
+  const step = currentGraphStoryStep();
+  const node = nodeForId(nodeId);
+  if (!step || !node) {
+    return;
+  }
+  state.graphStoryActiveNodeId = node.id;
+  state.selectedNode = null;
+  positionSelectedMarker(node);
+  focusGraphStoryStep(step);
+  renderNodeInfo(null);
+  updateHud();
+  requestRender();
+}
+
 function clearGraphStory(render = true) {
   state.graphStoryMode = false;
   state.graphStorySteps = [];
@@ -2558,10 +2605,10 @@ function focusGraphStoryStep(step) {
     ? state.graphStoryFocusNodeIds
     : state.graphStoryNodeIds;
   fitCameraToNodeIds(focusIds, 'Graph Story', {
-    minimumSpan: step?.type === 'community' ? 260 : 140,
-    widthPadding: 1.18,
-    heightPadding: 0.94,
-    maxZoom: 4.8
+    minimumSpan: step?.type === 'community' ? 320 : 240,
+    widthPadding: 1.24,
+    heightPadding: 1.02,
+    maxZoom: 2.9
   });
 }
 

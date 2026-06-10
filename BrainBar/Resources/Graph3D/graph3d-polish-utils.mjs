@@ -26,8 +26,11 @@ export function labelBudgetForMode(mode, { hasSelected = false, hasHover = false
   if (mode === 'path' || mode === 'focus' || mode === 'search') {
     return 14;
   }
-  if (mode === 'community' || mode === 'recent' || mode === 'story') {
+  if (mode === 'community' || mode === 'recent') {
     return 12;
+  }
+  if (mode === 'story') {
+    return 8;
   }
   if (hasSelected) {
     return 12;
