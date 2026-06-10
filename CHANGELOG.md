@@ -4,6 +4,7 @@ All notable changes to BrainBar are documented here.
 
 ## Unreleased
 
+- Added subtle 3D Living Graph polish with ambient breathing, recent-note warmth, and action response pulses that respect reduced-motion preferences.
 - Clarified README onboarding copy around Graphify-powered graphs, Search Reveal, Recent Orbit, Graph Story v2, and release tagging.
 
 ## 0.9.5 - 2026-06-10

@@ -9,6 +9,7 @@ const require = createRequire(import.meta.url);
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const runtime = require(join(root, 'BrainBar/Resources/Graph2D/brainbar-graph-runtime.js'));
 const graph3dPath = await import(pathToFileURL(join(root, 'BrainBar/Resources/Graph3D/graph3d-path-utils.mjs')));
+const graph3dLiving = await import(pathToFileURL(join(root, 'BrainBar/Resources/Graph3D/graph3d-living-utils.mjs')));
 const graph3dPolish = await import(pathToFileURL(join(root, 'BrainBar/Resources/Graph3D/graph3d-polish-utils.mjs')));
 const graph3dRecent = await import(pathToFileURL(join(root, 'BrainBar/Resources/Graph3D/graph3d-recent-utils.mjs')));
 const graph3dSearch = await import(pathToFileURL(join(root, 'BrainBar/Resources/Graph3D/graph3d-search-utils.mjs')));
@@ -269,6 +270,31 @@ assert.equal(graph3dPolish.labelBudgetForMode('none'), 0);
 assert.equal(graph3dPolish.labelBudgetForMode('none', { hasHover: true }), 8);
 assert.equal(graph3dPolish.labelBudgetForMode('path'), 14);
 assert.equal(graph3dPolish.labelBudgetForMode('community'), 12);
+const breathA = graph3dLiving.breathingStyle({ phase: 1.2, nodeId: 'alpha', baseRadius: 4, depth: 0.9 });
+const breathB = graph3dLiving.breathingStyle({ phase: 1.2, nodeId: 'alpha', baseRadius: 4, depth: 0.9 });
+assert.deepEqual(breathA, breathB);
+assert.equal(graph3dLiving.breathingStyle({ reducedMotion: true }).offsetX, 0);
+assert.deepEqual(
+  graph3dLiving.selectAmbientRecentNodeIds({
+    recentItems: Array.from({ length: 30 }, (_, index) => ({ id: `recent-${index}` })),
+    visibleNodeIds: new Set(Array.from({ length: 26 }, (_, index) => `recent-${index}`)),
+    limit: 24
+  }),
+  Array.from({ length: 24 }, (_, index) => `recent-${index}`)
+);
+const livingPulse = graph3dLiving.createLivingPulse({
+  nodeIds: Array.from({ length: 20 }, (_, index) => `n-${index}`),
+  edgeIds: Array.from({ length: 60 }, (_, index) => `e-${index}`),
+  originNodeId: 'n-0',
+  now: 1000,
+  durationMs: 1200
+});
+assert.equal(livingPulse.nodeIds.length, 16);
+assert.equal(livingPulse.edgeIds.length, 48);
+assert.equal(graph3dLiving.pulseVisualState(livingPulse, 1000).expired, false);
+assert.equal(graph3dLiving.pulseVisualState(livingPulse, 2300).expired, true);
+assert.equal(graph3dLiving.pruneLivingPulses([livingPulse], 2300).length, 0);
+assert.equal(graph3dLiving.pulseVisualState(livingPulse, 1100, { reducedMotion: true }).alpha, 0);
 assert.deepEqual(graph3dPolish.spotlightBudgets(40), {
   focusNodeLimit: 80,
   internalEdgeLimit: 180,
@@ -470,6 +496,9 @@ assert.match(graph3dSource, /function renderSearchResults[\s\S]*searchGraphNodes
 assert.match(graph3dSource, /function handleSearchResultClick[\s\S]*selectNode\(node, true\)/);
 assert.match(graph3dSource, /function revealSearchNode[\s\S]*clearInteractiveModes\(\)/);
 assert.match(graph3dSource, /Revealed from search/);
+assert.match(graph3dSource, /emitLivingPulse/);
+assert.match(graph3dSource, /clearLivingPulses/);
+assert.match(graph3dSource, /function focusRecentOrbit\(\)[\s\S]*fitCameraWithTilt\('Recent Orbit', 0\.72, 0\.88\)/);
 
 const obsidianDiff = runtime.computeLensDiff({
   lens: 'obsidian',
@@ -535,6 +564,7 @@ assert.ok(resetAll.nodeUpdates.every((update) => update.hidden === false));
   'BrainBar/Resources/Graph3D/index.html',
   'BrainBar/Resources/Graph3D/graph3d.css',
   'BrainBar/Resources/Graph3D/graph3d.js',
+  'BrainBar/Resources/Graph3D/graph3d-living-utils.mjs',
   'BrainBar/Resources/Graph3D/graph3d-path-utils.mjs',
   'BrainBar/Resources/Graph3D/graph3d-search-utils.mjs',
   'BrainBar/Resources/Graph3D/graph3d-story-utils.mjs',

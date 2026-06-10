@@ -28,6 +28,7 @@ Graph exploration features are runtime-only. Search Reveal, Focus, Source Lens, 
 - Community Spotlight for inspecting one visible community at a time.
 - Recent Orbit for resuming from recently changed notes.
 - Graph Story as a compact narrative tour through the visible graph.
+- Subtle living-graph polish: ambient breathing, recent-note warmth, and action response pulses.
 - Stable 2D operational views for graph checks and diagnostics.
 - Public GitHub Releases as Developer ID signed, Apple-notarized DMGs.
 
@@ -95,7 +96,7 @@ graphify-out/
 
 ## 3D Explorer
 
-The 3D Explorer is BrainBar's main human exploration surface. It keeps the whole graph visible, but gives you runtime-only modes for making one part understandable at a time.
+The 3D Explorer is BrainBar's main human exploration surface. It keeps the whole graph visible, adds subtle ambient motion and response pulses, and gives you runtime-only modes for making one part understandable at a time.
 
 ### Focus Orbit
 

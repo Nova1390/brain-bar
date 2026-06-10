@@ -1,5 +1,12 @@
 import * as THREE from './vendor/three.module.min.js';
 import { OrbitControls } from './vendor/OrbitControls.js';
+import {
+  breathingStyle,
+  createLivingPulse,
+  pruneLivingPulses,
+  pulseVisualState,
+  selectAmbientRecentNodeIds
+} from './graph3d-living-utils.mjs';
 import { computePathVariants, explainShortestPath } from './graph3d-path-utils.mjs';
 import {
   activeModeFromState,
@@ -41,9 +48,12 @@ const baseEdgeColor = '#6f7f9d';
 const selectedStrokeColor = '#f1f4ff';
 const prefersReducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
 const ambientFrameInterval = 50;
-const ambientMotionScale = prefersReducedMotion ? 0.45 : 1;
-const ambientLocalAmplitude = 5.4 * ambientMotionScale;
+const ambientMotionScale = prefersReducedMotion ? 0 : 1;
+const ambientLocalAmplitude = 1.8 * ambientMotionScale;
 const ambientSampleTarget = 520;
+const ambientRecentNodeLimit = 24;
+const livingPulseNodeLimit = 16;
+const livingPulseEdgeLimit = 48;
 const spotlightFocusNodeLimit = 72;
 const spotlightSmallCommunityLimit = 80;
 const spotlightInternalEdgeLimit = 180;
@@ -140,11 +150,16 @@ const state = {
   projectedPointGrid: null,
   overlayCache: { key: '', edges: [] },
   spotlightCache: new Map(),
+  livingPulseEvents: [],
+  ambientRecentNodeIds: new Set(),
+  lastLivingInteractionAt: 0,
   performanceStats: {
     staticRebuildMs: 0,
     overlayFrameMs: 0,
     highlightedEdgeCount: 0,
-    lastHitTestCandidateCount: 0
+    lastHitTestCandidateCount: 0,
+    livingPulseCount: 0,
+    ambientRecentCount: 0
   },
   pointer: new THREE.Vector2(),
   raycaster: new THREE.Raycaster(),
@@ -334,6 +349,8 @@ function applyLens(fit = true) {
     clearInteractiveModes();
     state.visibleGraphRevision += 1;
     state.spotlightCache.clear();
+    updateAmbientRecentNodes();
+    clearLivingPulses(false);
     markVisualCacheDirty();
 
     calculateLayout();
@@ -357,6 +374,7 @@ function activeMode() {
 }
 
 function clearInteractiveModes({ preservePathSource = false } = {}) {
+  clearLivingPulses(false);
   clearFocusOrbit(false);
   if (!(preservePathSource && state.pathMode && state.pathSourceId && !state.pathTargetId)) {
     clearPathMode(false);
@@ -931,6 +949,7 @@ function drawVisualFrame({ width, height, pixelRatio }) {
 
   visualContext.drawImage(staticVisualLayer, 0, 0, width, height);
   drawAmbientNodeMotion(width, height);
+  drawAmbientRecentWarmth(width, height);
 
   if (hoverAmount > 0.01) {
     visualContext.save();
@@ -942,8 +961,12 @@ function drawVisualFrame({ width, height, pixelRatio }) {
   }
 
   drawActiveVisualOverlay(hoverTrails, edgeTrails, hoverAmount, width, height);
+  drawLivingPulses(width, height);
   if (state.pathMode && state.pathOrderedEdgeIds.length && !prefersReducedMotion) {
     state.pathPulsePhase = performance.now() * 0.001;
+    requestRender();
+  }
+  if (state.livingPulseEvents.length && !prefersReducedMotion) {
     requestRender();
   }
 }
@@ -963,19 +986,68 @@ function drawAmbientNodeMotion(width, height) {
     if (!rawPoint) {
       return;
     }
-    const point = ambientProjectedPoint(rawPoint, width, height);
     const degree = state.degreeByNode.get(node.id) ?? 0;
-    const depth = depthPresence(point.z);
-    const radius = nodeRadiusForDegree(degree, depth) * 0.84;
+    const depth = depthPresence(rawPoint.z);
+    const baseRadius = nodeRadiusForDegree(degree, depth) * 0.82;
+    const breath = breathingStyle({
+      phase: state.ambientPhase,
+      nodeId: node.id,
+      baseRadius,
+      depth,
+      reducedMotion: prefersReducedMotion
+    });
+    const point = {
+      ...rawPoint,
+      x: rawPoint.x + breath.offsetX,
+      y: rawPoint.y + breath.offsetY
+    };
+    const radius = breath.radius;
     visualContext.beginPath();
     visualContext.arc(point.x, point.y, Math.max(radius - 0.55, 1.2), 0, Math.PI * 2);
     visualContext.fillStyle = colorForCommunity(node.community);
-    visualContext.globalAlpha = 0.045 + depth * 0.025;
+    visualContext.globalAlpha = breath.fillAlpha;
     visualContext.fill();
     visualContext.beginPath();
     visualContext.arc(point.x, point.y, radius, 0, Math.PI * 2);
     visualContext.strokeStyle = colorForCommunity(node.community);
-    visualContext.globalAlpha = 0.24 + depth * 0.08;
+    visualContext.globalAlpha = breath.strokeAlpha;
+    visualContext.stroke();
+  });
+  visualContext.restore();
+}
+
+function drawAmbientRecentWarmth(width, height) {
+  if (!state.ambientRecentNodeIds.size || !state.projectedPoints.size) {
+    return;
+  }
+  const mode = activeMode();
+  const activeDamping = mode === 'none' ? 1 : 0.42;
+  const phase = state.ambientPhase || performance.now() * 0.001;
+  visualContext.save();
+  state.ambientRecentNodeIds.forEach((nodeId) => {
+    const node = nodeForId(nodeId);
+    const rawPoint = state.projectedPoints.get(nodeId);
+    if (!node || !rawPoint) {
+      return;
+    }
+    const point = ambientProjectedPoint(rawPoint, width, height);
+    const degree = state.degreeByNode.get(node.id) ?? 0;
+    const depth = depthPresence(point.z);
+    const baseRadius = nodeRadiusForDegree(degree, depth);
+    const wave = prefersReducedMotion ? 0.35 : (Math.sin(phase * 0.84 + hashString(nodeId) * 0.003) + 1) * 0.5;
+    const radius = baseRadius + 2.8 + wave * 2.2;
+    visualContext.beginPath();
+    visualContext.arc(point.x, point.y, radius + 4.5, 0, Math.PI * 2);
+    visualContext.fillStyle = accentColorForCommunity(node.community);
+    visualContext.globalAlpha = (prefersReducedMotion ? 0.045 : 0.052 + wave * 0.042) * activeDamping;
+    visualContext.shadowColor = 'rgba(164, 224, 214, 0.18)';
+    visualContext.shadowBlur = prefersReducedMotion ? 0 : 10 + wave * 8;
+    visualContext.fill();
+    visualContext.beginPath();
+    visualContext.arc(point.x, point.y, Math.max(baseRadius + 0.8, 2.2), 0, Math.PI * 2);
+    visualContext.strokeStyle = accentColorForCommunity(node.community);
+    visualContext.globalAlpha = (prefersReducedMotion ? 0.10 : 0.12 + wave * 0.08) * activeDamping;
+    visualContext.lineWidth = 0.85;
     visualContext.stroke();
   });
   visualContext.restore();
@@ -1360,6 +1432,75 @@ function drawPathPulseOverlay(width, height) {
     visualContext.fillStyle = '#f7f9ff';
     visualContext.globalAlpha = 0.88;
     visualContext.fill();
+  });
+  visualContext.restore();
+}
+
+function drawLivingPulses(width, height) {
+  if (!state.livingPulseEvents.length) {
+    state.performanceStats.livingPulseCount = 0;
+    return;
+  }
+  const now = performance.now();
+  state.livingPulseEvents = pruneLivingPulses(state.livingPulseEvents, now, {
+    reducedMotion: prefersReducedMotion
+  });
+  state.performanceStats.livingPulseCount = state.livingPulseEvents.length;
+  if (!state.livingPulseEvents.length || prefersReducedMotion) {
+    return;
+  }
+
+  visualContext.save();
+  state.livingPulseEvents.forEach((pulse) => {
+    const visual = pulseVisualState(pulse, now);
+    if (visual.expired || visual.alpha <= 0.01) {
+      return;
+    }
+    const origin = pulse.originNodeId ? nodeForId(pulse.originNodeId) : null;
+    const pulseColor = origin ? accentColorForCommunity(origin.community) : '#dbe7ff';
+
+    visualContext.lineCap = 'round';
+    visualContext.lineJoin = 'round';
+    visualContext.shadowColor = 'rgba(210, 226, 255, 0.24)';
+    visualContext.shadowBlur = 12 * visual.alpha;
+    visualContext.lineWidth = 0.8 + visual.alpha * 1.4;
+    visualContext.strokeStyle = pulseColor;
+    visualContext.globalAlpha = 0.08 + visual.alpha * 0.22;
+    pulse.edgeIds.forEach((edgeId) => {
+      const edge = state.edgeById.get(edgeId);
+      const source = edge ? state.projectedPoints.get(edge.source) : null;
+      const target = edge ? state.projectedPoints.get(edge.target) : null;
+      if (!edge || !source || !target) {
+        return;
+      }
+      const path = new Path2D();
+      addCurvedEdge(path, edge, ambientProjectedPoint(source, width, height), ambientProjectedPoint(target, width, height), 0.94);
+      visualContext.stroke(path);
+    });
+
+    pulse.nodeIds.forEach((nodeId) => {
+      const node = nodeForId(nodeId);
+      const rawPoint = state.projectedPoints.get(nodeId);
+      if (!node || !rawPoint) {
+        return;
+      }
+      const point = ambientProjectedPoint(rawPoint, width, height);
+      const degree = state.degreeByNode.get(node.id) ?? 0;
+      const depth = depthPresence(point.z);
+      const baseRadius = nodeRadiusForDegree(degree, depth);
+      const radius = baseRadius + 3.2 * visual.radiusScale;
+      visualContext.beginPath();
+      visualContext.arc(point.x, point.y, radius, 0, Math.PI * 2);
+      visualContext.fillStyle = accentColorForCommunity(node.community);
+      visualContext.globalAlpha = 0.04 + visual.alpha * 0.12;
+      visualContext.fill();
+      visualContext.beginPath();
+      visualContext.arc(point.x, point.y, baseRadius + visual.radiusScale * 1.8, 0, Math.PI * 2);
+      visualContext.strokeStyle = selectedStrokeColor;
+      visualContext.globalAlpha = 0.14 + visual.alpha * 0.34;
+      visualContext.lineWidth = 0.9 + visual.alpha * 0.8;
+      visualContext.stroke();
+    });
   });
   visualContext.restore();
 }
@@ -2298,6 +2439,12 @@ function selectNode(node, focusCamera = false, options = {}) {
   state.selectedNode = node;
   renderNodeInfo(node);
   positionSelectedMarker(node);
+  emitLivingPulse({
+    ...pulseNodeNeighborhood(node.id, 10, 32),
+    originNodeId: node.id,
+    intensity: 0.52,
+    durationMs: 920
+  });
   if (focusCamera) {
     focusNode(node);
   }
@@ -2327,6 +2474,13 @@ function revealSearchNode(node) {
   renderNodeInfo(node);
   positionSelectedMarker(node);
   focusSearchReveal(node);
+  emitLivingPulse({
+    nodeIds: [node.id, ...neighborIds],
+    edgeIds: edgeIds,
+    originNodeId: node.id,
+    intensity: 0.68,
+    durationMs: 1050
+  });
   updateHud();
   requestRender();
 }
@@ -2358,6 +2512,13 @@ function applyCommunitySpotlight(communityName) {
   selectedMarker.visible = false;
   renderSidebar();
   focusCommunitySpotlight(spotlight);
+  emitLivingPulse({
+    nodeIds: Array.from(spotlight.focusNodeIds),
+    edgeIds: Array.from(spotlight.overlayEdgeIds),
+    originNodeId: spotlight.topNodes[0]?.id || Array.from(spotlight.focusNodeIds)[0] || null,
+    intensity: 0.50,
+    durationMs: 1300
+  });
   updateHud();
   requestRender();
 }
@@ -2487,6 +2648,86 @@ function recentOrbitVisibleItems(limit = recentOrbitNodeLimit) {
   });
 }
 
+function updateAmbientRecentNodes() {
+  const items = recentOrbitVisibleItems(ambientRecentNodeLimit);
+  state.ambientRecentNodeIds = new Set(selectAmbientRecentNodeIds({
+    recentItems: items,
+    visibleNodeIds: state.visibleNodeIds,
+    limit: ambientRecentNodeLimit
+  }));
+  state.performanceStats.ambientRecentCount = state.ambientRecentNodeIds.size;
+}
+
+function emitLivingPulse({
+  nodeIds = [],
+  edgeIds = [],
+  originNodeId = null,
+  intensity = 0.65,
+  durationMs = 1100
+} = {}) {
+  if (prefersReducedMotion) {
+    return;
+  }
+  const pulseNodeIds = Array.from(nodeIds || []).filter((nodeId) => state.visibleNodeIds.has(String(nodeId)));
+  const pulseEdgeIds = Array.from(edgeIds || []).filter((edgeId) => state.edgeById.has(String(edgeId)));
+  if (!pulseNodeIds.length && !pulseEdgeIds.length) {
+    return;
+  }
+  const now = performance.now();
+  const pulse = createLivingPulse({
+    nodeIds: pulseNodeIds,
+    edgeIds: pulseEdgeIds,
+    originNodeId,
+    now,
+    durationMs,
+    intensity,
+    maxNodes: livingPulseNodeLimit,
+    maxEdges: livingPulseEdgeLimit
+  });
+  state.livingPulseEvents = pruneLivingPulses(state.livingPulseEvents, now).slice(-3);
+  state.livingPulseEvents.push(pulse);
+  state.lastLivingInteractionAt = now;
+  state.performanceStats.livingPulseCount = state.livingPulseEvents.length;
+  requestRender();
+}
+
+function clearLivingPulses(render = true) {
+  state.livingPulseEvents = [];
+  state.performanceStats.livingPulseCount = 0;
+  if (render) {
+    requestRender();
+  }
+}
+
+function pulseNodeNeighborhood(nodeId, nodeLimit = livingPulseNodeLimit, edgeLimit = livingPulseEdgeLimit) {
+  const node = nodeForId(nodeId);
+  if (!node) {
+    return { nodeIds: [], edgeIds: [] };
+  }
+  const topNeighbors = topNeighborsForNode(node.id, Math.max(0, nodeLimit - 1));
+  const nodeIds = [node.id, ...topNeighbors.map((neighbor) => neighbor.id)];
+  const nodeSet = new Set(nodeIds);
+  const edgeIds = (state.edgesByNode.get(node.id) || [])
+    .filter((edge) => nodeSet.has(edge.source) && nodeSet.has(edge.target))
+    .slice(0, edgeLimit)
+    .map((edge) => edge.id);
+  return { nodeIds, edgeIds };
+}
+
+function pulseEdgesForNodeIds(nodeIds, limit = livingPulseEdgeLimit) {
+  const nodeSet = new Set(Array.from(nodeIds || []).map(String));
+  const edgeIds = [];
+  for (const edge of state.visibleEdges) {
+    if (nodeSet.has(edge.source) && nodeSet.has(edge.target)) {
+      edgeIds.push(edge.id);
+      if (edgeIds.length >= limit) {
+        break;
+      }
+    }
+  }
+  return edgeIds;
+}
+
 function graphStoryVisibleSteps() {
   return buildGraphStorySteps({
     nodes: state.visibleNodes,
@@ -2551,6 +2792,13 @@ function applyGraphStoryStep(index, render = true) {
   }
 
   focusGraphStoryStep(step);
+  emitLivingPulse({
+    nodeIds: Array.from(state.graphStoryFocusNodeIds),
+    edgeIds: Array.from(state.graphStoryEdgeIds),
+    originNodeId: state.graphStoryActiveNodeId,
+    intensity: 0.48,
+    durationMs: 1180
+  });
   if (render) {
     renderNodeInfo(state.selectedNode);
     updateHud();
@@ -2572,6 +2820,12 @@ function activateGraphStoryNode(nodeId) {
   state.selectedNode = null;
   positionSelectedMarker(node);
   focusGraphStoryStep(step);
+  emitLivingPulse({
+    ...pulseNodeNeighborhood(node.id, 8, 24),
+    originNodeId: node.id,
+    intensity: 0.42,
+    durationMs: 900
+  });
   renderNodeInfo(null);
   updateHud();
   requestRender();
@@ -2668,6 +2922,15 @@ function applyRecentOrbit(preferredNodeId = null, selectActiveNode = false) {
   }
   renderNodeInfo(state.selectedNode);
   focusRecentOrbit(match.path, activeNode);
+  emitLivingPulse({
+    nodeIds: state.recentOrbitOrderedNodeIds.length
+      ? state.recentOrbitOrderedNodeIds
+      : [match.item.id],
+    edgeIds: state.recentOrbitOrderedEdgeIds,
+    originNodeId: match.item.id,
+    intensity: 0.54,
+    durationMs: 1180
+  });
   updateHud();
   requestRender();
 }
@@ -2697,7 +2960,7 @@ function applyRecentOrbitPathState(path) {
 }
 
 function focusRecentOrbit() {
-  fitCameraWithTilt('Recent Orbit', 1.12, 0.54);
+  fitCameraWithTilt('Recent Orbit', 0.72, 0.88);
 }
 
 function clearRecentOrbit(render = true) {
@@ -2747,6 +3010,13 @@ function applyFocusOrbit(node, depth = 1, focusCamera = true) {
   if (focusCamera) {
     focusNode(node, 'Focus orbit');
   }
+  emitLivingPulse({
+    nodeIds: Array.from(focus.nodeIds),
+    edgeIds: Array.from(focus.edgeIds),
+    originNodeId: node.id,
+    intensity: 0.60,
+    durationMs: 1050
+  });
   updateHud();
   requestRender();
 }
@@ -2770,6 +3040,12 @@ function armPathSource(node) {
   renderNodeInfo(node);
   positionSelectedMarker(node);
   focusNode(node, 'Path source');
+  emitLivingPulse({
+    ...pulseNodeNeighborhood(node.id, 8, 24),
+    originNodeId: node.id,
+    intensity: 0.50,
+    durationMs: 900
+  });
   updateHud();
   requestRender();
 }
@@ -2801,6 +3077,13 @@ function applyPathToNode(targetNode) {
   } else {
     focusNode(targetNode, 'Path target');
   }
+  emitLivingPulse({
+    nodeIds: path?.found ? path.orderedNodeIds : [sourceNode.id, targetNode.id],
+    edgeIds: path?.found ? path.orderedEdgeIds : pulseEdgesForNodeIds([sourceNode.id, targetNode.id], 12),
+    originNodeId: sourceNode.id,
+    intensity: path?.found ? 0.76 : 0.44,
+    durationMs: path?.found ? 1350 : 850
+  });
   updateHud();
   requestRender();
 }
@@ -2820,6 +3103,13 @@ function applyPathVariant(variantId) {
   if (variant.found) {
     focusPath(variant, variant.label);
   }
+  emitLivingPulse({
+    nodeIds: variant.orderedNodeIds,
+    edgeIds: variant.orderedEdgeIds,
+    originNodeId: variant.orderedNodeIds[0],
+    intensity: 0.64,
+    durationMs: 1050
+  });
   updateHud();
   requestRender();
 }
@@ -2853,6 +3143,7 @@ function clearPathMode(render = true) {
 
 function backToAll() {
   clearInteractiveModes();
+  clearLivingPulses(false);
   fitCameraToGraph('All');
   renderNodeInfo(state.selectedNode);
   updateHud();
@@ -3455,6 +3746,8 @@ function installWindowAPI() {
     visibleProjectedNodeCount: state.visibleProjectedNodeCount,
     staticRebuildMs: Number(state.performanceStats.staticRebuildMs.toFixed(2)),
     overlayFrameMs: Number(state.performanceStats.overlayFrameMs.toFixed(2)),
+    livingPulseCount: state.performanceStats.livingPulseCount,
+    ambientRecentCount: state.performanceStats.ambientRecentCount,
     hitTestCandidateCount: state.performanceStats.lastHitTestCandidateCount,
     stageWidth: stage.clientWidth,
     stageHeight: stage.clientHeight,
