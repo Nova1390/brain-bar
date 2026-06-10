@@ -20,14 +20,14 @@ BrainBar reads existing Graphify output from a local Markdown or Obsidian-style 
 
 Graph exploration features are runtime-only. Focus, Source Lens, Shortest Path, Recent Orbit, Graph Story, and 2D graph views change the current app session; they do not write back to the vault.
 
-## What Is In v0.9.4
+## What Is In v0.9.5
 
 - 3D Explorer with Focus Orbit and depth controls.
 - Search Reveal for jumping from search results into the visible 3D graph.
 - Shortest Path, Explain Path, and Path Compare for visible graph routes.
 - Community Spotlight for inspecting one visible community at a time.
 - Recent Orbit for resuming from recently changed notes.
-- Graph Story for a deterministic guided tour through the visible graph.
+- Graph Story as a compact narrative tour through the visible graph.
 - Stable 2D operational views for graph checks and diagnostics.
 - Public GitHub Releases as Developer ID signed, Apple-notarized DMGs.
 
