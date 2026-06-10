@@ -4,6 +4,8 @@ All notable changes to BrainBar are documented here.
 
 ## Unreleased
 
+- Clarified README onboarding copy around Graphify-powered graphs, Search Reveal, Recent Orbit, Graph Story v2, and release tagging.
+
 ## 0.9.5 - 2026-06-10
 
 - Added 3D Search Reveal so search results can fly the camera to a visible node, highlight its local neighborhood, and act as a path target when `Start path` is armed.

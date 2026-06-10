@@ -1,6 +1,6 @@
 # BrainBar
 
-> A local-first 3D control center for your Markdown graph.
+> A local-first 3D control center for your Graphify-powered Markdown graph.
 
 [![Latest release](https://img.shields.io/github/v/release/Nova1390/brain-bar?style=flat-square)](https://github.com/Nova1390/brain-bar/releases/latest)
 [![macOS 14+](https://img.shields.io/badge/macOS-14%2B-111827?style=flat-square&logo=apple)](https://www.apple.com/macos/)
@@ -8,7 +8,7 @@
 [![Graphify](https://img.shields.io/badge/Graphify-compatible-6D7DFF?style=flat-square)](https://github.com/safishamsi/graphify)
 [![License: MIT](https://img.shields.io/badge/license-MIT-0f172a?style=flat-square)](LICENSE)
 
-BrainBar turns local Graphify output into a native macOS workspace for exploring a second brain. Open a 3D map of your notes, focus a single neighborhood, trace the shortest visible route between two ideas, explain why that route exists, and re-enter from what changed recently.
+BrainBar turns local Graphify output into a native macOS workspace for exploring a second brain or any Markdown knowledge graph. Open a 3D map of your notes, search-reveal the right place, focus a single neighborhood, trace the shortest visible route between two ideas, explain why that route exists, and re-enter from what changed recently.
 
 It is built for people who already keep useful things in local Markdown and want the graph to become an operating surface, not just a pretty hairball.
 
@@ -16,14 +16,14 @@ It is built for people who already keep useful things in local Markdown and want
 
 ## What BrainBar Does
 
-BrainBar reads existing Graphify output from a local Markdown or Obsidian-style vault. It does not generate the graph from scratch, vendor Graphify, upload vault content, or rewrite generated Graphify files.
+BrainBar reads existing Graphify output from a local Markdown vault or Graphify-compatible content folder. It does not generate the graph from scratch, vendor Graphify, upload vault content, or rewrite generated Graphify files.
 
-Graph exploration features are runtime-only. Focus, Source Lens, Shortest Path, Recent Orbit, Graph Story, and 2D graph views change the current app session; they do not write back to the vault.
+Graph exploration features are runtime-only. Search Reveal, Focus, Source Lens, Shortest Path, Community Spotlight, Recent Orbit, Graph Story, and 2D graph views change the current app session; they do not write back to the vault.
 
 ## What Is In v0.9.5
 
 - 3D Explorer with Focus Orbit and depth controls.
-- Search Reveal for jumping from search results into the visible 3D graph.
+- Search Reveal for jumping from search results into the visible 3D graph and choosing path targets.
 - Shortest Path, Explain Path, and Path Compare for visible graph routes.
 - Community Spotlight for inspecting one visible community at a time.
 - Recent Orbit for resuming from recently changed notes.
@@ -76,20 +76,20 @@ graphify-out/
 
 1. Open BrainBar from the menu bar.
 2. Switch to the 3D Explorer.
-3. Click a note and use Focus to understand its neighborhood.
-4. Start a path from one note, click another note, and BrainBar traces the visible route.
-5. Read Why this path or compare route variants.
-6. Use Recent Orbit or Graph Story to re-enter the graph from what changed recently.
+3. Search for a note and reveal it in place without collapsing the graph.
+4. Use Focus to understand its neighborhood.
+5. Start a path from one note, click another note or search result, and BrainBar traces the visible route.
+6. Read Why this path, compare route variants, or use Recent Orbit and Graph Story to re-enter from recent work.
 
 ![BrainBar 3D shortest path](docs/brainbar-path-demo.gif)
 
 ## Why BrainBar
 
-- **A graph you can act on.** Select a node, open its source note, focus its neighbors, or start a path to another idea.
+- **A graph you can act on.** Search-reveal a node, open its source note, focus its neighbors, or start a path to another idea.
 - **Local by default.** BrainBar reads local Graphify output and local source files. It does not upload vault content.
 - **Paths with meaning.** Shortest Path, Explain Path, and Path Compare turn connections into readable context.
 - **Recent context recovery.** Recent Orbit highlights newly changed notes and shows how they connect back to key notes.
-- **Guided orientation.** Graph Story walks through recent notes, key notes, large communities, bridge notes, and areas that need links.
+- **Guided orientation.** Graph Story turns recent notes, key notes, large communities, bridge notes, and needs-attention areas into a compact narrative tour.
 - **Diagnostics stay available.** 2D remains the operational view for Needs Links, Key Notes, Recent, Wikilinks, Graphify, and Graph Check.
 - **No account required.** BrainBar is a local app over local files and local commands.
 
@@ -103,7 +103,7 @@ Click a note, then use `Focus`, `Depth 1`, `Depth 2`, or `Depth 3` to keep the s
 
 ### Search Reveal
 
-Search in 3D jumps to visible matching notes instead of filtering the graph away. Pick a result to reveal that note, highlight its local neighborhood, and then use Focus or Start path from the sidebar.
+Search in 3D jumps to visible matching notes instead of filtering the graph away. Pick a result to reveal that note, highlight its local neighborhood, and then use Focus or Start path from the sidebar. If `Start path` is already armed, clicking a search result uses that result as the path target.
 
 ### Shortest Path
 
@@ -141,7 +141,7 @@ Unavailable variants are normal when the visible graph has only one route, no ro
 
 Click a community to dim the rest of the graph, show the selected community, list top notes, and surface bridge notes that connect it to surrounding areas. Large communities use conservative render budgets so the spotlight stays responsive.
 
-### Daily/Recent Orbit
+### Recent Orbit
 
 Recent Orbit answers: "What changed recently?"
 
@@ -153,7 +153,9 @@ Use it when you want to resume from recent work and see how that work connects b
 
 ### Graph Story
 
-Graph Story is a guided, deterministic tour through the current visible graph:
+Graph Story is a guided, deterministic tour through the current visible graph. Each step appears as a compact story card with a primary note or community, a short takeaway, and a few supporting items instead of a long diagnostic list.
+
+Current step types include:
 
 - Recently changed notes
 - Your most connected notes
@@ -161,7 +163,7 @@ Graph Story is a guided, deterministic tour through the current visible graph:
 - Notes connecting communities
 - Areas that may need links
 
-The tour adapts to the current Source Lens and community filters. Empty categories are skipped.
+The tour adapts to the current Source Lens and community filters. Empty categories are skipped, and actions such as `Focus note` or `Open note` appear only when the current step has a suitable note.
 
 Use it when you want orientation: a short guided pass through what matters in the visible graph.
 
@@ -249,7 +251,7 @@ See [Configuration](docs/configuration.md) for the full config shape and command
 ## Requirements
 
 - macOS 14 or newer
-- `graphify` available on `PATH` for the default refresh command
+- `graphify` available on `PATH` for the default refresh command, or a custom refresh command in config
 - `git` available on `PATH` for Git status
 - Xcode 26 or newer for local development
 
@@ -269,7 +271,7 @@ Before changing product vocabulary or graph architecture terms, read [CONCEPTS.m
 Maintainer release tags publish a notarized `BrainBar.dmg` through GitHub Actions:
 
 ```sh
-git tag vX.Y.Z
+git tag -a vX.Y.Z -m "BrainBar vX.Y.Z"
 git push origin vX.Y.Z
 ```
 
@@ -305,6 +307,7 @@ BRAIN_BAR_REMOVE_CONFIG=1 curl -fsSL https://raw.githubusercontent.com/Nova1390/
 
 - **The graph is empty.** Check that `vaultPath` points at the intended vault and that `graphify-out/graph.json` exists there.
 - **Refresh Graph fails.** Make sure `graphify` is available on `PATH`, or update the configured refresh command.
+- **Search finds nothing.** Search Reveal only searches nodes visible under the current Source Lens and community filters.
 - **No path found.** The selected nodes may be disconnected in the visible graph, or the active Source Lens/community filters may hide the route.
 - **Recent Orbit is empty.** BrainBar needs file modification metadata or date-like labels/paths to identify recent notes.
 - **macOS blocks the app.** Install the latest notarized DMG release instead of an older non-notarized build.
