@@ -37,6 +37,7 @@ BrainBar is a local-first macOS control center for a Markdown or Obsidian-style 
 - **Graph Check**: the readable, user-facing name for graph health diagnostics.
 - **Focus**: in 3D, focus the selected node and dim surrounding graph context.
 - **Depth 1 / Depth 2 / Depth 3**: expand the 3D focus orbit by BFS depth from the selected node.
+- **Search Reveal**: a 3D search workflow that flies to a visible search result, highlights its local neighborhood, and can complete a pending path target after `Start path`.
 - **Start path**: arm the selected node as the source for a 3D shortest path trace. The user then clicks another node to trace the route.
 - **Shortest path**: the shortest visible unweighted path between two selected nodes in the current 3D graph view.
 - **Explain Path**: a deterministic, local-only explanation of a 3D shortest path using visible graph metadata such as edge provenance, communities, labels, and bridge nodes.
@@ -59,6 +60,7 @@ BrainBar is a local-first macOS control center for a Markdown or Obsidian-style 
 - **Community spotlight state**: runtime-only 3D state for the selected community, highlighted node ids, highlighted edge ids, top notes, and bridge notes.
 - **Recent orbit state**: runtime-only 3D state for recent node ids, active recent node, nearest key-note target, and the active recent-to-key path.
 - **Graph story state**: runtime-only 3D state for the active tour step, highlighted nodes/edges, active community, and current guided-tour message.
+- **Search reveal state**: runtime-only 3D state for the revealed node, highlighted neighbor ids, and highlighted edge ids.
 - **Edge provenance**: runtime classification for a connection as `Wikilink`, `Graphify`, or `Unknown`, based on Graphify metadata and exported wikilink data.
 - **Review Queue status payload**: JSON printed by a configured local status command. Required shape includes `pending_count`; `items` are optional.
 - **Review Queue graph targets**: optional item fields `source_file` and `node_id` used only to highlight matching graph nodes.
@@ -78,6 +80,7 @@ BrainBar is a local-first macOS control center for a Markdown or Obsidian-style 
 - **Best explained is not most true.** It prefers available connection metadata and should not be described as the only meaningful path.
 - **Daily/Recent Orbit is not project detection.** It ranks visible recent notes by local metadata or date-like labels and uses visible degree for key notes.
 - **Graph Story is not AI narration.** It is a deterministic tour over visible graph signals and should skip unavailable categories instead of inventing interpretation.
+- **Search Reveal is not a graph filter.** It searches currently visible nodes, moves attention to one result, and leaves the graph context present.
 - **3D Explorer is still local graph visualization, not AI interpretation.** Keep language conservative unless product docs and QA criteria change.
 - **Brain KG is not a public dependency.** Treat it as optional local/generated context unless a concrete integration is present.
 

@@ -10,6 +10,7 @@ const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const runtime = require(join(root, 'BrainBar/Resources/Graph2D/brainbar-graph-runtime.js'));
 const graph3dPath = await import(pathToFileURL(join(root, 'BrainBar/Resources/Graph3D/graph3d-path-utils.mjs')));
 const graph3dRecent = await import(pathToFileURL(join(root, 'BrainBar/Resources/Graph3D/graph3d-recent-utils.mjs')));
+const graph3dSearch = await import(pathToFileURL(join(root, 'BrainBar/Resources/Graph3D/graph3d-search-utils.mjs')));
 const graph3dStory = await import(pathToFileURL(join(root, 'BrainBar/Resources/Graph3D/graph3d-story-utils.mjs')));
 const fixture = JSON.parse(readFileSync(join(root, 'BrainBarTests/Fixtures/graph-runtime-fixture.json'), 'utf8'));
 
@@ -208,6 +209,33 @@ const storyWithoutOptionalSteps = graph3dStory.buildGraphStorySteps({
 assert.equal(storyWithoutOptionalSteps.some((step) => step.id === 'recent'), false);
 assert.equal(storyWithoutOptionalSteps.some((step) => step.id === 'needs-attention'), false);
 
+const searchNodes = [
+  { id: 'memory-protocol', label: 'Memory Protocol', source_file: '05_Sessions/Memory Protocol.md' },
+  { id: 'protocol-memory', label: 'Protocol Memory', source_file: '05_Sessions/Protocol Memory.md' },
+  { id: 'clip-runner', label: 'Web Clip Runner', source_file: '99_System/Web Clip Runner.md' },
+  { id: 'source-only', label: 'Inbox', source_file: '99_System/Memory Protocol Notes.md' }
+];
+assert.deepEqual(
+  graph3dSearch.searchGraphNodes({ query: 'Memory Protocol', nodes: searchNodes }).map((item) => item.id),
+  ['memory-protocol', 'source-only', 'protocol-memory']
+);
+assert.deepEqual(
+  graph3dSearch.searchGraphNodes({ query: 'protocol', nodes: searchNodes }).map((item) => item.id),
+  ['protocol-memory', 'memory-protocol', 'source-only']
+);
+assert.deepEqual(
+  graph3dSearch.searchGraphNodes({ query: 'clip runner', nodes: searchNodes }).map((item) => item.id),
+  ['clip-runner']
+);
+assert.equal(
+  graph3dSearch.searchGraphNodes({
+    query: 'node',
+    nodes: Array.from({ length: 30 }, (_, index) => ({ id: `node-${index}`, label: `Node ${String(index).padStart(2, '0')}` })),
+    limit: 20
+  }).length,
+  20
+);
+
 assert.equal(runtime.describeWorkflowView('orphans').title, 'Needs Links');
 assert.equal(runtime.describeWorkflowView('hubs').title, 'Key Notes');
 
@@ -384,6 +412,10 @@ assert.match(graph3dSource, /Graph Story/);
 assert.match(graph3dSource, /function applyFocusOrbit[\s\S]*clearGraphStory\(false\)/);
 assert.match(graph3dSource, /function applyPathToNode[\s\S]*clearGraphStory\(false\)/);
 assert.match(graph3dSource, /function applyRecentOrbit[\s\S]*clearGraphStory\(false\)/);
+assert.match(graph3dSource, /function renderSearchResults[\s\S]*searchGraphNodes/);
+assert.match(graph3dSource, /function handleSearchResultClick[\s\S]*selectNode\(node, true\)/);
+assert.match(graph3dSource, /function revealSearchNode[\s\S]*clearFocusOrbit\(false\)[\s\S]*clearRecentOrbit\(false\)[\s\S]*clearGraphStory\(false\)/);
+assert.match(graph3dSource, /Revealed from search/);
 
 const obsidianDiff = runtime.computeLensDiff({
   lens: 'obsidian',
@@ -450,6 +482,7 @@ assert.ok(resetAll.nodeUpdates.every((update) => update.hidden === false));
   'BrainBar/Resources/Graph3D/graph3d.css',
   'BrainBar/Resources/Graph3D/graph3d.js',
   'BrainBar/Resources/Graph3D/graph3d-path-utils.mjs',
+  'BrainBar/Resources/Graph3D/graph3d-search-utils.mjs',
   'BrainBar/Resources/Graph3D/graph3d-story-utils.mjs',
   'BrainBar/Resources/Graph3D/vendor/three.module.min.js',
   'BrainBar/Resources/Graph3D/vendor/OrbitControls.js'

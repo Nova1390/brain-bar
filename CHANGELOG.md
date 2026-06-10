@@ -4,6 +4,8 @@ All notable changes to BrainBar are documented here.
 
 ## Unreleased
 
+- Added 3D Search Reveal so search results can fly the camera to a visible node, highlight its local neighborhood, and act as a path target when `Start path` is armed.
+
 ## 0.9.4 - 2026-06-09
 
 - Added 3D Community Spotlight for highlighting a selected visible community with top notes, bridge notes, and a focused camera move.

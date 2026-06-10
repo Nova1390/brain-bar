@@ -23,6 +23,7 @@ Graph exploration features are runtime-only. Focus, Source Lens, Shortest Path, 
 ## What Is In v0.9.4
 
 - 3D Explorer with Focus Orbit and depth controls.
+- Search Reveal for jumping from search results into the visible 3D graph.
 - Shortest Path, Explain Path, and Path Compare for visible graph routes.
 - Community Spotlight for inspecting one visible community at a time.
 - Recent Orbit for resuming from recently changed notes.
@@ -99,6 +100,10 @@ The 3D Explorer is BrainBar's main human exploration surface. It keeps the whole
 ### Focus Orbit
 
 Click a note, then use `Focus`, `Depth 1`, `Depth 2`, or `Depth 3` to keep the selected note readable while surrounding context fades back. The sidebar shows the selected note, source path, degree, and top neighbors instead of an infinite wall of links.
+
+### Search Reveal
+
+Search in 3D jumps to visible matching notes instead of filtering the graph away. Pick a result to reveal that note, highlight its local neighborhood, and then use Focus or Start path from the sidebar.
 
 ### Shortest Path
 

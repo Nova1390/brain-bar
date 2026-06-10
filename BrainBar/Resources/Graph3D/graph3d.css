@@ -241,11 +241,25 @@ h2 {
 }
 
 .search-item {
+  display: grid;
+  gap: 2px;
   overflow: hidden;
   padding: 7px 9px;
   text-align: left;
+}
+
+.search-item span,
+.search-item small {
+  min-width: 0;
+  overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.search-item small {
+  color: rgba(244, 246, 255, 0.44);
+  font-size: 10.5px;
+  font-weight: 620;
 }
 
 .primary-button:hover,

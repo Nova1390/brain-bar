@@ -2,6 +2,7 @@ import * as THREE from './vendor/three.module.min.js';
 import { OrbitControls } from './vendor/OrbitControls.js';
 import { computePathVariants, explainShortestPath } from './graph3d-path-utils.mjs';
 import { nearestKeyNotePath, recentOrbitCandidates } from './graph3d-recent-utils.mjs';
+import { searchGraphNodes } from './graph3d-search-utils.mjs';
 import { buildGraphStorySteps } from './graph3d-story-utils.mjs';
 
 const stage = document.getElementById('stage');
@@ -48,6 +49,8 @@ const graphStoryKeyNoteLimit = 12;
 const graphStoryCommunityLimit = 3;
 const graphStoryBridgeLimit = 10;
 const graphStoryEdgeLimit = 160;
+const searchResultLimit = 20;
+const searchRevealNeighborLimit = 16;
 
 const pointTexture = createPointTexture();
 
@@ -105,6 +108,10 @@ const state = {
   graphStoryActiveNodeId: null,
   graphStoryActiveCommunityName: null,
   graphStoryMessage: '',
+  searchResultIds: [],
+  searchRevealNodeId: null,
+  searchRevealNeighborIds: new Set(),
+  searchRevealEdgeIds: new Set(),
   pathMode: false,
   pathSourceId: null,
   pathTargetId: null,
@@ -310,6 +317,7 @@ function applyLens(fit = true) {
     clearCommunitySpotlight(false);
     clearRecentOrbit(false);
     clearGraphStory(false);
+    clearSearchReveal(false);
     markVisualCacheDirty();
 
     calculateLayout();
@@ -831,6 +839,7 @@ function drawVisualFrame({ width, height, pixelRatio }) {
     state.communitySpotlightName ? 1 : 0,
     state.recentOrbitMode ? 1 : 0,
     state.graphStoryMode ? 1 : 0,
+    state.searchRevealNodeId ? 1 : 0,
     state.selectedNode ? 1 : 0,
     hoverTrails.reduce((max, trail) => Math.max(max, trail.intensity), 0),
     edgeTrails.reduce((max, trail) => Math.max(max, trail.intensity), 0)
@@ -846,7 +855,7 @@ function drawVisualFrame({ width, height, pixelRatio }) {
 
   if (hoverAmount > 0.01) {
     visualContext.save();
-    const dimAlpha = state.focusMode ? 0.28 : (state.communitySpotlightName || state.recentOrbitMode || state.graphStoryMode ? 0.18 : 0.1);
+    const dimAlpha = state.focusMode ? 0.28 : (state.communitySpotlightName || state.recentOrbitMode || state.graphStoryMode || state.searchRevealNodeId ? 0.18 : 0.1);
     visualContext.globalAlpha = dimAlpha * hoverAmount;
     visualContext.fillStyle = '#050812';
     visualContext.fillRect(0, 0, width, height);
@@ -1175,6 +1184,30 @@ function buildHighlightedEdges(hoverTrails, edgeTrails, width, height) {
     });
     return highlightedEdges;
   }
+  if (state.searchRevealNodeId && state.searchRevealEdgeIds.size) {
+    searchRevealOverlayEdges().forEach((edge) => {
+      const source = state.projectedPoints.get(edge.source);
+      const target = state.projectedPoints.get(edge.target);
+      if (!source || !target) {
+        return;
+      }
+      const highlightedPath = new Path2D();
+      addCurvedEdge(
+        highlightedPath,
+        edge,
+        ambientProjectedPoint(source, width, height),
+        ambientProjectedPoint(target, width, height),
+        1
+      );
+      highlightedEdges.push({
+        path: highlightedPath,
+        color: accentColorForCommunity(nodeForId(state.searchRevealNodeId)?.community ?? ''),
+        intensity: 0.78
+      });
+      seenEdges.add(edge.id);
+    });
+    return highlightedEdges;
+  }
   if (state.selectedNode) {
     const linkedEdges = state.edgesByNode.get(state.selectedNode.id) ?? [];
     linkedEdges.forEach((edge) => {
@@ -1358,6 +1391,13 @@ function graphStoryOverlayEdges() {
     .slice(0, graphStoryEdgeLimit);
 }
 
+function searchRevealOverlayEdges() {
+  return Array.from(state.searchRevealEdgeIds)
+    .map((edgeId) => state.edgeById.get(edgeId))
+    .filter(Boolean)
+    .slice(0, searchRevealNeighborLimit);
+}
+
 function addCurvedEdge(path, edge, source, target, strength = 1) {
   const control = curvedEdgeControl(edge, source, target, strength);
   path.moveTo(source.x, source.y);
@@ -1516,6 +1556,13 @@ function buildNodeFocusMap(hoverTrails, edgeTrails) {
     });
     return focus;
   }
+  if (state.searchRevealNodeId) {
+    mergeNodeFocus(focus, state.searchRevealNodeId, 1, 0);
+    state.searchRevealNeighborIds.forEach((nodeId) => {
+      mergeNodeFocus(focus, nodeId, 0, 0.72);
+    });
+    return focus;
+  }
   if (state.selectedNode) {
     mergeNodeFocus(focus, state.selectedNode.id, 1, 0);
     const neighbors = state.adjacencyByNode.get(state.selectedNode.id) ?? new Set();
@@ -1632,6 +1679,9 @@ function renderNodeInfo(node) {
   const pathStatus = state.pathMode && !state.pathTargetId && state.pathSourceId
     ? '<p class="focus-status">Path source set · click another node to trace</p>'
     : '';
+  const revealStatus = state.searchRevealNodeId === node.id
+    ? `<p class="focus-status">Revealed from search · ${state.searchRevealNeighborIds.size} visible neighbors</p>`
+    : '';
   const topNeighbors = topNeighborsForNode(node.id, 12);
   nodeInfo.innerHTML = `
     <h3>${escapeHTML(node.label)}</h3>
@@ -1641,7 +1691,7 @@ function renderNodeInfo(node) {
       <button data-depth="1" ${state.focusDepth === 1 && isFocused ? 'class="selected"' : ''}>Depth 1</button>
       <button data-depth="2" ${state.focusDepth === 2 && isFocused ? 'class="selected"' : ''}>Depth 2</button>
       <button data-depth="3" ${state.focusDepth === 3 && isFocused ? 'class="selected"' : ''}>Depth 3</button>
-      <button id="back-to-all" ${state.focusMode || state.pathMode || state.recentOrbitMode || state.graphStoryMode ? '' : 'disabled'}>Back to all</button>
+      <button id="back-to-all" ${state.focusMode || state.pathMode || state.recentOrbitMode || state.graphStoryMode || state.searchRevealNodeId ? '' : 'disabled'}>Back to all</button>
     </div>
     <div class="path-actions">
       <button id="start-path" class="${state.pathSourceId === node.id && !state.pathTargetId ? 'selected' : ''}">Start path</button>
@@ -1649,6 +1699,7 @@ function renderNodeInfo(node) {
     </div>
     ${focusStatus}
     ${pathStatus}
+    ${revealStatus}
     ${state.communitySpotlightName ? renderCommunitySpotlightPanel() : ''}
     ${state.recentOrbitMode ? renderRecentOrbitPanel() : ''}
     ${state.graphStoryMode ? renderGraphStoryPanel() : ''}
@@ -2059,21 +2110,41 @@ function renderStats() {
 }
 
 function renderSearchResults() {
-  const query = search.value.trim().toLowerCase();
+  const query = search.value.trim();
   searchResults.innerHTML = '';
   if (!query) {
+    state.searchResultIds = [];
     return;
   }
-  state.visibleNodes
-    .filter((node) => node.label.toLowerCase().includes(query))
-    .slice(0, 8)
-    .forEach((node) => {
+  const results = searchGraphNodes({
+    query,
+    nodes: state.visibleNodes,
+    limit: searchResultLimit
+  });
+  state.searchResultIds = results.map((result) => result.id);
+  results
+    .forEach((result) => {
+      const node = result.node;
       const button = document.createElement('button');
       button.className = 'search-item';
-      button.textContent = node.label;
-      button.addEventListener('click', () => selectNode(node, true));
+      button.innerHTML = `
+        <span>${escapeHTML(node.label)}</span>
+        ${result.sourceFile ? `<small>${escapeHTML(result.sourceFile)}</small>` : ''}
+      `;
+      button.addEventListener('click', () => handleSearchResultClick(node));
       searchResults.appendChild(button);
     });
+}
+
+function handleSearchResultClick(node) {
+  if (!node) {
+    return;
+  }
+  if (state.pathMode && state.pathSourceId && !state.pathTargetId && node.id !== state.pathSourceId) {
+    selectNode(node, true);
+    return;
+  }
+  revealSearchNode(node);
 }
 
 function updateOverlay() {
@@ -2120,6 +2191,9 @@ function updateHud() {
   const storyText = state.graphStoryMode && storyStep
     ? `Graph Story · ${state.graphStoryStepIndex + 1}/${state.graphStorySteps.length} · ${storyStep.title}`
     : '';
+  const searchRevealText = state.searchRevealNodeId
+    ? `Revealed · ${nodeForId(state.searchRevealNodeId)?.label || 'Search result'}`
+    : '';
   const pathText = pathHudText();
   const base = pathText
     ? `${pathText} · ${lensLabel} · 3D`
@@ -2131,6 +2205,8 @@ function updateHud() {
     ? `${recentText} · ${lensLabel} · 3D`
     : state.graphStoryMode
     ? `${storyText || 'Graph Story'} · ${lensLabel} · 3D`
+    : state.searchRevealNodeId
+    ? `${searchRevealText} · ${lensLabel} · 3D`
     : `${lensLabel} · ${state.visibleNodes.length} nodes · ${state.visibleEdges.length} ${edgeLabel} · 3D`;
   const status = state.lastFrameStatus === 'Visible'
     ? ''
@@ -2162,6 +2238,9 @@ function selectNode(node, focusCamera = false, options = {}) {
     applyPathToNode(node);
     return;
   }
+  if (!options.preserveSearchReveal) {
+    clearSearchReveal(false);
+  }
   state.selectedNode = node;
   renderNodeInfo(node);
   positionSelectedMarker(node);
@@ -2169,6 +2248,48 @@ function selectNode(node, focusCamera = false, options = {}) {
     focusNode(node);
   }
   requestRender();
+}
+
+function revealSearchNode(node) {
+  if (!node) {
+    return;
+  }
+  clearFocusOrbit(false);
+  clearPathMode(false);
+  clearCommunitySpotlight(false);
+  clearRecentOrbit(false);
+  clearGraphStory(false);
+
+  const topNeighbors = topNeighborsForNode(node.id, searchRevealNeighborLimit);
+  const neighborIds = new Set(topNeighbors.map((neighbor) => neighbor.id));
+  const edgeIds = new Set();
+  (state.edgesByNode.get(node.id) || []).forEach((edge) => {
+    const otherId = edge.source === node.id ? edge.target : edge.source;
+    if (neighborIds.has(otherId) && edgeIds.size < searchRevealNeighborLimit) {
+      edgeIds.add(edge.id);
+    }
+  });
+
+  state.searchRevealNodeId = node.id;
+  state.searchRevealNeighborIds = neighborIds;
+  state.searchRevealEdgeIds = edgeIds;
+  state.selectedNode = node;
+  renderNodeInfo(node);
+  positionSelectedMarker(node);
+  focusSearchReveal(node);
+  updateHud();
+  requestRender();
+}
+
+function clearSearchReveal(render = true) {
+  state.searchRevealNodeId = null;
+  state.searchRevealNeighborIds = new Set();
+  state.searchRevealEdgeIds = new Set();
+  if (render) {
+    renderNodeInfo(state.selectedNode);
+    updateHud();
+    requestRender();
+  }
 }
 
 function applyCommunitySpotlight(communityName) {
@@ -2180,6 +2301,7 @@ function applyCommunitySpotlight(communityName) {
   clearPathMode(false);
   clearRecentOrbit(false);
   clearGraphStory(false);
+  clearSearchReveal(false);
   state.communitySpotlightName = communityName;
   state.communitySpotlightNodeIds = spotlight.nodeIds;
   state.communitySpotlightEdgeIds = spotlight.edgeIds;
@@ -2333,6 +2455,7 @@ function startGraphStory() {
   clearPathMode(false);
   clearCommunitySpotlight(false);
   clearRecentOrbit(false);
+  clearSearchReveal(false);
   state.graphStoryMode = true;
   state.graphStorySteps = steps;
   state.graphStoryStepIndex = 0;
@@ -2451,6 +2574,7 @@ function applyRecentOrbit(preferredNodeId = null, selectActiveNode = false) {
   clearPathMode(false);
   clearCommunitySpotlight(false);
   clearGraphStory(false);
+  clearSearchReveal(false);
 
   const preferred = preferredNodeId
     ? items.find((item) => item.id === String(preferredNodeId))
@@ -2612,6 +2736,7 @@ function applyFocusOrbit(node, depth = 1, focusCamera = true) {
   clearCommunitySpotlight(false);
   clearRecentOrbit(false);
   clearGraphStory(false);
+  clearSearchReveal(false);
   const focus = computeFocusOrbit(node.id, depth);
   state.focusMode = true;
   state.focusDepth = focus.depth;
@@ -2637,6 +2762,7 @@ function armPathSource(node) {
   clearCommunitySpotlight(false);
   clearRecentOrbit(false);
   clearGraphStory(false);
+  clearSearchReveal(false);
   state.pathMode = true;
   state.pathSourceId = node.id;
   state.pathTargetId = null;
@@ -2664,6 +2790,7 @@ function applyPathToNode(targetNode) {
   clearCommunitySpotlight(false);
   clearRecentOrbit(false);
   clearGraphStory(false);
+  clearSearchReveal(false);
   const variants = computePathVariants({
     sourceId: sourceNode.id,
     targetId: targetNode.id,
@@ -2741,6 +2868,7 @@ function backToAll() {
   clearCommunitySpotlight(false);
   clearRecentOrbit(false);
   clearGraphStory(false);
+  clearSearchReveal(false);
   fitCameraToGraph('All');
   renderNodeInfo(state.selectedNode);
   updateHud();
@@ -2831,6 +2959,11 @@ function focusNode(node, preset = 'Node focus') {
   orbitCameraTo(position, clamp(Math.max(camera.zoom, 1.7), 0.08, 8), preset);
 }
 
+function focusSearchReveal(node) {
+  const nodeIds = new Set([node.id, ...state.searchRevealNeighborIds]);
+  fitCameraToNodeIds(nodeIds, 'Search reveal', 180, 4.8);
+}
+
 function focusPath(path, preset = 'Shortest path') {
   const positions = path.orderedNodeIds
     .map((nodeId) => state.positions.get(nodeId))
@@ -2858,6 +2991,36 @@ function focusPath(path, preset = 'Shortest path') {
     160
   );
   const zoom = clamp(Math.min(stage.clientWidth / (span * 1.25), stage.clientHeight / (span * 0.95)), 0.28, 3.8);
+  orbitCameraTo(center, zoom, preset);
+}
+
+function fitCameraToNodeIds(nodeIds, preset, minimumSpan = 160, maxZoom = 4.8) {
+  const positions = Array.from(nodeIds || [])
+    .map((nodeId) => state.positions.get(nodeId))
+    .filter(Boolean);
+  if (!positions.length) {
+    return;
+  }
+  const bounds = positions.reduce((box, position) => ({
+    minX: Math.min(box.minX, position.x),
+    maxX: Math.max(box.maxX, position.x),
+    minY: Math.min(box.minY, position.y),
+    maxY: Math.max(box.maxY, position.y),
+    minZ: Math.min(box.minZ, position.z),
+    maxZ: Math.max(box.maxZ, position.z)
+  }), { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity, minZ: Infinity, maxZ: -Infinity });
+  const center = new THREE.Vector3(
+    (bounds.minX + bounds.maxX) / 2,
+    (bounds.minY + bounds.maxY) / 2,
+    (bounds.minZ + bounds.maxZ) / 2
+  );
+  const span = Math.max(
+    bounds.maxX - bounds.minX,
+    bounds.maxY - bounds.minY,
+    bounds.maxZ - bounds.minZ,
+    minimumSpan
+  );
+  const zoom = clamp(Math.min(stage.clientWidth / (span * 1.18), stage.clientHeight / (span * 0.96)), 0.2, maxZoom);
   orbitCameraTo(center, zoom, preset);
 }
 
@@ -3176,9 +3339,10 @@ function wireEvents() {
       } else {
         selectNode(node);
       }
-    } else if (state.selectedNode || state.focusMode || state.pathMode) {
+    } else if (state.selectedNode || state.focusMode || state.pathMode || state.searchRevealNodeId) {
       clearFocusOrbit(false);
       clearPathMode(false);
+      clearSearchReveal(false);
       state.selectedNode = null;
       selectedMarker.visible = false;
       renderNodeInfo(null);
