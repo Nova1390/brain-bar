@@ -2,9 +2,14 @@ import * as THREE from './vendor/three.module.min.js';
 import { OrbitControls } from './vendor/OrbitControls.js';
 import {
   breathingStyle,
+  communityBreathingVisual,
   createLivingPulse,
+  edgeCurrentVisual,
   pruneLivingPulses,
   pulseVisualState,
+  recentSparkVisual,
+  selectAmbientCurrentEdgeIds,
+  selectCommunityPulseGroups,
   selectAmbientRecentNodeIds
 } from './graph3d-living-utils.mjs';
 import { computePathVariants, explainShortestPath } from './graph3d-path-utils.mjs';
@@ -52,6 +57,10 @@ const ambientMotionScale = prefersReducedMotion ? 0 : 1;
 const ambientLocalAmplitude = 1.8 * ambientMotionScale;
 const ambientSampleTarget = 520;
 const ambientRecentNodeLimit = 24;
+const ambientCurrentIdleEdgeLimit = 90;
+const ambientCurrentActiveEdgeLimit = 48;
+const ambientCommunityLimit = 8;
+const ambientCommunityNodeLimit = 36;
 const livingPulseNodeLimit = 16;
 const livingPulseEdgeLimit = 48;
 const spotlightFocusNodeLimit = 72;
@@ -152,14 +161,20 @@ const state = {
   spotlightCache: new Map(),
   livingPulseEvents: [],
   ambientRecentNodeIds: new Set(),
+  ambientCurrentEdgeIds: new Set(),
+  ambientCommunityPulseGroups: [],
   lastLivingInteractionAt: 0,
+  lastRecentSparkAt: 0,
   performanceStats: {
     staticRebuildMs: 0,
     overlayFrameMs: 0,
     highlightedEdgeCount: 0,
     lastHitTestCandidateCount: 0,
     livingPulseCount: 0,
-    ambientRecentCount: 0
+    ambientRecentCount: 0,
+    ambientCurrentEdgeCount: 0,
+    ambientCommunityPulseCount: 0,
+    recentSparkCount: 0
   },
   pointer: new THREE.Vector2(),
   raycaster: new THREE.Raycaster(),
@@ -350,6 +365,7 @@ function applyLens(fit = true) {
     state.visibleGraphRevision += 1;
     state.spotlightCache.clear();
     updateAmbientRecentNodes();
+    updateAmbientSignalCaches();
     clearLivingPulses(false);
     markVisualCacheDirty();
 
@@ -950,6 +966,9 @@ function drawVisualFrame({ width, height, pixelRatio }) {
   visualContext.drawImage(staticVisualLayer, 0, 0, width, height);
   drawAmbientNodeMotion(width, height);
   drawAmbientRecentWarmth(width, height);
+  drawAmbientCommunityBreathing(width, height);
+  drawAmbientEdgeCurrents(width, height);
+  drawRecentSparks(width, height);
 
   if (hoverAmount > 0.01) {
     visualContext.save();
@@ -1051,6 +1070,155 @@ function drawAmbientRecentWarmth(width, height) {
     visualContext.stroke();
   });
   visualContext.restore();
+}
+
+function drawAmbientCommunityBreathing(width, height) {
+  if (!state.ambientCommunityPulseGroups.length || !state.projectedPoints.size) {
+    state.performanceStats.ambientCommunityPulseCount = 0;
+    return;
+  }
+  const mode = activeMode();
+  const damping = mode === 'none' ? 1 : 0.38;
+  const phase = state.ambientPhase || performance.now() * 0.001;
+  let rendered = 0;
+  visualContext.save();
+  state.ambientCommunityPulseGroups.forEach((group) => {
+    const visual = communityBreathingVisual({
+      phase,
+      community: group.community,
+      reducedMotion: prefersReducedMotion
+    });
+    const color = colorForCommunity(group.community);
+    group.nodeIds.forEach((nodeId) => {
+      const node = nodeForId(nodeId);
+      const rawPoint = state.projectedPoints.get(nodeId);
+      if (!node || !rawPoint) {
+        return;
+      }
+      const point = ambientProjectedPoint(rawPoint, width, height);
+      const degree = state.degreeByNode.get(node.id) ?? 0;
+      const depth = depthPresence(point.z);
+      const baseRadius = nodeRadiusForDegree(degree, depth);
+      visualContext.beginPath();
+      visualContext.arc(point.x, point.y, baseRadius + 6.5 * visual.radiusScale, 0, Math.PI * 2);
+      visualContext.fillStyle = color;
+      visualContext.globalAlpha = visual.alpha * depth * damping;
+      visualContext.shadowColor = color;
+      visualContext.shadowBlur = prefersReducedMotion ? 0 : 8 * visual.radiusScale;
+      visualContext.fill();
+      rendered += 1;
+    });
+  });
+  visualContext.restore();
+  state.performanceStats.ambientCommunityPulseCount = rendered;
+}
+
+function drawAmbientEdgeCurrents(width, height) {
+  if (!state.projectedPoints.size || prefersReducedMotion) {
+    state.performanceStats.ambientCurrentEdgeCount = 0;
+    return;
+  }
+  const mode = activeMode();
+  const edgeIds = mode === 'none'
+    ? Array.from(state.ambientCurrentEdgeIds)
+    : activeCurrentEdgeIds(ambientCurrentActiveEdgeLimit);
+  if (!edgeIds.length) {
+    state.performanceStats.ambientCurrentEdgeCount = 0;
+    return;
+  }
+  const phase = state.ambientPhase || performance.now() * 0.001;
+  const modeDamping = mode === 'none' ? 1 : 0.72;
+  let rendered = 0;
+  visualContext.save();
+  visualContext.lineCap = 'round';
+  visualContext.lineJoin = 'round';
+  edgeIds.slice(0, mode === 'none' ? ambientCurrentIdleEdgeLimit : ambientCurrentActiveEdgeLimit).forEach((edgeId, index) => {
+    const edge = state.edgeById.get(edgeId);
+    const source = edge ? state.projectedPoints.get(edge.source) : null;
+    const target = edge ? state.projectedPoints.get(edge.target) : null;
+    if (!edge || !source || !target) {
+      return;
+    }
+    const sourcePoint = ambientProjectedPoint(source, width, height);
+    const targetPoint = ambientProjectedPoint(target, width, height);
+    const control = curvedEdgeControl(edge, sourcePoint, targetPoint, 0.96);
+    const visual = edgeCurrentVisual({ phase, edgeId, index, reducedMotion: prefersReducedMotion });
+    const head = pointOnQuadratic(sourcePoint, control, targetPoint, visual.progress);
+    const tailProgress = clamp(visual.progress - 0.055, 0, 1);
+    const tail = pointOnQuadratic(sourcePoint, control, targetPoint, tailProgress);
+    const color = colorForEdge(edge);
+
+    visualContext.beginPath();
+    visualContext.moveTo(tail.x, tail.y);
+    visualContext.lineTo(head.x, head.y);
+    visualContext.strokeStyle = color;
+    visualContext.globalAlpha = visual.tailAlpha * modeDamping;
+    visualContext.lineWidth = 1.15;
+    visualContext.shadowColor = color;
+    visualContext.shadowBlur = 10;
+    visualContext.stroke();
+
+    visualContext.beginPath();
+    visualContext.arc(head.x, head.y, visual.radius, 0, Math.PI * 2);
+    visualContext.fillStyle = '#f4fbff';
+    visualContext.globalAlpha = visual.alpha * modeDamping;
+    visualContext.shadowColor = 'rgba(218, 242, 255, 0.55)';
+    visualContext.shadowBlur = 12;
+    visualContext.fill();
+    rendered += 1;
+  });
+  visualContext.restore();
+  state.performanceStats.ambientCurrentEdgeCount = rendered;
+}
+
+function drawRecentSparks(width, height) {
+  if (!state.ambientRecentNodeIds.size || !state.projectedPoints.size) {
+    state.performanceStats.recentSparkCount = 0;
+    return;
+  }
+  const mode = activeMode();
+  if (mode !== 'none' && mode !== 'recent') {
+    state.performanceStats.recentSparkCount = 0;
+    return;
+  }
+  const phase = state.ambientPhase || performance.now() * 0.001;
+  let strongSparkDrawn = false;
+  let rendered = 0;
+  visualContext.save();
+  Array.from(state.ambientRecentNodeIds).slice(0, ambientRecentNodeLimit).forEach((nodeId, index) => {
+    const node = nodeForId(nodeId);
+    const rawPoint = state.projectedPoints.get(nodeId);
+    if (!node || !rawPoint) {
+      return;
+    }
+    const visual = recentSparkVisual({
+      phase,
+      nodeId,
+      index,
+      reducedMotion: prefersReducedMotion
+    });
+    if (visual.isStrong && strongSparkDrawn) {
+      return;
+    }
+    if (visual.isStrong) {
+      strongSparkDrawn = true;
+      state.lastRecentSparkAt = performance.now();
+    }
+    const point = ambientProjectedPoint(rawPoint, width, height);
+    const depth = depthPresence(point.z);
+    const baseRadius = nodeRadiusForDegree(state.degreeByNode.get(node.id) ?? 0, depth);
+    const radius = baseRadius + 2.8 * visual.radiusScale;
+    visualContext.beginPath();
+    visualContext.arc(point.x, point.y, radius, 0, Math.PI * 2);
+    visualContext.fillStyle = accentColorForCommunity(node.community);
+    visualContext.globalAlpha = visual.alpha * (mode === 'recent' ? 0.92 : 0.72);
+    visualContext.shadowColor = 'rgba(189, 250, 232, 0.45)';
+    visualContext.shadowBlur = prefersReducedMotion ? 0 : 12 + visual.radiusScale * 3;
+    visualContext.fill();
+    rendered += 1;
+  });
+  visualContext.restore();
+  state.performanceStats.recentSparkCount = rendered;
 }
 
 function drawActiveVisualOverlay(hoverTrails, edgeTrails, hoverAmount, width, height) {
@@ -2658,6 +2826,77 @@ function updateAmbientRecentNodes() {
   state.performanceStats.ambientRecentCount = state.ambientRecentNodeIds.size;
 }
 
+function updateAmbientSignalCaches() {
+  state.ambientCurrentEdgeIds = new Set(selectAmbientCurrentEdgeIds({
+    edges: state.visibleEdges,
+    recentNodeIds: state.ambientRecentNodeIds,
+    activeNodeIds: activeAmbientNodeIds(),
+    limit: ambientCurrentIdleEdgeLimit
+  }));
+  state.ambientCommunityPulseGroups = selectCommunityPulseGroups({
+    nodes: state.visibleNodes,
+    limitCommunities: ambientCommunityLimit,
+    nodesPerCommunity: ambientCommunityNodeLimit
+  });
+  state.performanceStats.ambientCurrentEdgeCount = state.ambientCurrentEdgeIds.size;
+  state.performanceStats.ambientCommunityPulseCount = state.ambientCommunityPulseGroups
+    .reduce((sum, group) => sum + group.nodeIds.length, 0);
+}
+
+function activeAmbientNodeIds() {
+  const ids = new Set();
+  if (state.selectedNode?.id) {
+    ids.add(state.selectedNode.id);
+  }
+  if (state.hoveredNode?.id) {
+    ids.add(state.hoveredNode.id);
+  }
+  [
+    state.focusNodeIds,
+    state.pathNodeIds,
+    state.searchRevealNeighborIds,
+    state.recentOrbitPathNodeIds,
+    state.graphStoryFocusNodeIds
+  ].forEach((nodeSet) => {
+    nodeSet?.forEach?.((nodeId) => ids.add(nodeId));
+  });
+  if (state.searchRevealNodeId) {
+    ids.add(state.searchRevealNodeId);
+  }
+  if (state.recentOrbitActiveNodeId) {
+    ids.add(state.recentOrbitActiveNodeId);
+  }
+  if (state.communitySpotlightNodeIds?.size) {
+    Array.from(state.communitySpotlightNodeIds).slice(0, 24).forEach((nodeId) => ids.add(nodeId));
+  }
+  return ids;
+}
+
+function activeCurrentEdgeIds(limit = ambientCurrentActiveEdgeLimit) {
+  const ordered = [];
+  const push = (edgeIds) => {
+    Array.from(edgeIds || []).forEach((edgeId) => {
+      const id = String(edgeId);
+      if (id && !ordered.includes(id) && state.edgeById.has(id)) {
+        ordered.push(id);
+      }
+    });
+  };
+  push(state.pathOrderedEdgeIds);
+  push(state.recentOrbitOrderedEdgeIds);
+  push(state.focusEdgeIds);
+  push(state.searchRevealEdgeIds);
+  push(state.graphStoryEdgeIds);
+  push(state.communitySpotlightEdgeIds);
+  if (state.selectedNode?.id) {
+    push(pulseEdgesForNodeIds([state.selectedNode.id, ...topNeighborsForNode(state.selectedNode.id, 12).map((node) => node.id)], 24));
+  }
+  if (ordered.length < limit) {
+    push(state.ambientCurrentEdgeIds);
+  }
+  return ordered.slice(0, limit);
+}
+
 function emitLivingPulse({
   nodeIds = [],
   edgeIds = [],
@@ -2693,7 +2932,9 @@ function emitLivingPulse({
 
 function clearLivingPulses(render = true) {
   state.livingPulseEvents = [];
+  state.lastRecentSparkAt = 0;
   state.performanceStats.livingPulseCount = 0;
+  state.performanceStats.recentSparkCount = 0;
   if (render) {
     requestRender();
   }
@@ -3748,6 +3989,9 @@ function installWindowAPI() {
     overlayFrameMs: Number(state.performanceStats.overlayFrameMs.toFixed(2)),
     livingPulseCount: state.performanceStats.livingPulseCount,
     ambientRecentCount: state.performanceStats.ambientRecentCount,
+    ambientCurrentEdgeCount: state.performanceStats.ambientCurrentEdgeCount,
+    ambientCommunityPulseCount: state.performanceStats.ambientCommunityPulseCount,
+    recentSparkCount: state.performanceStats.recentSparkCount,
     hitTestCandidateCount: state.performanceStats.lastHitTestCandidateCount,
     stageWidth: stage.clientWidth,
     stageHeight: stage.clientHeight,

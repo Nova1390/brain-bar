@@ -46,7 +46,7 @@ BrainBar is a local-first macOS control center for a Markdown or Obsidian-style 
 - **Community Spotlight**: a 3D runtime view that highlights one visible community, dims surrounding context, and lists top notes plus bridge notes.
 - **Recent Orbit**: a 3D runtime view for recently changed or date-named notes. It highlights recent notes and traces one active recent note to its nearest visible key note when a path exists.
 - **Graph Story**: a 3D runtime guided tour through deterministic graph signals such as recent notes, key notes, large communities, bridge notes, and needs-attention areas. It presents each step as a compact narrative card with a primary note and a short takeaway.
-- **Living Graph Polish**: subtle 3D visual responsiveness such as ambient breathing, recent-note warmth, and action response pulses. It is polish over the current runtime state, not a separate graph mode.
+- **Living Graph Polish**: 3D visual responsiveness such as signal-flow edge currents, coordinated community breathing, recent-note warmth, and action response pulses. It is polish over the current runtime state, not a separate graph mode.
 
 ## Internal Architecture Terms
 
@@ -82,7 +82,7 @@ BrainBar is a local-first macOS control center for a Markdown or Obsidian-style 
 - **Recent Orbit is not project detection.** It ranks visible recent notes by local metadata or date-like labels and uses visible degree for key notes.
 - **Graph Story is not AI narration.** It is a deterministic narrative tour over visible graph signals and should skip unavailable categories instead of inventing interpretation.
 - **Search Reveal is not a graph filter.** It searches currently visible nodes, moves attention to one result, and leaves the graph context present.
-- **Living Graph Polish is not a new feature mode.** It should not add new UI or change graph data; it only makes the existing 3D graph feel more responsive.
+- **Living Graph Polish is not a new feature mode.** It should not add new UI, move nodes geometrically, or change graph data; it only makes the existing 3D graph feel more responsive.
 - **3D Explorer is still local graph visualization, not AI interpretation.** Keep language conservative unless product docs and QA criteria change.
 - **Brain KG is not a public dependency.** Treat it as optional local/generated context unless a concrete integration is present.
 

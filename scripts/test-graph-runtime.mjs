@@ -282,6 +282,42 @@ assert.deepEqual(
   }),
   Array.from({ length: 24 }, (_, index) => `recent-${index}`)
 );
+const currentEdges = Array.from({ length: 120 }, (_, index) => ({
+  id: `edge-${String(index).padStart(3, '0')}`,
+  source: `node-${index}`,
+  target: `node-${index + 1}`
+}));
+assert.equal(graph3dLiving.selectAmbientCurrentEdgeIds({
+  edges: currentEdges,
+  recentNodeIds: new Set(['node-3', 'node-4']),
+  activeNodeIds: new Set(['node-10']),
+  limit: 90
+}).length, 90);
+assert.equal(graph3dLiving.selectAmbientCurrentEdgeIds({
+  edges: currentEdges,
+  activeNodeIds: new Set(['node-10']),
+  limit: 48
+}).length, 48);
+assert.ok(['edge-009', 'edge-010'].includes(graph3dLiving.selectAmbientCurrentEdgeIds({
+  edges: currentEdges,
+  activeNodeIds: new Set(['node-10']),
+  limit: 1
+})[0]));
+const communityPulseGroups = graph3dLiving.selectCommunityPulseGroups({
+  nodes: Array.from({ length: 120 }, (_, index) => ({
+    id: `node-${index}`,
+    community: `Community ${Math.floor(index / 10)}`
+  })),
+  limitCommunities: 8,
+  nodesPerCommunity: 6
+});
+assert.equal(communityPulseGroups.length, 8);
+assert.ok(communityPulseGroups.every((group) => group.nodeIds.length <= 6));
+assert.equal(graph3dLiving.edgeCurrentVisual({ phase: 10, edgeId: 'edge-a' }).alpha > 0, true);
+assert.equal(graph3dLiving.edgeCurrentVisual({ reducedMotion: true }).alpha, 0);
+assert.equal(graph3dLiving.communityBreathingVisual({ reducedMotion: true }).radiusScale, 1);
+assert.equal(graph3dLiving.recentSparkVisual({ phase: 10, nodeId: 'recent-a' }).alpha > 0, true);
+assert.equal(graph3dLiving.recentSparkVisual({ reducedMotion: true }).isStrong, false);
 const livingPulse = graph3dLiving.createLivingPulse({
   nodeIds: Array.from({ length: 20 }, (_, index) => `n-${index}`),
   edgeIds: Array.from({ length: 60 }, (_, index) => `e-${index}`),

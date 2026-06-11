@@ -56,6 +56,100 @@ export function selectAmbientRecentNodeIds({ recentItems = [], visibleNodeIds = 
   return ids;
 }
 
+export function selectAmbientCurrentEdgeIds({
+  edges = [],
+  recentNodeIds = new Set(),
+  activeNodeIds = new Set(),
+  limit = 90
+} = {}) {
+  const recent = recentNodeIds instanceof Set ? recentNodeIds : new Set(recentNodeIds || []);
+  const active = activeNodeIds instanceof Set ? activeNodeIds : new Set(activeNodeIds || []);
+  return (edges || [])
+    .map((edge) => {
+      const id = String(edge?.id ?? '');
+      const source = String(edge?.source ?? '');
+      const target = String(edge?.target ?? '');
+      const activeScore = Number(active.has(source)) + Number(active.has(target));
+      const recentScore = Number(recent.has(source)) + Number(recent.has(target));
+      return {
+        id,
+        score: activeScore * 9 + recentScore * 4 + stableUnit(id)
+      };
+    })
+    .filter((candidate) => candidate.id)
+    .sort((left, right) => right.score - left.score || left.id.localeCompare(right.id))
+    .slice(0, Math.max(0, limit))
+    .map((candidate) => candidate.id);
+}
+
+export function selectCommunityPulseGroups({ nodes = [], limitCommunities = 8, nodesPerCommunity = 36 } = {}) {
+  const communities = new Map();
+  for (const node of nodes || []) {
+    const community = String(node?.community || 'Unknown');
+    if (!communities.has(community)) {
+      communities.set(community, []);
+    }
+    communities.get(community).push(String(node?.id ?? ''));
+  }
+
+  return Array.from(communities.entries())
+    .map(([community, nodeIds]) => ({
+      community,
+      size: nodeIds.filter(Boolean).length,
+      nodeIds: nodeIds
+        .filter(Boolean)
+        .sort((left, right) => stableUnit(`${community}:${left}`) - stableUnit(`${community}:${right}`))
+        .slice(0, Math.max(0, nodesPerCommunity))
+    }))
+    .filter((group) => group.nodeIds.length)
+    .sort((left, right) => right.size - left.size || left.community.localeCompare(right.community))
+    .slice(0, Math.max(0, limitCommunities));
+}
+
+export function edgeCurrentVisual({ phase = 0, edgeId = '', index = 0, reducedMotion = false } = {}) {
+  if (reducedMotion) {
+    return { alpha: 0, radius: 0, progress: 0.5, tailAlpha: 0 };
+  }
+  const seed = stableUnit(edgeId);
+  const local = Number(phase) * (0.09 + seed * 0.035) + seed + index * 0.037;
+  const progress = local - Math.floor(local);
+  const flicker = (Math.sin((Number(phase) + seed * 4) * 0.74) + 1) * 0.5;
+  return {
+    alpha: 0.18 + flicker * 0.22,
+    radius: 1.25 + flicker * 0.75,
+    progress,
+    tailAlpha: 0.055 + flicker * 0.045
+  };
+}
+
+export function communityBreathingVisual({ phase = 0, community = '', reducedMotion = false } = {}) {
+  const seed = stableUnit(community);
+  if (reducedMotion) {
+    return { alpha: 0.035, radiusScale: 1 };
+  }
+  const wave = (Math.sin(Number(phase) * 0.58 + seed * Math.PI * 2) + 1) * 0.5;
+  return {
+    alpha: 0.035 + wave * 0.055,
+    radiusScale: 1 + wave * 0.38
+  };
+}
+
+export function recentSparkVisual({ phase = 0, nodeId = '', index = 0, reducedMotion = false } = {}) {
+  if (reducedMotion) {
+    return { alpha: 0.055, radiusScale: 1, isStrong: false };
+  }
+  const seed = stableUnit(nodeId);
+  const cadence = 0.18 + index * 0.015;
+  const local = (Number(phase) * cadence + seed) % 1;
+  const spark = Math.max(0, 1 - Math.abs(local - 0.18) / 0.18);
+  const glow = (Math.sin(Number(phase) * 0.74 + seed * 5.7) + 1) * 0.5;
+  return {
+    alpha: 0.06 + glow * 0.06 + spark * 0.42,
+    radiusScale: 1 + glow * 0.55 + spark * 2.8,
+    isStrong: spark > 0.72
+  };
+}
+
 export function createLivingPulse({
   nodeIds = [],
   edgeIds = [],
