@@ -197,6 +197,7 @@ final class BrainBarTests: XCTestCase {
     }
 
     func testGraphViewModeLabelsAndRawValuesAreStable() {
+        XCTAssertEqual(GraphViewMode.allCases, [.threeD, .twoD])
         XCTAssertEqual(GraphViewMode.twoD.rawValue, "twoD")
         XCTAssertEqual(GraphViewMode.twoD.label, "2D")
         XCTAssertEqual(GraphViewMode.threeD.rawValue, "threeD")
@@ -369,9 +370,11 @@ final class BrainBarTests: XCTestCase {
         let model = AppModel(configurationManager: manager)
         let initialConfig = model.config
 
-        model.setGraphViewMode(.threeD)
-
         XCTAssertEqual(model.graphViewMode, .threeD)
+
+        model.setGraphViewMode(.twoD)
+
+        XCTAssertEqual(model.graphViewMode, .twoD)
         XCTAssertEqual(model.graphSourceLens, .all)
         XCTAssertEqual(model.config, initialConfig)
     }

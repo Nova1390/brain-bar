@@ -33,8 +33,8 @@ enum GraphSourceLens: String, CaseIterable, Identifiable, Sendable {
 }
 
 enum GraphViewMode: String, CaseIterable, Identifiable, Sendable {
-    case twoD
     case threeD
+    case twoD
 
     var id: String { rawValue }
 
@@ -83,7 +83,7 @@ final class AppModel {
     var errorMessage: String?
     var graphReloadToken = 0
     var graphSourceLens: GraphSourceLens = .all
-    var graphViewMode: GraphViewMode = .twoD
+    var graphViewMode: GraphViewMode = .threeD
     var graph3DResetToken = 0
     var graphViewportCommand: GraphViewportCommand?
     var reviewQueueStatus: ReviewQueueStatus = .empty

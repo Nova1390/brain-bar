@@ -4,6 +4,7 @@ All notable changes to BrainBar are documented here.
 
 ## Unreleased
 
+- Made 3D Explorer the default graph view and ordered the graph mode toggle as `3D` then `2D`.
 - Added subtle 3D Living Graph polish with ambient breathing, recent-note warmth, and action response pulses that respect reduced-motion preferences.
 - Clarified README onboarding copy around Graphify-powered graphs, Search Reveal, Recent Orbit, Graph Story v2, and release tagging.
 
