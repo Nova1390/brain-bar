@@ -4,7 +4,7 @@
 
 html,
 body {
-  background: #070a12 !important;
+  background: #05070d !important;
   color: rgba(244, 246, 255, 0.88) !important;
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", "Segoe UI", sans-serif !important;
   letter-spacing: 0 !important;
@@ -12,19 +12,20 @@ body {
 
 #graph {
   background:
-    radial-gradient(circle at 38% 34%, rgba(132, 156, 255, 0.12), transparent 30%),
-    radial-gradient(circle at 62% 76%, rgba(102, 220, 207, 0.07), transparent 32%),
-    linear-gradient(135deg, rgba(9, 13, 27, 0.98), rgba(4, 7, 14, 0.98)) !important;
+    radial-gradient(circle at 48% 44%, rgba(105, 130, 190, 0.11), transparent 34%),
+    radial-gradient(circle at 72% 78%, rgba(80, 158, 154, 0.045), transparent 30%),
+    radial-gradient(circle at 50% 50%, transparent 44%, rgba(0, 0, 0, 0.24) 100%),
+    linear-gradient(135deg, rgba(6, 10, 20, 0.99), rgba(3, 6, 12, 0.99)) !important;
 }
 
 #sidebar {
   width: clamp(260px, 23vw, 320px) !important;
   background:
-    linear-gradient(180deg, rgba(17, 19, 33, 0.94), rgba(9, 11, 21, 0.90)) !important;
-  border-left: 1px solid rgba(255, 255, 255, 0.075) !important;
+    linear-gradient(180deg, rgba(16, 18, 30, 0.96), rgba(8, 10, 18, 0.94)) !important;
+  border-left: 1px solid rgba(210, 222, 255, 0.08) !important;
   box-shadow:
-    -1px 0 0 rgba(130, 150, 255, 0.10),
-    -30px 0 80px rgba(0, 0, 0, 0.38) !important;
+    -1px 0 0 rgba(130, 150, 255, 0.06),
+    -26px 0 70px rgba(0, 0, 0, 0.34) !important;
   backdrop-filter: blur(24px) saturate(1.16);
   -webkit-backdrop-filter: blur(24px) saturate(1.16);
 }
@@ -33,7 +34,7 @@ body {
 #info-panel,
 #legend-wrap,
 #stats {
-  border-color: rgba(255, 255, 255, 0.075) !important;
+  border-color: rgba(218, 226, 255, 0.075) !important;
 }
 
 #search-wrap {
@@ -52,10 +53,10 @@ body {
 #search {
   min-height: 40px !important;
   padding: 10px 13px !important;
-  border: 1px solid rgba(156, 170, 255, 0.24) !important;
+  border: 1px solid rgba(166, 181, 226, 0.22) !important;
   border-radius: 12px !important;
   background:
-    linear-gradient(180deg, rgba(8, 11, 22, 0.82), rgba(5, 7, 15, 0.72)) !important;
+    linear-gradient(180deg, rgba(10, 13, 24, 0.86), rgba(5, 7, 14, 0.78)) !important;
   color: rgba(244, 246, 255, 0.92) !important;
   font-size: 14px !important;
   font-weight: 520 !important;
@@ -66,9 +67,9 @@ body {
 }
 
 #search:focus {
-  border-color: rgba(176, 189, 255, 0.48) !important;
+  border-color: rgba(184, 199, 245, 0.50) !important;
   box-shadow:
-    0 0 0 3px rgba(126, 150, 255, 0.12),
+    0 0 0 3px rgba(126, 150, 255, 0.10),
     inset 0 1px 0 rgba(255, 255, 255, 0.04) !important;
 }
 
@@ -77,9 +78,9 @@ body {
   max-height: 260px;
   overflow: auto;
   padding: 5px;
-  border: 1px solid rgba(244, 246, 255, 0.08);
+  border: 1px solid rgba(218, 226, 255, 0.10);
   border-radius: 11px;
-  background: rgba(6, 8, 16, 0.74);
+  background: rgba(7, 9, 17, 0.82);
 }
 
 #brainbar-search-results[hidden] {
@@ -91,9 +92,9 @@ body {
   width: 100%;
   margin: 3px 0;
   padding: 7px 8px;
-  border: 1px solid rgba(244, 246, 255, 0.08);
+  border: 1px solid rgba(218, 226, 255, 0.085);
   border-radius: 9px;
-  background: rgba(244, 246, 255, 0.045);
+  background: rgba(244, 246, 255, 0.04);
   color: rgba(248, 250, 255, 0.92);
   text-align: left;
   cursor: pointer;
@@ -140,15 +141,15 @@ body {
 
 .legend-item,
 .search-item {
-  min-height: 25px !important;
-  padding: 4px 6px !important;
+  min-height: 28px !important;
+  padding: 5px 7px !important;
   border-radius: 8px !important;
   transition: background 120ms ease, opacity 120ms ease !important;
 }
 
 .legend-item:hover,
 .search-item:hover {
-  background: rgba(255, 255, 255, 0.065) !important;
+  background: rgba(210, 222, 255, 0.065) !important;
 }
 
 .legend-cb,
@@ -177,9 +178,10 @@ body {
 }
 
 .color-dot {
-  width: 11px !important;
-  height: 11px !important;
-  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.055) !important;
+  width: 10px !important;
+  height: 10px !important;
+  opacity: 0.82 !important;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.04) !important;
 }
 
 .neighbor-link {
@@ -230,9 +232,9 @@ body {
 #brainbar-workflow-toolbar button,
 #brainbar-workflow-panel button,
 #brainbar-health-panel button {
-  border: 1px solid rgba(244, 246, 255, 0.12);
+  border: 1px solid rgba(220, 228, 255, 0.12);
   border-radius: 8px;
-  background: rgba(244, 246, 255, 0.055);
+  background: rgba(218, 226, 255, 0.052);
   color: rgba(244, 246, 255, 0.82);
   font: 680 11px -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
   letter-spacing: 0;
@@ -251,14 +253,16 @@ body {
   bottom: 14px;
   display: flex;
   flex-wrap: wrap;
-  gap: 7px;
+  gap: 8px;
   align-items: center;
   max-width: min(760px, calc(100vw - 360px));
-  padding: 6px;
-  border: 1px solid rgba(244, 246, 255, 0.09);
-  border-radius: 12px;
-  background: rgba(8, 11, 20, 0.64);
-  box-shadow: 0 18px 52px rgba(0, 0, 0, 0.24);
+  padding: 7px;
+  border: 1px solid rgba(218, 226, 255, 0.105);
+  border-radius: 13px;
+  background: rgba(8, 11, 20, 0.76);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.035),
+    0 18px 52px rgba(0, 0, 0, 0.26);
   backdrop-filter: blur(18px) saturate(1.12);
   -webkit-backdrop-filter: blur(18px) saturate(1.12);
 }
@@ -279,8 +283,8 @@ body {
 }
 
 #brainbar-workflow-toolbar .source-lens {
-  padding-left: 7px;
-  border-left: 1px solid rgba(244, 246, 255, 0.10);
+  padding-left: 8px;
+  border-left: 1px solid rgba(218, 226, 255, 0.10);
 }
 
 #brainbar-workflow-toolbar .source-lens span {
@@ -289,7 +293,7 @@ body {
 }
 
 #brainbar-workflow-toolbar button {
-  padding: 6px 9px;
+  padding: 6px 10px;
 }
 
 #brainbar-workflow-toolbar button[hidden] {
@@ -310,9 +314,15 @@ body {
 .edge-actions button:hover,
 #brainbar-workflow-panel button:hover,
 #brainbar-health-panel button:hover {
-  border-color: rgba(170, 186, 255, 0.28);
-  background: rgba(132, 154, 255, 0.14);
+  border-color: rgba(178, 194, 245, 0.34);
+  background: rgba(132, 154, 255, 0.13);
   color: rgba(248, 250, 255, 0.96);
+}
+
+#brainbar-workflow-toolbar button.selected {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 0 0 1px rgba(132, 154, 255, 0.10);
 }
 
 #brainbar-focus-controls .focus-status {
@@ -372,10 +382,11 @@ body {
 
 #brainbar-edge-inspector {
   margin-bottom: 12px;
-  padding: 11px;
-  border: 1px solid rgba(244, 246, 255, 0.095);
-  border-radius: 10px;
-  background: rgba(244, 246, 255, 0.045);
+  padding: 12px;
+  border: 1px solid rgba(218, 226, 255, 0.105);
+  border-radius: 11px;
+  background:
+    linear-gradient(180deg, rgba(31, 36, 58, 0.44), rgba(14, 17, 28, 0.36));
 }
 
 #brainbar-edge-inspector .edge-eyebrow {
@@ -424,12 +435,15 @@ body {
   width: min(360px, calc(100vw - 380px));
   max-height: min(620px, calc(100vh - 110px));
   overflow: auto;
-  padding: 14px;
-  border: 1px solid rgba(244, 246, 255, 0.12);
-  border-radius: 12px;
-  background: rgba(9, 12, 22, 0.88);
+  padding: 15px;
+  border: 1px solid rgba(218, 226, 255, 0.13);
+  border-radius: 13px;
+  background:
+    linear-gradient(180deg, rgba(18, 22, 36, 0.92), rgba(8, 10, 18, 0.90));
   color: rgba(244, 246, 255, 0.86);
-  box-shadow: 0 22px 74px rgba(0, 0, 0, 0.40);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.035),
+    0 22px 74px rgba(0, 0, 0, 0.40);
   backdrop-filter: blur(22px) saturate(1.12);
   -webkit-backdrop-filter: blur(22px) saturate(1.12);
 }
@@ -482,7 +496,9 @@ body {
   display: block;
   width: 100%;
   margin-top: 5px;
-  padding: 7px 8px;
+  padding: 8px 9px;
+  border-radius: 8px;
+  background: rgba(218, 226, 255, 0.035);
   overflow: hidden;
   text-align: left;
   text-overflow: ellipsis;
@@ -500,15 +516,17 @@ body {
   position: fixed;
   z-index: 1000;
   max-width: 260px;
-  padding: 7px 9px;
-  border: 1px solid rgba(244, 246, 255, 0.12);
+  padding: 8px 10px;
+  border: 1px solid rgba(218, 226, 255, 0.14);
   border-radius: 9px;
-  background: rgba(10, 12, 21, 0.84);
-  color: rgba(244, 246, 255, 0.84);
+  background: rgba(11, 14, 23, 0.92);
+  color: rgba(244, 246, 255, 0.88);
   font: 650 11px -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
   letter-spacing: 0;
   line-height: 1.25;
-  box-shadow: 0 16px 46px rgba(0, 0, 0, 0.34);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.035),
+    0 16px 46px rgba(0, 0, 0, 0.34);
   backdrop-filter: blur(16px) saturate(1.12);
   -webkit-backdrop-filter: blur(16px) saturate(1.12);
   opacity: 0;

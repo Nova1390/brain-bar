@@ -59,6 +59,23 @@
     return `rgba(${r}, ${g}, ${b}, ${alpha})`;
   }
 
+  const workbenchStyle = {
+    node: {
+      primary: {
+        background: 'rgba(220, 231, 255, 0.92)',
+        border: 'rgba(255, 255, 255, 0.98)'
+      },
+      related: {
+        background: 'rgba(141, 222, 214, 0.52)',
+        border: 'rgba(210, 252, 248, 0.86)'
+      }
+    },
+    edge: {
+      primary: 'rgba(232, 241, 255, 0.88)',
+      related: 'rgba(154, 211, 224, 0.54)'
+    }
+  };
+
   function organicEdgeSmooth(edge) {
     const hash = stableHash(`${edge?.id}:${edgeSource(edge)}:${edgeTarget(edge)}`);
     return {
@@ -1055,6 +1072,14 @@
           return;
         }
 
+        if (details.available) {
+          applyTransientVisualStyle({
+            primaryNodeId: details.sourceId,
+            relatedNodeIds: [details.targetId],
+            edgeIds: [details.edgeId]
+          });
+        }
+
         let panel = root.document.getElementById('brainbar-edge-inspector');
         if (!panel) {
           panel = root.document.createElement('div');
@@ -1191,6 +1216,168 @@
       graphNetwork()?.redraw();
     }
 
+    function clearTransientVisualStyle() {
+      const restore = root.__brainBar2DVisualRestore;
+      const nodesDataSet = graphNodesDS();
+      const edgesDataSet = graphEdgesDS();
+      if (!restore) {
+        return;
+      }
+      if (nodesDataSet && restore.nodes?.length) {
+        nodesDataSet.update(restore.nodes);
+      }
+      if (edgesDataSet && restore.edges?.length) {
+        edgesDataSet.update(restore.edges);
+      }
+      root.__brainBar2DVisualRestore = null;
+    }
+
+    function dataSetItem(dataSet, itemId) {
+      if (!dataSet || itemId === undefined || itemId === null) {
+        return null;
+      }
+      return dataSet.get(itemId) || (String(Number(itemId)) === String(itemId) ? dataSet.get(Number(itemId)) : null);
+    }
+
+    function rememberVisualState(nodeIds, edgeIds) {
+      const nodesDataSet = graphNodesDS();
+      const edgesDataSet = graphEdgesDS();
+      const nodeRestore = [];
+      const edgeRestore = [];
+      const seenNodes = new Set();
+      const seenEdges = new Set();
+      (nodeIds || []).forEach((nodeId) => {
+        const id = idKey(nodeId);
+        if (seenNodes.has(id)) {
+          return;
+        }
+        const node = dataSetItem(nodesDataSet, nodeId);
+        if (!node) {
+          return;
+        }
+        seenNodes.add(id);
+        nodeRestore.push({
+          id: node.id,
+          borderWidth: node.borderWidth,
+          borderWidthSelected: node.borderWidthSelected,
+          size: node.size,
+          color: node.color,
+          shadow: node.shadow,
+          font: node.font,
+          label: node.label
+        });
+      });
+      (edgeIds || []).forEach((edgeId) => {
+        const id = idKey(edgeId);
+        if (seenEdges.has(id)) {
+          return;
+        }
+        const edge = dataSetItem(edgesDataSet, edgeId);
+        if (!edge) {
+          return;
+        }
+        seenEdges.add(id);
+        edgeRestore.push({
+          id: edge.id,
+          color: edge.color,
+          width: edge.width,
+          selectionWidth: edge.selectionWidth,
+          hoverWidth: edge.hoverWidth,
+          dashes: edge.dashes
+        });
+      });
+      return { nodes: nodeRestore, edges: edgeRestore };
+    }
+
+    function applyTransientVisualStyle({ primaryNodeId, relatedNodeIds = [], edgeIds = [] } = {}) {
+      const nodesDataSet = graphNodesDS();
+      const edgesDataSet = graphEdgesDS();
+      if (!nodesDataSet && !edgesDataSet) {
+        return;
+      }
+      clearTransientVisualStyle();
+      const primary = primaryNodeId ? idKey(primaryNodeId) : '';
+      const related = Array.from(new Set((relatedNodeIds || []).map(idKey).filter((nodeId) => nodeId && nodeId !== primary))).slice(0, 18);
+      const highlightedEdges = Array.from(new Set((edgeIds || []).map(idKey))).slice(0, 90);
+      root.__brainBar2DVisualRestore = rememberVisualState([primary, ...related], highlightedEdges);
+
+      const nodeUpdates = [];
+      if (primary && dataSetItem(nodesDataSet, primary)) {
+        const node = dataSetItem(nodesDataSet, primary);
+        nodeUpdates.push({
+          id: node.id,
+          size: Math.max(Number(node.size) || 6, 12),
+          borderWidth: 2.4,
+          borderWidthSelected: 3,
+          color: {
+            ...(node.color || {}),
+            background: workbenchStyle.node.primary.background,
+            border: workbenchStyle.node.primary.border,
+            highlight: {
+              background: 'rgba(235, 242, 255, 0.98)',
+              border: 'rgba(255, 255, 255, 1)'
+            }
+          },
+          shadow: {
+            enabled: true,
+            color: 'rgba(160, 184, 255, 0.34)',
+            size: 12,
+            x: 0,
+            y: 0
+          },
+          font: {
+            ...(node.font || {}),
+            color: 'rgba(248, 250, 255, 0.96)',
+            size: 15,
+            vadjust: -12
+          }
+        });
+      }
+      related.forEach((nodeId) => {
+        const node = dataSetItem(nodesDataSet, nodeId);
+        if (!node) {
+          return;
+        }
+        nodeUpdates.push({
+          id: node.id,
+          size: Math.max(Number(node.size) || 4, 7),
+          borderWidth: 1.55,
+          color: {
+            ...(node.color || {}),
+            background: workbenchStyle.node.related.background,
+            border: workbenchStyle.node.related.border
+          },
+          shadow: {
+            enabled: true,
+            color: 'rgba(119, 220, 210, 0.18)',
+            size: 5,
+            x: 0,
+            y: 0
+          }
+        });
+      });
+      if (nodeUpdates.length) {
+        nodesDataSet.update(nodeUpdates);
+      }
+      if (highlightedEdges.length && edgesDataSet) {
+        edgesDataSet.update(highlightedEdges
+          .map((edgeId) => dataSetItem(edgesDataSet, edgeId))
+          .filter(Boolean)
+          .map((edge) => ({
+            id: edge.id,
+            width: 1.55,
+            selectionWidth: 2.4,
+            hoverWidth: 2.2,
+            color: {
+              color: workbenchStyle.edge.related,
+              highlight: workbenchStyle.edge.primary,
+              hover: workbenchStyle.edge.primary
+            }
+          })));
+      }
+      graphNetwork()?.redraw();
+    }
+
     function clearRuntimeFilter() {
       const state = ensureGraphLensState();
       const nodesDataSet = graphNodesDS();
@@ -1198,6 +1385,7 @@
       if (!state || !nodesDataSet || !edgesDataSet) {
         return;
       }
+      clearTransientVisualStyle();
       root.__brainBarFocusState = null;
       root.__brainBarActiveGraphView = 'global';
       setLensEmptyMessage('');
@@ -1238,6 +1426,27 @@
           };
         })
         .filter((item) => item.id !== undefined && item.id !== null);
+    }
+
+    function visibleEdgesBetween(nodeIds, limit = 90) {
+      const ids = new Set((nodeIds || []).map(idKey));
+      if (ids.size === 0) {
+        return [];
+      }
+      const snapshot = currentGraphSnapshot();
+      const hiddenEdges = hiddenMap(snapshot.currentEdges);
+      const matches = [];
+      snapshot.edges.forEach((edge) => {
+        if (matches.length >= limit) {
+          return;
+        }
+        const source = idKey(edgeSource(edge));
+        const target = idKey(edgeTarget(edge));
+        if (ids.has(source) && ids.has(target) && !hiddenEdges.get(idKey(edge.id))) {
+          matches.push(edge.id);
+        }
+      });
+      return matches;
     }
 
     function restoreFocusLayout() {
@@ -1319,8 +1528,14 @@
       root.__brainBarFocusState = focus;
       root.__brainBarActiveGraphView = 'focus';
       setLensEmptyMessage(focus.visibleNodeIds.length === 0 ? 'Focus node not found' : '');
+      clearTransientVisualStyle();
       applyDataSetUpdates(focus.nodeUpdates, focus.edgeUpdates);
       applyFocusLayout(focus, state.originalNodes, state.originalEdges);
+      applyTransientVisualStyle({
+        primaryNodeId: centerNodeId,
+        relatedNodeIds: focus.visibleNodeIds.filter((nodeId) => idKey(nodeId) !== idKey(centerNodeId)).slice(0, 18),
+        edgeIds: focus.visibleEdgeIds.slice(0, 90)
+      });
       updateWorkflowToolbarState();
       updateFocusStatus(focus);
       graphNetwork()?.selectNodes([centerNodeId]);
@@ -1444,6 +1659,12 @@
       }
       root.__brainBarActiveGraphView = 'search';
       graphNetwork()?.selectNodes([node.id]);
+      const neighbors = topVisibleNeighbors(node.id, 12).map((neighbor) => neighbor.id);
+      applyTransientVisualStyle({
+        primaryNodeId: node.id,
+        relatedNodeIds: neighbors,
+        edgeIds: visibleEdgesBetween([node.id, ...neighbors], 72)
+      });
       graphNetwork()?.focus(node.id, {
         scale: 1.2,
         animation: { duration: 280, easingFunction: 'easeInOutQuad' }
@@ -2420,18 +2641,18 @@
             },
             nodes: {
               shape: 'dot',
-              borderWidth: 0.85,
-              borderWidthSelected: 1.7,
+              borderWidth: 0.75,
+              borderWidthSelected: 1.9,
               shadow: {
                 enabled: true,
-                color: 'rgba(126, 154, 255, 0.16)',
-                size: 3,
+                color: 'rgba(126, 154, 255, 0.10)',
+                size: 2,
                 x: 0,
                 y: 0
               },
               scaling: {
-                min: 3,
-                max: 11,
+                min: 2.8,
+                max: 9.5,
                 label: { enabled: false }
               },
               font: {
@@ -2442,13 +2663,13 @@
             },
             edges: {
               color: {
-                color: 'rgba(132, 148, 178, 0.25)',
-                highlight: 'rgba(238, 242, 255, 0.84)',
-                hover: 'rgba(218, 228, 255, 0.70)'
+                color: 'rgba(112, 130, 162, 0.20)',
+                highlight: 'rgba(230, 238, 255, 0.82)',
+                hover: 'rgba(196, 218, 240, 0.66)'
               },
-              width: 0.9,
-              selectionWidth: 1.8,
-              hoverWidth: 1.5,
+              width: 0.62,
+              selectionWidth: 1.55,
+              hoverWidth: 1.25,
               smooth: {
                 enabled: true,
                 type: 'continuous',
@@ -2485,31 +2706,31 @@
           const isLeaf = degree <= 1;
           const isSmall = degree <= 3;
           const size = isLeaf
-            ? 3.2
-            : clamp(3.4 + Math.sqrt(degree) * 0.74, 4.2, 9.2);
+            ? 2.8
+            : clamp(3.0 + Math.sqrt(degree) * 0.62, 3.7, 8.2);
           return {
             id: node.id,
             title: '',
             _brainBarBaseColor: base,
-            borderWidth: isLeaf ? 0.55 : clamp(0.75 + Math.log1p(degree) * 0.08, 0.82, 1.45),
-            borderWidthSelected: 2,
+            borderWidth: isLeaf ? 0.45 : clamp(0.66 + Math.log1p(degree) * 0.07, 0.72, 1.28),
+            borderWidthSelected: 2.15,
             size,
             color: {
-              background: isLeaf ? atlasColor(base, 0.16, 0.52) : atlasColor(base, isSmall ? 0.20 : 0.28, 0.38),
-              border: atlasColor(base, isLeaf ? 0.44 : 0.72, isLeaf ? 0.54 : 0.32),
+              background: isLeaf ? atlasColor(base, 0.12, 0.58) : atlasColor(base, isSmall ? 0.17 : 0.24, 0.44),
+              border: atlasColor(base, isLeaf ? 0.36 : 0.62, isLeaf ? 0.60 : 0.38),
               hover: {
-                background: atlasColor(base, 0.86, 0.12),
-                border: 'rgba(248, 250, 255, 0.92)'
+                background: atlasColor(base, 0.78, 0.18),
+                border: 'rgba(238, 244, 255, 0.88)'
               },
               highlight: {
-                background: atlasColor(base, 0.90, 0.10),
-                border: 'rgba(248, 250, 255, 0.96)'
+                background: atlasColor(base, 0.86, 0.14),
+                border: 'rgba(248, 250, 255, 0.94)'
               }
             },
             shadow: {
-              enabled: degree > 18,
-              color: 'rgba(126, 154, 255, 0.12)',
-              size: clamp(Math.sqrt(degree) * 0.72, 2, 5),
+              enabled: degree > 22,
+              color: 'rgba(126, 154, 255, 0.09)',
+              size: clamp(Math.sqrt(degree) * 0.56, 1.5, 4),
               x: 0,
               y: 0
             },
@@ -2524,20 +2745,20 @@
         nodesDataSet.update(themedNodes);
 
         const themedEdges = edgesDataSet.get().map((edge) => {
-          const baseWidth = Math.max(0.45, Math.min(edge._brainBarBaseWidth || edge.width || 0.75, 0.95));
+          const baseWidth = Math.max(0.34, Math.min(edge._brainBarBaseWidth || edge.width || 0.54, 0.72));
           const smooth = organicEdgeSmooth(edge);
           return {
             id: edge.id,
             title: '',
             _brainBarBaseWidth: baseWidth,
             color: {
-              color: 'rgba(126, 146, 184, 0.30)',
-              highlight: 'rgba(238, 244, 255, 0.92)',
-              hover: 'rgba(218, 232, 255, 0.82)'
+              color: 'rgba(112, 132, 166, 0.20)',
+              highlight: 'rgba(232, 241, 255, 0.86)',
+              hover: 'rgba(196, 222, 238, 0.72)'
             },
             width: baseWidth,
-            selectionWidth: 2.05,
-            hoverWidth: 1.85,
+            selectionWidth: 1.75,
+            hoverWidth: 1.45,
             smooth,
             arrows: { to: { enabled: false } }
           };
