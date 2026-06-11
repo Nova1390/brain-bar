@@ -4,6 +4,8 @@ All notable changes to BrainBar are documented here.
 
 ## Unreleased
 
+- Added an Agent Activity architecture proposal for showing local file and compatible agent read/write/create/focus events inside BrainBar without making agent skills mandatory.
+
 ## 0.9.6 - 2026-06-11
 
 - Upgraded the 2D graph into a Workbench with operational views, Source Lens controls, searchable community details, Search Reveal, clearer Focus depth controls, Graph Check dashboard sections, stronger edge actions, and 2D-to-3D reveal/path/community bridge actions.

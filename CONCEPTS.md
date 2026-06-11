@@ -48,6 +48,7 @@ BrainBar is a local-first macOS control center for a Markdown or Obsidian-style 
 - **Recent Orbit**: a 3D runtime view for recently changed or date-named notes. It highlights recent notes and traces one active recent note to its nearest visible key note when a path exists.
 - **Graph Story**: a 3D runtime guided tour through deterministic graph signals such as recent notes, key notes, large communities, bridge notes, and needs-attention areas. It presents each step as a compact narrative card with a primary note and a short takeaway.
 - **Living Graph Polish**: 3D visual responsiveness such as signal-flow edge currents, coordinated community breathing, recent-note warmth, and action response pulses. It is polish over the current runtime state, not a separate graph mode.
+- **Agent Activity**: a proposed BrainBar capability for showing local file and compatible agent read/write/create/focus events inside the graph. It should work from local file activity by default and use optional structured agent events when integrations are enabled.
 
 ## Internal Architecture Terms
 
@@ -64,6 +65,7 @@ BrainBar is a local-first macOS control center for a Markdown or Obsidian-style 
 - **Graph story state**: runtime-only 3D state for the active tour step, highlighted nodes/edges, active community, and current guided-tour message.
 - **Search reveal state**: runtime-only 3D state for the revealed node, highlighted neighbor ids, and highlighted edge ids.
 - **Edge provenance**: runtime classification for a connection as `Wikilink`, `Graphify`, or `Unknown`, based on Graphify metadata and exported wikilink data.
+- **Agent Events protocol**: proposed newline-delimited JSON metadata events for local tools and agents. Events describe actions such as `read`, `write`, `create`, `focus`, or `graph_refresh` without storing note contents or raw transcripts.
 - **Review Queue status payload**: JSON printed by a configured local status command. Required shape includes `pending_count`; `items` are optional.
 - **Review Queue graph targets**: optional item fields `source_file` and `node_id` used only to highlight matching graph nodes.
 - **Brain KG**: a generic term for a generated or advisory knowledge graph produced by a user's local vault workflow. In BrainBar docs, avoid treating it as a required product subsystem unless code/config explicitly wires it through local commands.
@@ -84,6 +86,8 @@ BrainBar is a local-first macOS control center for a Markdown or Obsidian-style 
 - **Graph Story is not AI narration.** It is a deterministic narrative tour over visible graph signals and should skip unavailable categories instead of inventing interpretation.
 - **Search Reveal is not a graph filter.** It searches currently visible nodes, moves attention to one result, and leaves the graph context present.
 - **Living Graph Polish is not a new feature mode.** It should not add new UI, move nodes geometrically, or change graph data; it only makes the existing 3D graph feel more responsive.
+- **Agent Activity is not required for BrainBar.** BrainBar should remain useful from local graph and file metadata alone; agent integrations are optional enrichments.
+- **Agent Events are not transcripts.** They must store only minimal metadata such as action, path, timestamp, and tool identity.
 - **3D Explorer is still local graph visualization, not AI interpretation.** Keep language conservative unless product docs and QA criteria change.
 - **Brain KG is not a public dependency.** Treat it as optional local/generated context unless a concrete integration is present.
 
