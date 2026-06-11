@@ -159,6 +159,68 @@ final class BrainBarTests: XCTestCase {
         XCTAssertTrue(script.contains(#""mtime""#))
     }
 
+    @MainActor
+    func testGraph2DMetadataPayloadIsStableForUnchangedGraph() throws {
+        let vault = try temporaryDirectory()
+        let graphDirectory = vault.appendingPathComponent("graphify-out")
+        let noteURL = vault.appendingPathComponent("Notes/Recent.md")
+        try FileManager.default.createDirectory(at: graphDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: noteURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "recent".write(to: noteURL, atomically: true, encoding: .utf8)
+        try """
+        {
+          "nodes": [
+            { "id": "recent", "label": "Recent", "source_file": "Notes/Recent.md" }
+          ],
+          "edges": []
+        }
+        """.write(to: graphDirectory.appendingPathComponent("graph.json"), atomically: true, encoding: .utf8)
+
+        let first = GraphMetadataPayloadCache.payload(readAccessURL: graphDirectory)
+        let second = GraphMetadataPayloadCache.payload(readAccessURL: graphDirectory)
+
+        XCTAssertEqual(first.version, second.version)
+        XCTAssertEqual(first.script, second.script)
+        XCTAssertTrue(first.script.contains("window.__brainBarNodeFileMetadata ="))
+        XCTAssertTrue(first.script.contains(#""recent""#))
+        XCTAssertTrue(first.script.contains(#""mtime""#))
+    }
+
+    @MainActor
+    func testGraph2DMetadataPayloadVersionChangesWhenGraphJSONChanges() throws {
+        let vault = try temporaryDirectory()
+        let graphDirectory = vault.appendingPathComponent("graphify-out")
+        try FileManager.default.createDirectory(at: graphDirectory, withIntermediateDirectories: true)
+        let graphJSONURL = graphDirectory.appendingPathComponent("graph.json")
+        try #"{"nodes":[],"edges":[]}"#.write(to: graphJSONURL, atomically: true, encoding: .utf8)
+        let first = GraphMetadataPayloadCache.payload(readAccessURL: graphDirectory)
+
+        try """
+        {
+          "nodes": [
+            { "id": "changed", "label": "Changed" }
+          ],
+          "edges": []
+        }
+        """.write(to: graphJSONURL, atomically: true, encoding: .utf8)
+        let second = GraphMetadataPayloadCache.payload(readAccessURL: graphDirectory)
+
+        XCTAssertNotEqual(first.version, second.version)
+        XCTAssertTrue(second.script.contains(#""changed""#))
+    }
+
+    @MainActor
+    func testGraph2DMetadataPayloadMissingGraphIsSafe() throws {
+        let graphDirectory = try temporaryDirectory().appendingPathComponent("graphify-out")
+        try FileManager.default.createDirectory(at: graphDirectory, withIntermediateDirectories: true)
+
+        let payload = GraphMetadataPayloadCache.payload(readAccessURL: graphDirectory)
+
+        XCTAssertTrue(payload.version.hasSuffix(":missing"))
+        XCTAssertTrue(payload.script.contains("window.__brainBarGraphJSON = null;"))
+        XCTAssertTrue(payload.script.contains("window.__brainBarNodeFileMetadata = { byNodeId: {}, bySourceFile: {} };"))
+    }
+
     func testGraphNodeOpenURLUsesObsidianForMarkdownWhenEnabled() throws {
         let vault = try temporaryDirectory()
         let noteURL = vault.appendingPathComponent("Note.md")

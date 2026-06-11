@@ -28,7 +28,9 @@ struct GraphWebView: NSViewRepresentable {
         webView.navigationDelegate = context.coordinator
         context.coordinator.sourceLens = sourceLens
         context.coordinator.reviewQueueScript = Self.reviewQueueTargetsScript(status: reviewQueueStatus)
-        context.coordinator.graphMetadataScript = Self.graphMetadataScript(readAccessURL: readAccessURL)
+        let graphMetadataPayload = Self.graphMetadataPayload(readAccessURL: readAccessURL)
+        context.coordinator.graphMetadataVersion = graphMetadataPayload.version
+        context.coordinator.graphMetadataScript = graphMetadataPayload.script
         load(in: webView, context: context)
         return webView
     }
@@ -36,9 +38,10 @@ struct GraphWebView: NSViewRepresentable {
     func updateNSView(_ webView: WKWebView, context: Context) {
         let didLoad = load(in: webView, context: context)
         context.coordinator.onOpenNode = onOpenNode
-        let graphMetadataScript = Self.graphMetadataScript(readAccessURL: readAccessURL)
-        let didUpdateGraphMetadata = context.coordinator.graphMetadataScript != graphMetadataScript
-        context.coordinator.graphMetadataScript = graphMetadataScript
+        let graphMetadataPayload = Self.graphMetadataPayload(readAccessURL: readAccessURL)
+        let didUpdateGraphMetadata = context.coordinator.graphMetadataVersion != graphMetadataPayload.version
+        context.coordinator.graphMetadataVersion = graphMetadataPayload.version
+        context.coordinator.graphMetadataScript = graphMetadataPayload.script
         let reviewQueueScript = Self.reviewQueueTargetsScript(status: reviewQueueStatus)
         if context.coordinator.reviewQueueScript != reviewQueueScript {
             context.coordinator.reviewQueueScript = reviewQueueScript
@@ -66,6 +69,7 @@ struct GraphWebView: NSViewRepresentable {
         var loadedURL: URL?
         var reloadToken = -1
         var sourceLens: GraphSourceLens = .all
+        var graphMetadataVersion = ""
         var graphMetadataScript = ""
         var reviewQueueScript = ""
         var lastViewportCommandID = -1
@@ -214,6 +218,69 @@ enum GraphNodeFileMetadata {
     }
 }
 
+struct GraphMetadataPayload: Equatable {
+    let version: String
+    let script: String
+}
+
+@MainActor
+enum GraphMetadataPayloadCache {
+    private static var scriptsByVersion: [String: String] = [:]
+
+    static func payload(readAccessURL: URL) -> GraphMetadataPayload {
+        let graphJSONURL = readAccessURL.appendingPathComponent("graph.json").standardizedFileURL
+        let fileValues = try? graphJSONURL.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey])
+        let modifiedAt = fileValues?.contentModificationDate?.timeIntervalSince1970
+        let fileSize = fileValues?.fileSize
+        let version: String
+        if let modifiedAt, let fileSize {
+            version = "\(graphJSONURL.path):\(modifiedAt):\(fileSize)"
+        } else {
+            version = "\(graphJSONURL.path):missing"
+        }
+
+        if let cached = cachedScript(for: version) {
+            return GraphMetadataPayload(version: version, script: cached)
+        }
+
+        let script = buildScript(graphJSONURL: graphJSONURL, version: version, readAccessURL: readAccessURL)
+        cache(script, for: version)
+        return GraphMetadataPayload(version: version, script: script)
+    }
+
+    private static func cachedScript(for version: String) -> String? {
+        scriptsByVersion[version]
+    }
+
+    private static func cache(_ script: String, for version: String) {
+        scriptsByVersion[version] = script
+        if scriptsByVersion.count > 6 {
+            scriptsByVersion.remove(at: scriptsByVersion.startIndex)
+        }
+    }
+
+    private static func buildScript(graphJSONURL: URL, version: String, readAccessURL: URL) -> String {
+        guard
+            let data = try? Data(contentsOf: graphJSONURL),
+            let object = try? JSONSerialization.jsonObject(with: data),
+            let normalizedData = try? JSONSerialization.data(withJSONObject: object),
+            let json = String(data: normalizedData, encoding: .utf8)
+        else {
+            return """
+            window.__brainBarGraphJSONVersion = \(GraphWebView.jsStringLiteral(version));
+            window.__brainBarGraphJSON = null;
+            window.__brainBarNodeFileMetadata = { byNodeId: {}, bySourceFile: {} };
+            """
+        }
+
+        return """
+        window.__brainBarGraphJSONVersion = \(GraphWebView.jsStringLiteral(version));
+        window.__brainBarGraphJSON = \(json);
+        window.__brainBarNodeFileMetadata = \(GraphNodeFileMetadata.json(graphObject: object, readAccessURL: readAccessURL));
+        """
+    }
+}
+
 private extension GraphWebView {
     static func userScripts() -> [WKUserScript] {
         var scripts: [WKUserScript] = []
@@ -238,30 +305,12 @@ private extension GraphWebView {
         return scripts
     }
 
-    static func graphMetadataScript(readAccessURL: URL) -> String {
-        let graphJSONURL = readAccessURL.appendingPathComponent("graph.json")
-        guard
-            let data = try? Data(contentsOf: graphJSONURL),
-            let object = try? JSONSerialization.jsonObject(with: data),
-            let normalizedData = try? JSONSerialization.data(withJSONObject: object),
-            let json = String(data: normalizedData, encoding: .utf8)
-        else {
-            return """
-            window.__brainBarGraphJSONVersion = "missing";
-            window.__brainBarGraphJSON = null;
-            window.__brainBarNodeFileMetadata = { byNodeId: {}, bySourceFile: {} };
-            """
-        }
-        let resourceValues = try? graphJSONURL.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey])
-        let modifiedAt = resourceValues?.contentModificationDate?.timeIntervalSince1970 ?? 0
-        let fileSize = resourceValues?.fileSize ?? data.count
-        let version = "\(graphJSONURL.path):\(modifiedAt):\(fileSize)"
+    static func graphMetadataPayload(readAccessURL: URL) -> GraphMetadataPayload {
+        GraphMetadataPayloadCache.payload(readAccessURL: readAccessURL)
+    }
 
-        return """
-        window.__brainBarGraphJSONVersion = \(jsStringLiteral(version));
-        window.__brainBarGraphJSON = \(json);
-        window.__brainBarNodeFileMetadata = \(GraphNodeFileMetadata.json(graphObject: object, readAccessURL: readAccessURL));
-        """
+    static func graphMetadataScript(readAccessURL: URL) -> String {
+        graphMetadataPayload(readAccessURL: readAccessURL).script
     }
 
     static func reviewQueueTargetsScript(status: ReviewQueueStatus) -> String {
