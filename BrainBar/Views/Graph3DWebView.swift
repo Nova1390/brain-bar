@@ -43,6 +43,7 @@ struct Graph3DWebView: NSViewRepresentable {
         context.coordinator.onDiagnostic = onDiagnostic
         context.coordinator.graphJSONURL = readAccessURL.appendingPathComponent("graph.json")
         context.coordinator.graphPayloadScript = Self.graphPayloadScript(readAccessURL: readAccessURL)
+        context.coordinator.pendingViewportCommand = viewportCommand
 
         if didLoad {
             return
@@ -84,6 +85,7 @@ struct Graph3DWebView: NSViewRepresentable {
         var sourceLens: GraphSourceLens = .all
         var resetCameraToken = 0
         var lastViewportCommandID: Int?
+        var pendingViewportCommand: GraphViewportCommand?
         var graphJSONURL: URL?
         var graphPayloadScript = ""
         var onDiagnostic: @MainActor (String) -> Void
@@ -99,6 +101,7 @@ struct Graph3DWebView: NSViewRepresentable {
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             loadGraph(sourceLens, in: webView)
+            applyViewportCommandIfNeeded(pendingViewportCommand, in: webView)
         }
 
         func loadGraph(_ lens: GraphSourceLens, in webView: WKWebView) {
@@ -145,6 +148,12 @@ struct Graph3DWebView: NSViewRepresentable {
                 script = "if (window.brainBarResetTilt) { window.brainBarResetTilt(); }"
             case .graphHealth:
                 script = "if (window.brainBarShowGraphHealth) { window.brainBarShowGraphHealth(); }"
+            case .revealNode3D:
+                script = "if (window.brainBarRevealNode3D) { window.brainBarRevealNode3D(\(Graph3DWebView.jsStringLiteral(command.payload ?? ""))); }"
+            case .pathFromNode3D:
+                script = "if (window.brainBarStartPathFromNode3D) { window.brainBarStartPathFromNode3D(\(Graph3DWebView.jsStringLiteral(command.payload ?? ""))); }"
+            case .showCommunity3D:
+                script = "if (window.brainBarShowCommunity3D) { window.brainBarShowCommunity3D(\(Graph3DWebView.jsStringLiteral(command.payload ?? ""))); }"
             }
             evaluate(script, in: webView)
         }
@@ -180,7 +189,9 @@ struct Graph3DWebView: NSViewRepresentable {
                 action: String(describing: body["action"] ?? ""),
                 nodeId: String(describing: body["nodeId"] ?? ""),
                 label: String(describing: body["label"] ?? ""),
-                sourceFile: body["sourceFile"] as? String
+                sourceFile: body["sourceFile"] as? String,
+                communityId: body["communityId"] as? String,
+                targetNodeId: body["targetNodeId"] as? String
             )
             Task { @MainActor in
                 onOpenNode(request)

@@ -64,11 +64,15 @@ enum GraphViewportCommandKind: String, Sendable {
     case topView
     case resetTilt
     case graphHealth
+    case revealNode3D
+    case pathFromNode3D
+    case showCommunity3D
 }
 
 struct GraphViewportCommand: Equatable, Sendable {
     let id: Int
     let kind: GraphViewportCommandKind
+    let payload: String?
 }
 
 @MainActor
@@ -211,9 +215,9 @@ final class AppModel {
         errorMessage = "3D graph issue: \(message)"
     }
 
-    private func sendGraphViewportCommand(_ kind: GraphViewportCommandKind) {
+    private func sendGraphViewportCommand(_ kind: GraphViewportCommandKind, payload: String? = nil) {
         nextGraphViewportCommandID += 1
-        graphViewportCommand = GraphViewportCommand(id: nextGraphViewportCommandID, kind: kind)
+        graphViewportCommand = GraphViewportCommand(id: nextGraphViewportCommandID, kind: kind, payload: payload)
         errorMessage = nil
     }
 
@@ -265,9 +269,42 @@ final class AppModel {
     }
 
     func openGraphNode(_ request: GraphNodeOpenRequest) {
+        switch request.action {
+        case "revealIn3D":
+            graphViewMode = .threeD
+            sendGraphViewportCommand(.revealNode3D, payload: request.nodeId)
+            return
+        case "pathFromNodeIn3D":
+            graphViewMode = .threeD
+            sendGraphViewportCommand(.pathFromNode3D, payload: graphPathBridgePayload(sourceId: request.nodeId, targetId: request.targetNodeId))
+            return
+        case "showCommunityIn3D":
+            graphViewMode = .threeD
+            sendGraphViewportCommand(.showCommunity3D, payload: request.communityId)
+            return
+        default:
+            break
+        }
         performOpen {
             try vaultStatusService.openGraphNodeSource(request.sourceFile, config: config)
         }
+    }
+
+    private func graphPathBridgePayload(sourceId: String, targetId: String?) -> String {
+        guard let targetId, !targetId.isEmpty else {
+            return sourceId
+        }
+        let payload = [
+            "sourceId": sourceId,
+            "targetId": targetId
+        ]
+        guard
+            let data = try? JSONSerialization.data(withJSONObject: payload),
+            let json = String(data: data, encoding: .utf8)
+        else {
+            return sourceId
+        }
+        return json
     }
 
     func refreshGraph(openAfterSuccess: Bool = false) async {

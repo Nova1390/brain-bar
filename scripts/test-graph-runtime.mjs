@@ -262,6 +262,59 @@ assert.equal(
 
 assert.equal(runtime.describeWorkflowView('orphans').title, 'Needs Links');
 assert.equal(runtime.describeWorkflowView('hubs').title, 'Key Notes');
+assert.equal(runtime.describeWorkflowView('groups').title, 'Groups');
+assert.equal(runtime.describeWorkflowView('focus').empty, 'Select a node first, then focus it.');
+
+const search2DMatches = runtime.search2DNodes({
+  query: 'beta',
+  nodes: [
+    { id: 'a', label: 'Alpha', source_file: 'notes/Beta Source.md' },
+    { id: 'b', label: 'Beta', source_file: 'notes/Beta.md' },
+    { id: 'c', label: 'Beta Protocol', source_file: 'notes/Protocol.md' },
+    { id: 'hidden', label: 'Beta Hidden', source_file: 'notes/Hidden.md' }
+  ],
+  visibleNodeIds: new Set(['a', 'b', 'c']),
+  limit: 20
+});
+assert.deepEqual(search2DMatches.map((item) => item.id), ['b', 'c', 'a']);
+assert.equal(runtime.search2DNodes({
+  query: 'node',
+  nodes: Array.from({ length: 30 }, (_, index) => ({ id: `node-${index}`, label: `Node ${index}` })),
+  limit: 20
+}).length, 20);
+
+const communitySummary = runtime.communitySummaries({
+  nodes: [
+    { id: 'a', label: 'A', community: 1, source_file: 'A.md' },
+    { id: 'b', label: 'B', community: 1, source_file: 'B.md' },
+    { id: 'c', label: 'C', community: 2, source_file: 'C.md' },
+    { id: 'zero', label: 'No Community' }
+  ],
+  edges: [
+    { id: 'ab', source: 'a', target: 'b' },
+    { id: 'bc', source: 'b', target: 'c' }
+  ]
+});
+assert.deepEqual(communitySummary.map((group) => [group.label, group.count]), [
+  ['Community 1', 2],
+  ['Community 2', 1]
+]);
+assert.equal(communitySummary[0].bridgeNotes[0].id, 'b');
+
+const graphCheck = runtime.graphCheckSections(health, {
+  nodes: [...fixture.nodes, { id: '2026', label: '2026-06-11.md' }]
+});
+assert.deepEqual(graphCheck.map((section) => section.id), ['orphans', 'hubs', 'components', 'recent', 'noise']);
+assert.equal(graphCheck.find((section) => section.id === 'recent').items[0].id, '2026');
+
+assert.deepEqual(runtime.bridgeActionPayload('revealIn3D', fixture.nodes[0], { communityId: '1', targetNodeId: 'b' }), {
+  action: 'revealIn3D',
+  nodeId: 'a',
+  label: 'Alpha',
+  sourceFile: 'notes/Alpha.md',
+  communityId: '1',
+  targetNodeId: 'b'
+});
 
 assert.equal(graph3dPolish.activeModeFromState({}), 'none');
 assert.equal(graph3dPolish.activeModeFromState({ pathMode: true, searchRevealNodeId: 'a' }), 'path');

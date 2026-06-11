@@ -262,6 +262,8 @@ struct GraphNodeOpenRequest: Equatable, Sendable {
     var nodeId: String
     var label: String
     var sourceFile: String?
+    var communityId: String?
+    var targetNodeId: String?
 }
 
 enum BrainBarError: LocalizedError, Equatable, Sendable {

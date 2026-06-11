@@ -3961,6 +3961,42 @@ function installWindowAPI() {
   window.brainBarZoom = zoomCamera;
   window.brainBarTopView = topView;
   window.brainBarResetTilt = resetTilt;
+  window.brainBarRevealNode3D = (nodeId) => {
+    const node = nodeForId(String(nodeId || ''));
+    if (node) {
+      revealSearchNode(node);
+    }
+  };
+  window.brainBarStartPathFromNode3D = (nodeId) => {
+    let sourceId = String(nodeId || '');
+    let targetId = '';
+    if (sourceId.startsWith('{')) {
+      try {
+        const payload = JSON.parse(sourceId);
+        sourceId = String(payload.sourceId || payload.nodeId || '');
+        targetId = String(payload.targetId || '');
+      } catch (_) {
+        targetId = '';
+      }
+    }
+    const node = nodeForId(sourceId);
+    if (node) {
+      selectNode(node, true);
+      armPathSource(node);
+      const target = targetId ? nodeForId(targetId) : null;
+      if (target) {
+        applyPathToNode(target);
+      }
+    }
+  };
+  window.brainBarShowCommunity3D = (communityId) => {
+    const raw = String(communityId || '');
+    if (!raw) {
+      return;
+    }
+    const communityName = raw.startsWith('Community') ? raw : `Community ${raw}`;
+    applyCommunitySpotlight(communityName);
+  };
   window.brainBarRendererDiagnostics = () => ({
     activeMode: activeMode(),
     nodes: state.visibleNodes.length,

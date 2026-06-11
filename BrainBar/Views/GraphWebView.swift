@@ -107,6 +107,8 @@ struct GraphWebView: NSViewRepresentable {
                 script = ""
             case .graphHealth:
                 script = "if (window.brainBarShowGraphHealth) { window.brainBarShowGraphHealth(); }"
+            case .revealNode3D, .pathFromNode3D, .showCommunity3D:
+                script = ""
             }
             guard !script.isEmpty else {
                 return
@@ -137,7 +139,9 @@ struct GraphWebView: NSViewRepresentable {
                 action: String(describing: body["action"] ?? ""),
                 nodeId: String(describing: body["nodeId"] ?? ""),
                 label: String(describing: body["label"] ?? ""),
-                sourceFile: body["sourceFile"] as? String
+                sourceFile: body["sourceFile"] as? String,
+                communityId: body["communityId"] as? String,
+                targetNodeId: body["targetNodeId"] as? String
             )
             Task { @MainActor in
                 onOpenNode(request)

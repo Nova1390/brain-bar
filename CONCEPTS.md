@@ -16,7 +16,7 @@ BrainBar is a local-first macOS control center for a Markdown or Obsidian-style 
 - **Graphify output**: the generated files BrainBar reads, usually `graphify-out/graph.html`, `graphify-out/graph.json`, and `graphify-out/GRAPH_REPORT.md`.
 - **Menu bar popover**: the compact BrainBar surface opened from the macOS menu bar.
 - **Focus Window**: the larger native BrainBar window for graph exploration and longer inspection.
-- **2D graph**: the stable embedded Graphify/vis-network graph view, with BrainBar runtime skin and workflow controls injected at runtime.
+- **2D Workbench**: the stable embedded Graphify/vis-network graph view used for operational inspection: graph checks, focus subgraphs, community detail, edge inspection, and bridge actions into 3D. BrainBar injects this runtime layer without rewriting Graphify output.
 - **3D Explorer**: the BrainBar-owned 3D graph explorer in the Focus Window. It reads the same local graph metadata as 2D but renders through bundled 3D/canvas resources.
 - **Source Lens**: the session-only graph edge filter for `All`, `Graphify`, and `Wikilinks`.
 - **Review Queue**: a generic local status panel for configured queue or preflight commands. BrainBar displays command output and optional manual actions; it is not the worker.
@@ -34,10 +34,11 @@ BrainBar is a local-first macOS control center for a Markdown or Obsidian-style 
 - **Key Notes**: unusually connected notes. They often act as indexes, protocols, dashboards, or central concepts. Avoid calling this user-facing view `Hubs`.
 - **Review**: graph-targeted Review Queue items. Items need `source_file` or `node_id` to appear in this view.
 - **Recent**: recently changed or date-named notes. It uses file modification time when available, otherwise dates found in node labels or paths.
+- **Groups**: 2D Workbench view for visible communities, top notes, and bridge notes. Use `Community Spotlight` for the 3D version.
 - **Graph Check**: the readable, user-facing name for graph health diagnostics.
-- **Focus**: in 3D, focus the selected node and dim surrounding graph context.
+- **Focus**: in 3D, focus the selected node and dim surrounding graph context. In 2D Workbench, focus creates a temporary runtime-only subgraph layout around the selected note and restores the Graphify layout when returning to global.
 - **Depth 1 / Depth 2 / Depth 3**: expand the 3D focus orbit by BFS depth from the selected node.
-- **Search Reveal**: a 3D search workflow that flies to a visible search result, highlights its local neighborhood, and can complete a pending path target after `Start path`.
+- **Search Reveal**: search as navigation rather than filtering. In 3D it flies to a visible result and can complete a pending path target; in 2D Workbench it centers a visible result, exposes nearby notes, and offers bridge actions into 3D.
 - **Start path**: arm the selected node as the source for a 3D shortest path trace. The user then clicks another node to trace the route.
 - **Shortest path**: the shortest visible unweighted path between two selected nodes in the current 3D graph view.
 - **Explain Path**: a deterministic, local-only explanation of a 3D shortest path using visible graph metadata such as edge provenance, communities, labels, and bridge nodes.
@@ -52,7 +53,7 @@ BrainBar is a local-first macOS control center for a Markdown or Obsidian-style 
 
 - **`GraphSourceLens`**: Swift enum with raw values `all`, `graphify`, and `obsidian`. Keep `obsidian` as the compatibility raw value, but use `Wikilinks` as the public label.
 - **`GraphViewMode`**: Swift enum for `2D` and `3D` Focus Window modes.
-- **`GraphWebView`**: Swift WebKit bridge for the stable 2D graph. It loads generated `graph.html`, injects BrainBar runtime JS/CSS, applies Source Lens state, sends node open actions, and forwards Review Queue graph targets.
+- **`GraphWebView`**: Swift WebKit bridge for the stable 2D Workbench. It loads generated `graph.html`, injects BrainBar runtime JS/CSS, applies Source Lens state, sends node/edge/community actions, and forwards Review Queue graph targets.
 - **`Graph3DWebView`**: Swift WebKit bridge for the 3D renderer. It serves bundled `Graph3D` resources through the `brainbar3d://` scheme and injects local `graph.json` data.
 - **2D runtime**: `BrainBar/Resources/Graph2D/brainbar-graph-runtime.js`. It augments generated Graphify HTML at runtime and must not rewrite `graph.html`.
 - **3D runtime**: `BrainBar/Resources/Graph3D/graph3d.js`. It owns the 3D explorer's session state, rendering, focus orbit, path mode, and sidebar behavior.
@@ -71,7 +72,7 @@ BrainBar is a local-first macOS control center for a Markdown or Obsidian-style 
 
 - **BrainBar is not Graphify.** BrainBar embeds and controls Graphify output; Graphify generates the graph.
 - **BrainBar is not the vault.** It reads local files and opens source notes, but the vault remains user-owned.
-- **2D graph is not 3D Explorer.** 2D is the stable embedded Graphify path. 3D Explorer is a separate BrainBar-owned renderer.
+- **2D Workbench is not 3D Explorer.** 2D is the stable embedded Graphify-powered operational surface. 3D Explorer is the BrainBar-owned renderer for spatial exploration.
 - **Source Lens is not Graph View Mode.** Source Lens filters edge provenance. Graph View Mode switches between 2D and 3D.
 - **Wikilinks is not a new raw value.** The internal raw value remains `obsidian`; the public label is `Wikilinks`.
 - **Graph Check is not Brain Check.** Graph Check is built from graph data in the viewer. Brain Check is a configurable external command hook.

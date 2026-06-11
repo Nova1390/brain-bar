@@ -4,6 +4,7 @@ All notable changes to BrainBar are documented here.
 
 ## Unreleased
 
+- Upgraded the 2D graph into a Workbench with operational views, Source Lens controls, searchable community details, Search Reveal, clearer Focus depth controls, Graph Check dashboard sections, stronger edge actions, and 2D-to-3D reveal/path/community bridge actions.
 - Strengthened 3D Living Graph polish with signal-flow edge currents, community breathing, and recent-note spark pulses.
 - Made 3D Explorer the default graph view and ordered the graph mode toggle as `3D` then `2D`.
 - Added subtle 3D Living Graph polish with ambient breathing, recent-note warmth, and action response pulses that respect reduced-motion preferences.

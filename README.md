@@ -91,7 +91,7 @@ graphify-out/
 - **Paths with meaning.** Shortest Path, Explain Path, and Path Compare turn connections into readable context.
 - **Recent context recovery.** Recent Orbit highlights newly changed notes and shows how they connect back to key notes.
 - **Guided orientation.** Graph Story turns recent notes, key notes, large communities, bridge notes, and needs-attention areas into a compact narrative tour.
-- **Diagnostics stay available.** 2D remains the operational view for Needs Links, Key Notes, Recent, Wikilinks, Graphify, and Graph Check.
+- **Diagnostics stay available.** 2D Workbench remains the operational surface for Recent Notes, Needs Links, Key Notes, Groups, Source Lens, and Graph Check.
 - **No account required.** BrainBar is a local app over local files and local commands.
 
 ## 3D Explorer
@@ -170,23 +170,27 @@ Use it when you want orientation: a short guided pass through what matters in th
 
 ![BrainBar Graph Story](docs/brainbar-graph-story.png)
 
-## 2D Operational Graph
+## 2D Workbench
 
-2D is the stable embedded Graphify view. BrainBar injects runtime JS/CSS to add a calmer skin and workflow controls without rewriting `graphify-out/graph.html`.
+2D is the stable embedded Graphify-powered workbench. BrainBar injects runtime JS/CSS to add inspection, search, focus, community detail, edge inspection, and graph-check controls without rewriting `graphify-out/graph.html`.
 
 ![BrainBar Focus Window](docs/brainbar-focus-all.png)
 
 The 2D toolbar focuses on operational views:
 
-- `All`
-- `Needs Links`
+- `Global`
+- `Focus`
+- `Recent Notes`
 - `Key Notes`
-- `Recent`
-- `Wikilinks`
-- `Graphify`
+- `Needs Links`
+- `Groups`
 - `Graph Check`
 
+`Wikilinks` and `Graphify` live in the 2D `Source Lens` control so the workbench views stay focused on tasks rather than provenance toggles.
+
 When Review Queue items expose `source_file` or `node_id`, a `Review` view can highlight them in the graph. If there are no graph-targeted review items, the button stays hidden.
+
+From 2D, selected notes, edges, and communities can bridge into 3D with `Reveal in 3D`, `Path from here in 3D`, or community reveal actions.
 
 ![BrainBar node navigation](docs/brainbar-readme-node-focus.png)
 

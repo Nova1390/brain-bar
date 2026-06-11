@@ -535,6 +535,207 @@
       .map((item) => item.node.id);
   }
 
+  function lowerText(value) {
+    return asLabel(value).toLowerCase();
+  }
+
+  function visibleNodeIdSet(nodes) {
+    return new Set((nodes || [])
+      .filter((node) => !node.hidden)
+      .map((node) => idKey(node.id)));
+  }
+
+  function search2DNodes(options = {}) {
+    const query = lowerText(options.query);
+    const nodes = options.nodes || [];
+    const visibleIds = options.visibleNodeIds instanceof Set
+      ? options.visibleNodeIds
+      : new Set((options.visibleNodeIds || nodes.map((node) => node.id)).map(idKey));
+    const limit = Math.max(1, Number(options.limit) || 20);
+    if (!query) {
+      return [];
+    }
+
+    return nodes
+      .filter((node) => visibleIds.has(idKey(node.id)))
+      .map((node) => {
+        const label = nodeDisplayLabel(node, node.id);
+        const sourceFile = sourceFileForNode(node);
+        const haystack = lowerText(`${label} ${sourceFile} ${node.id}`);
+        const labelLower = lowerText(label);
+        let score = 0;
+        if (labelLower === query) {
+          score = 1000;
+        } else if (labelLower.startsWith(query)) {
+          score = 820;
+        } else if (labelLower.includes(query)) {
+          score = 640;
+        } else if (lowerText(sourceFile).includes(query)) {
+          score = 460;
+        } else if (haystack.includes(query)) {
+          score = 320;
+        }
+        return {
+          id: node.id,
+          label,
+          sourceFile,
+          score
+        };
+      })
+      .filter((item) => item.score > 0)
+      .sort((left, right) => right.score - left.score || left.label.localeCompare(right.label) || idKey(left.id).localeCompare(idKey(right.id)))
+      .slice(0, limit);
+  }
+
+  function degreeMap(nodes, edges) {
+    const degree = new Map((nodes || []).map((node) => [idKey(node.id), 0]));
+    (edges || []).forEach((edge) => {
+      const source = idKey(edgeSource(edge));
+      const target = idKey(edgeTarget(edge));
+      if (degree.has(source)) {
+        degree.set(source, degree.get(source) + 1);
+      }
+      if (degree.has(target)) {
+        degree.set(target, degree.get(target) + 1);
+      }
+    });
+    return degree;
+  }
+
+  function communityKey(node) {
+    const raw = node?.community ?? node?._community ?? node?.community_id;
+    return raw === undefined || raw === null || raw === '' ? '' : String(raw);
+  }
+
+  function communityLabel(node, key) {
+    return asLabel(node?.community_name || node?._community_name || (key ? `Community ${key}` : 'Unknown community'));
+  }
+
+  function communitySummaries(options = {}) {
+    const nodes = options.nodes || [];
+    const edges = options.edges || [];
+    const degree = options.degree || degreeMap(nodes, edges);
+    const groups = new Map();
+    nodes.forEach((node) => {
+      const key = communityKey(node);
+      if (!key) {
+        return;
+      }
+      if (!groups.has(key)) {
+        groups.set(key, {
+          id: key,
+          label: communityLabel(node, key),
+          color: node.color?.background || node.color?.border || '#8fa2ff',
+          nodeIds: [],
+          topNotes: [],
+          bridgeNotes: []
+        });
+      }
+      groups.get(key).nodeIds.push(idKey(node.id));
+    });
+
+    const nodeByKey = new Map(nodes.map((node) => [idKey(node.id), node]));
+    const crossCommunityByNode = new Map();
+    edges.forEach((edge) => {
+      const source = idKey(edgeSource(edge));
+      const target = idKey(edgeTarget(edge));
+      const sourceNode = nodeByKey.get(source);
+      const targetNode = nodeByKey.get(target);
+      const sourceCommunity = communityKey(sourceNode);
+      const targetCommunity = communityKey(targetNode);
+      if (!sourceCommunity || !targetCommunity || sourceCommunity === targetCommunity) {
+        return;
+      }
+      crossCommunityByNode.set(source, (crossCommunityByNode.get(source) || 0) + 1);
+      crossCommunityByNode.set(target, (crossCommunityByNode.get(target) || 0) + 1);
+    });
+
+    return Array.from(groups.values())
+      .filter((group) => group.nodeIds.length > 0)
+      .map((group) => {
+        const notes = group.nodeIds
+          .map((nodeId) => {
+            const node = nodeByKey.get(nodeId);
+            return {
+              id: nodeId,
+              label: nodeDisplayLabel(node, nodeId),
+              sourceFile: sourceFileForNode(node),
+              degree: degree.get(nodeId) || 0,
+              bridgeScore: crossCommunityByNode.get(nodeId) || 0
+            };
+          })
+          .sort((left, right) => right.degree - left.degree || left.label.localeCompare(right.label));
+        return {
+          ...group,
+          count: group.nodeIds.length,
+          topNotes: notes.slice(0, 8),
+          bridgeNotes: notes
+            .filter((note) => note.bridgeScore > 0)
+            .sort((left, right) => right.bridgeScore - left.bridgeScore || right.degree - left.degree || left.label.localeCompare(right.label))
+            .slice(0, 8)
+        };
+      })
+      .sort((left, right) => right.count - left.count || left.label.localeCompare(right.label));
+  }
+
+  function graphCheckSections(health, options = {}) {
+    const nodes = options.nodes || [];
+    const recentIds = recentNodeIds(nodes, 12);
+    const recentNodes = recentIds.map((nodeId) => {
+      const node = nodeById(nodes, nodeId);
+      return healthNode(node || { id: nodeId, label: nodeId }, 0);
+    });
+    const potentialNoise = (health.isolatedComponents || [])
+      .filter((component) => component.size <= 3)
+      .slice(0, 8)
+      .map((component, index) => ({
+        id: `component-${index}`,
+        label: `Small group ${index + 1}`,
+        degree: component.size,
+        nodeIds: component.nodeIds || []
+      }));
+    return [
+      {
+        id: 'orphans',
+        title: 'Needs Links',
+        summary: 'Notes with no visible graph connections.',
+        items: health.orphanNodes || []
+      },
+      {
+        id: 'hubs',
+        title: 'Key Notes',
+        summary: 'Highly connected notes that often act as indexes, dashboards, or protocols.',
+        items: health.hubNodes || []
+      },
+      {
+        id: 'components',
+        title: 'Disconnected Groups',
+        summary: 'Groups outside the main connected graph.',
+        items: health.isolatedComponents || []
+      },
+      {
+        id: 'recent',
+        title: 'Recent Notes',
+        summary: 'Recently changed or date-named notes in the current graph.',
+        items: recentNodes
+      },
+      {
+        id: 'noise',
+        title: 'Potential Noise',
+        summary: 'Tiny disconnected groups that may be intentional islands or cleanup candidates.',
+        items: potentialNoise
+      }
+    ];
+  }
+
+  function bridgeActionPayload(action, node, extra = {}) {
+    return {
+      ...nodeActionPayload(action, node),
+      communityId: extra.communityId ? String(extra.communityId) : '',
+      targetNodeId: extra.targetNodeId ? String(extra.targetNodeId) : ''
+    };
+  }
+
   function workflowViewState(options = {}) {
     const nodes = options.nodes || [];
     const edges = options.edges || [];
@@ -543,11 +744,15 @@
     const health = options.health || computeGraphHealth({ nodes, edges, graphLinks });
     const reviewTargets = reviewQueueNodeTargetsFromNodes(nodes, reviewQueueTargets);
     const recent = recentNodeIds(nodes);
+    const groups = communitySummaries({ nodes, edges });
     return {
+      global: { count: nodes.length, hidden: false, disabled: false },
+      focus: { count: 0, hidden: false, disabled: false },
       orphans: { count: health.orphanNodes.length, hidden: false, disabled: false },
       hubs: { count: health.hubNodes.length, hidden: false, disabled: false },
       review: { count: reviewTargets.length, hidden: reviewTargets.length === 0, disabled: reviewTargets.length === 0 },
       recent: { count: recent.length, hidden: false, disabled: recent.length === 0 },
+      groups: { count: groups.length, hidden: false, disabled: groups.length === 0 },
       wikilinks: { count: health.counts.wikilinkEdges, hidden: false, disabled: health.counts.wikilinkEdges === 0 },
       graphify: { count: health.counts.graphifyEdges, hidden: false, disabled: health.counts.graphifyEdges === 0 }
     };
@@ -557,8 +762,14 @@
     const descriptions = {
       global: {
         activeName: 'global',
-        title: 'All Notes',
-        body: 'The full graph. Useful as a map, but usually too dense for close reading.'
+        title: '2D Workbench',
+        body: 'The stable Graphify-powered map for inspection, checks, and precise graph operations.'
+      },
+      focus: {
+        activeName: 'focus',
+        title: 'Focus',
+        body: 'A readable temporary subgraph around the selected note.',
+        empty: 'Select a node first, then focus it.'
       },
       orphans: {
         activeName: 'orphans',
@@ -583,6 +794,12 @@
         title: 'Recent Notes',
         body: 'Recently changed or date-named notes. Uses mtime when available, otherwise dates found in titles or paths.',
         empty: 'No recent-date metadata found in this graph.'
+      },
+      groups: {
+        activeName: 'groups',
+        title: 'Groups',
+        body: 'Visible communities, their key notes, and bridge notes.',
+        empty: 'No communities found in this graph.'
       },
       health: {
         activeName: 'health',
@@ -730,6 +947,28 @@
       root.webkit.messageHandlers.brainBarNodeAction.postMessage(nodeActionPayload(action, node));
     }
 
+    function sendGraphBridgeAction(action, nodeOrPayload, extra = {}) {
+      if (!root.webkit?.messageHandlers?.brainBarNodeAction) {
+        return;
+      }
+      const payload = nodeOrPayload?.id !== undefined
+        ? bridgeActionPayload(action, nodeOrPayload, extra)
+        : {
+          action,
+          nodeId: String(nodeOrPayload?.nodeId || ''),
+          label: String(nodeOrPayload?.label || ''),
+          sourceFile: nodeOrPayload?.sourceFile || '',
+          communityId: nodeOrPayload?.communityId ? String(nodeOrPayload.communityId) : '',
+          targetNodeId: nodeOrPayload?.targetNodeId ? String(nodeOrPayload.targetNodeId) : ''
+        };
+      root.webkit.messageHandlers.brainBarNodeAction.postMessage(payload);
+    }
+
+    function currentVisibleNodeIds() {
+      const nodesDataSet = graphNodesDS();
+      return visibleNodeIdSet(nodesDataSet?.get() || []);
+    }
+
     function ensureOpenNoteButton() {
       const info = root.document.getElementById('info-content');
       if (!info || info.dataset.brainBarOpenNote === 'installed') {
@@ -772,6 +1011,35 @@
       } catch (error) {
         console.debug('BrainBar open note button skipped', error);
       }
+    }
+
+    function nodeForRuntimeAction(nodeId) {
+      const snapshot = currentGraphSnapshot();
+      return graphNodesDS()?.get(nodeId) || nodeById(snapshot.nodes, nodeId) || { id: nodeId, label: nodeId };
+    }
+
+    function addNodeBridgeActions(nodeId) {
+      const info = root.document.getElementById('info-content');
+      const controls = root.document.getElementById('brainbar-focus-controls');
+      if (!info || !controls || !nodeId || controls.dataset.bridgeActions === String(nodeId)) {
+        return;
+      }
+      controls.querySelectorAll('button[data-bridge-action]').forEach((button) => button.remove());
+      [
+        ['revealIn3D', 'Reveal in 3D'],
+        ['pathFromNodeIn3D', 'Path from here in 3D']
+      ].forEach(([action, label]) => {
+        const button = root.document.createElement('button');
+        button.type = 'button';
+        button.dataset.bridgeAction = action;
+        button.textContent = label;
+        button.addEventListener('click', (event) => {
+          event.preventDefault();
+          sendGraphBridgeAction(action, nodeForRuntimeAction(nodeId));
+        });
+        controls.appendChild(button);
+      });
+      controls.dataset.bridgeActions = String(nodeId);
     }
 
     function showEdgeInspector(edgeId) {
@@ -838,7 +1106,28 @@
             copy.addEventListener('click', () => {
               root.navigator?.clipboard?.writeText(details.sourceFile);
             });
-            actions.append(open, copy);
+            const reveal = root.document.createElement('button');
+            reveal.type = 'button';
+            reveal.textContent = 'Reveal source in 3D';
+            reveal.addEventListener('click', () => {
+              sendGraphBridgeAction('revealIn3D', {
+                nodeId: details.sourceId,
+                label: details.sourceLabel,
+                sourceFile: details.sourceFile
+              });
+            });
+            const path = root.document.createElement('button');
+            path.type = 'button';
+            path.textContent = 'Path in 3D';
+            path.addEventListener('click', () => {
+              sendGraphBridgeAction('pathFromNodeIn3D', {
+                nodeId: details.sourceId,
+                label: details.sourceLabel,
+                sourceFile: details.sourceFile,
+                targetNodeId: details.targetId
+              });
+            });
+            actions.append(open, copy, reveal, path);
             panel.appendChild(actions);
           }
         }
@@ -912,6 +1201,7 @@
       root.__brainBarFocusState = null;
       root.__brainBarActiveGraphView = 'global';
       setLensEmptyMessage('');
+      restoreFocusLayout();
       const resetAll = computeLensDiff({
         lens: root.__brainBarPendingGraphLens || ALL_LENS,
         originalNodes: state.originalNodes,
@@ -923,6 +1213,91 @@
       applyDataSetUpdates(resetAll.nodeUpdates, resetAll.edgeUpdates);
       updateFocusStatus(null);
       updateWorkflowToolbarState();
+    }
+
+    function saveFocusLayoutIfNeeded(nodeIds) {
+      if (root.__brainBarFocusLayoutRestore) {
+        return;
+      }
+      const nodesDataSet = graphNodesDS();
+      const currentNetwork = graphNetwork();
+      if (!nodesDataSet || !currentNetwork) {
+        return;
+      }
+      root.__brainBarFocusLayoutRestore = (nodeIds || [])
+        .map((nodeId) => {
+          const node = nodesDataSet.get(nodeId);
+          const position = currentNetwork.getPosition ? currentNetwork.getPosition(nodeId) : null;
+          return {
+            id: nodeId,
+            x: node?.x ?? position?.x,
+            y: node?.y ?? position?.y,
+            fixed: node?.fixed,
+            label: node?.label,
+            font: node?.font
+          };
+        })
+        .filter((item) => item.id !== undefined && item.id !== null);
+    }
+
+    function restoreFocusLayout() {
+      const restore = root.__brainBarFocusLayoutRestore;
+      const nodesDataSet = graphNodesDS();
+      if (!restore || !nodesDataSet) {
+        root.__brainBarFocusLayoutRestore = null;
+        return;
+      }
+      nodesDataSet.update(restore.map((item) => ({
+        id: item.id,
+        x: item.x,
+        y: item.y,
+        fixed: item.fixed,
+        label: item.label,
+        font: item.font
+      })));
+      root.__brainBarFocusLayoutRestore = null;
+    }
+
+    function applyFocusLayout(focus, originalNodes, originalEdges) {
+      const nodesDataSet = graphNodesDS();
+      if (!nodesDataSet || !focus?.centerNodeId || !focus.visibleNodeIds?.length) {
+        return;
+      }
+      saveFocusLayoutIfNeeded(focus.visibleNodeIds);
+      const centerId = idKey(focus.centerNodeId);
+      const visible = new Set(focus.visibleNodeIds.map(idKey));
+      const neighbors = [];
+      originalEdges.forEach((edge) => {
+        const source = idKey(edgeSource(edge));
+        const target = idKey(edgeTarget(edge));
+        if (source === centerId && visible.has(target)) {
+          neighbors.push(target);
+        } else if (target === centerId && visible.has(source)) {
+          neighbors.push(source);
+        }
+      });
+      const uniqueNeighbors = Array.from(new Set(neighbors));
+      const otherIds = focus.visibleNodeIds.map(idKey).filter((nodeId) => nodeId !== centerId && !uniqueNeighbors.includes(nodeId));
+      const ring = [...uniqueNeighbors, ...otherIds];
+      const degree = degreeMap(originalNodes, originalEdges);
+      const topLabels = new Set([centerId, ...ring
+        .slice()
+        .sort((left, right) => (degree.get(right) || 0) - (degree.get(left) || 0) || left.localeCompare(right))
+        .slice(0, 12)]);
+      const updates = [{ id: centerId, x: 0, y: 0, fixed: true, label: nodeDisplayLabel(nodeById(originalNodes, centerId), centerId) }];
+      ring.forEach((nodeId, index) => {
+        const angle = (Math.PI * 2 * index) / Math.max(1, ring.length);
+        const radius = focus.depth <= 1 ? 360 : focus.depth === 2 ? 520 : 700;
+        const node = nodeById(originalNodes, nodeId);
+        updates.push({
+          id: nodeId,
+          x: Math.cos(angle) * radius,
+          y: Math.sin(angle) * radius,
+          fixed: true,
+          label: topLabels.has(nodeId) ? nodeDisplayLabel(node, nodeId) : ''
+        });
+      });
+      nodesDataSet.update(updates);
     }
 
     function applyFocus(centerNodeId, depth = 1) {
@@ -945,12 +1320,13 @@
       root.__brainBarActiveGraphView = 'focus';
       setLensEmptyMessage(focus.visibleNodeIds.length === 0 ? 'Focus node not found' : '');
       applyDataSetUpdates(focus.nodeUpdates, focus.edgeUpdates);
+      applyFocusLayout(focus, state.originalNodes, state.originalEdges);
       updateWorkflowToolbarState();
       updateFocusStatus(focus);
       graphNetwork()?.selectNodes([centerNodeId]);
-      graphNetwork()?.focus(centerNodeId, {
-        scale: focus.depth <= 1 ? 0.95 : 0.72,
-        animation: { duration: 260, easingFunction: 'easeInOutQuad' }
+      graphNetwork()?.fit({
+        nodes: focus.visibleNodeIds,
+        animation: { duration: 280, easingFunction: 'easeInOutQuad' }
       });
     }
 
@@ -973,9 +1349,11 @@
         controls.id = 'brainbar-focus-controls';
         controls.innerHTML = `
           <div class="focus-status" hidden></div>
-          <button type="button" data-action="focus">Focus note</button>
-          <button type="button" data-action="expand">Expand neighbors</button>
-          <button type="button" data-action="clear">Back to all</button>
+          <button type="button" data-action="focus" data-depth="1">Focus note</button>
+          <button type="button" data-action="focus" data-depth="1">Depth 1</button>
+          <button type="button" data-action="focus" data-depth="2">Depth 2</button>
+          <button type="button" data-action="focus" data-depth="3">Depth 3</button>
+          <button type="button" data-action="clear">Back to global</button>
         `;
         controls.addEventListener('click', (event) => {
           const button = event.target.closest('button[data-action]');
@@ -985,9 +1363,7 @@
           event.preventDefault();
           const selected = graphNetwork()?.getSelectedNodes?.()?.[0] || controls.dataset.nodeId;
           if (button.dataset.action === 'focus') {
-            applyFocus(selected, 1);
-          } else if (button.dataset.action === 'expand') {
-            expandFocus();
+            applyFocus(selected, Number(button.dataset.depth) || 1);
           } else {
             clearRuntimeFilter();
           }
@@ -998,6 +1374,7 @@
         const openButton = root.document.getElementById('brainbar-open-note');
         info.insertBefore(controls, openButton?.nextSibling || info.children[1] || null);
       }
+      addNodeBridgeActions(nodeId);
       updateFocusStatus(root.__brainBarFocusState);
     }
 
@@ -1007,22 +1384,19 @@
         return;
       }
       const status = controls.querySelector('.focus-status');
-      const expand = controls.querySelector('button[data-action="expand"]');
       if (!status) {
         return;
       }
       if (!focus?.centerNodeId) {
         status.hidden = true;
-        if (expand) {
-          expand.disabled = false;
-        }
+        controls.querySelectorAll('button[data-depth]').forEach((button) => { button.disabled = false; });
         return;
       }
       status.hidden = false;
       status.textContent = `Focused · depth ${focus.depth} · ${focus.visibleNodeIds.length} notes`;
-      if (expand) {
-        expand.disabled = focus.depth >= 3;
-      }
+      controls.querySelectorAll('button[data-depth]').forEach((button) => {
+        button.disabled = Number(button.dataset.depth) === focus.depth;
+      });
     }
 
     function currentGraphSnapshot() {
@@ -1038,9 +1412,110 @@
       };
     }
 
+    function visibleCurrentNodes() {
+      return (graphNodesDS()?.get() || []).filter((node) => !node.hidden);
+    }
+
+    function topVisibleNeighbors(nodeId, limit = 12) {
+      const key = idKey(nodeId);
+      const snapshot = currentGraphSnapshot();
+      const visibleIds = currentVisibleNodeIds();
+      const degree = degreeMap(snapshot.nodes, snapshot.edges);
+      const neighbors = new Map();
+      snapshot.edges.forEach((edge) => {
+        const source = idKey(edgeSource(edge));
+        const target = idKey(edgeTarget(edge));
+        if (source === key && visibleIds.has(target)) {
+          neighbors.set(target, nodeById(snapshot.nodes, target));
+        } else if (target === key && visibleIds.has(source)) {
+          neighbors.set(source, nodeById(snapshot.nodes, source));
+        }
+      });
+      return Array.from(neighbors.entries())
+        .map(([id, node]) => ({ id, node, label: nodeDisplayLabel(node, id), degree: degree.get(id) || 0 }))
+        .sort((left, right) => right.degree - left.degree || left.label.localeCompare(right.label))
+        .slice(0, limit);
+    }
+
+    function reveal2DSearchNode(nodeId) {
+      const node = nodeForRuntimeAction(nodeId);
+      if (!node?.id) {
+        return;
+      }
+      root.__brainBarActiveGraphView = 'search';
+      graphNetwork()?.selectNodes([node.id]);
+      graphNetwork()?.focus(node.id, {
+        scale: 1.2,
+        animation: { duration: 280, easingFunction: 'easeInOutQuad' }
+      });
+      addOpenNoteButton(node.id);
+      showSearchRevealPanel(node);
+      updateWorkflowToolbarState();
+    }
+
+    function showSearchRevealPanel(node) {
+      const neighbors = topVisibleNeighbors(node.id, 12);
+      const meta = {
+        activeName: 'search',
+        title: 'Revealed from search',
+        body: `${nodeDisplayLabel(node, node.id)} · ${neighbors.length} visible neighbors.`,
+        count: neighbors.length,
+        empty: 'No visible neighbors in the current lens or community filter.'
+      };
+      showWorkflowViewPanel(meta, [node.id, ...neighbors.map((neighbor) => neighbor.id)]);
+    }
+
+    function installSearchReveal2D() {
+      const search = root.document.getElementById('search');
+      if (!search || search.dataset.brainBarSearchReveal === 'installed') {
+        return;
+      }
+      search.dataset.brainBarSearchReveal = 'installed';
+      const results = root.document.createElement('div');
+      results.id = 'brainbar-search-results';
+      results.hidden = true;
+      search.insertAdjacentElement('afterend', results);
+
+      const renderResults = () => {
+        const query = search.value || '';
+        const matches = search2DNodes({
+          query,
+          nodes: currentGraphSnapshot().nodes,
+          visibleNodeIds: currentVisibleNodeIds(),
+          limit: 20
+        });
+        results.innerHTML = '';
+        results.hidden = query.trim().length === 0 || matches.length === 0;
+        matches.forEach((match) => {
+          const button = root.document.createElement('button');
+          button.type = 'button';
+          button.className = 'brainbar-search-result';
+          button.dataset.nodeId = String(match.id);
+          const title = root.document.createElement('span');
+          title.textContent = match.label;
+          const path = root.document.createElement('small');
+          path.textContent = match.sourceFile || 'Visible node';
+          button.append(title, path);
+          results.appendChild(button);
+        });
+      };
+
+      search.addEventListener('input', renderResults, { passive: true });
+      results.addEventListener('click', (event) => {
+        const button = event.target.closest('button[data-node-id]');
+        if (!button) {
+          return;
+        }
+        event.preventDefault();
+        results.hidden = true;
+        reveal2DSearchNode(button.dataset.nodeId);
+      });
+    }
+
     function applyNodeSetView(viewName, nodeIds) {
       const viewMeta = describeWorkflowView(viewName, nodeIds?.length || 0);
       const snapshot = currentGraphSnapshot();
+      restoreFocusLayout();
       const visibleNodeIds = new Set((nodeIds || []).map(idKey));
       const visibleEdgeIds = new Set();
       snapshot.edges.forEach((edge) => {
@@ -1098,12 +1573,15 @@
         applyNodeSetView('review', targets);
       } else if (view === 'recent') {
         applyNodeSetView('recent', recentNodeIds(snapshot.nodes));
-      } else if (view === 'wikilinks') {
-        hideWorkflowViewPanel();
-        root.brainBarApplyGraphLens(OBSIDIAN_LENS);
-      } else if (view === 'graphify') {
-        hideWorkflowViewPanel();
-        root.brainBarApplyGraphLens(GRAPHIFY_LENS);
+      } else if (view === 'focus') {
+        const selected = graphNetwork()?.getSelectedNodes?.()?.[0];
+        if (selected) {
+          applyFocus(selected, 1);
+        } else {
+          showWorkflowViewPanel(describeWorkflowView('focus', 0), []);
+        }
+      } else if (view === 'groups') {
+        showGroupsPanel(communitySummaries({ nodes: snapshot.nodes, edges: snapshot.edges }));
       } else if (view === 'health') {
         showGraphHealthPanel(health);
       }
@@ -1120,14 +1598,19 @@
       }
       toolbar = root.document.createElement('div');
       toolbar.id = 'brainbar-workflow-toolbar';
+      const title = root.document.createElement('div');
+      title.className = 'toolbar-title';
+      title.textContent = '2D Workbench';
+      toolbar.appendChild(title);
+      const views = root.document.createElement('div');
+      views.className = 'toolbar-group toolbar-views';
       [
-        ['global', 'All'],
+        ['global', 'Global'],
+        ['focus', 'Focus'],
+        ['recent', 'Recent Notes'],
         ['orphans', 'Needs Links'],
         ['hubs', 'Key Notes'],
-        ['review', 'Review'],
-        ['recent', 'Recent'],
-        ['wikilinks', 'Wikilinks'],
-        ['graphify', 'Graphify'],
+        ['groups', 'Groups'],
         ['health', 'Graph Check']
       ].forEach(([view, label]) => {
         const button = root.document.createElement('button');
@@ -1136,10 +1619,34 @@
         button.dataset.label = label;
         button.title = describeWorkflowView(view).body;
         button.textContent = label;
-        toolbar.appendChild(button);
+        views.appendChild(button);
       });
+      const lens = root.document.createElement('div');
+      lens.className = 'toolbar-group source-lens';
+      const lensLabel = root.document.createElement('span');
+      lensLabel.textContent = 'Source Lens';
+      lens.appendChild(lensLabel);
+      [
+        [ALL_LENS, 'All'],
+        [OBSIDIAN_LENS, 'Wikilinks'],
+        [GRAPHIFY_LENS, 'Graphify']
+      ].forEach(([value, label]) => {
+        const button = root.document.createElement('button');
+        button.type = 'button';
+        button.dataset.lens = value;
+        button.dataset.label = label;
+        button.textContent = label;
+        lens.appendChild(button);
+      });
+      toolbar.append(views, lens);
       toolbar.addEventListener('click', (event) => {
         const button = event.target.closest('button[data-view]');
+        const lensButton = event.target.closest('button[data-lens]');
+        if (lensButton) {
+          event.preventDefault();
+          root.brainBarApplyGraphLens(lensButton.dataset.lens);
+          return;
+        }
         if (!button) {
           return;
         }
@@ -1178,9 +1685,20 @@
         button.textContent = state.count > 0 && ['orphans', 'hubs', 'review', 'recent'].includes(view)
           ? `${label} ${state.count}`
           : label;
+        if (view === 'focus') {
+          button.title = graphNetwork()?.getSelectedNodes?.()?.[0]
+            ? 'Focus the selected note in a temporary 2D subgraph.'
+            : 'Select a node first to focus it.';
+        } else if (state.disabled) {
+          button.title = describeWorkflowView(view).empty || 'No items available for this view.';
+        }
         button.hidden = Boolean(state.hidden);
-        button.disabled = Boolean(state.disabled);
+        button.disabled = Boolean(state.disabled) || (view === 'focus' && !graphNetwork()?.getSelectedNodes?.()?.[0]);
         button.classList.toggle('selected', selected);
+      });
+      const activeLens = normalizeLens(root.__brainBarPendingGraphLens || ALL_LENS);
+      toolbar.querySelectorAll('button[data-lens]').forEach((button) => {
+        button.classList.toggle('selected', normalizeLens(button.dataset.lens) === activeLens);
       });
     }
 
@@ -1241,6 +1759,18 @@
         panel.hidden = true;
       });
       actions.append(focusFirst, showAll);
+      if (nodeIds[0]) {
+        const firstNode = nodeForRuntimeAction(nodeIds[0]);
+        const reveal = root.document.createElement('button');
+        reveal.type = 'button';
+        reveal.textContent = 'Reveal in 3D';
+        reveal.addEventListener('click', () => sendGraphBridgeAction('revealIn3D', firstNode));
+        const pathFrom = root.document.createElement('button');
+        pathFrom.type = 'button';
+        pathFrom.textContent = 'Path from here in 3D';
+        pathFrom.addEventListener('click', () => sendGraphBridgeAction('pathFromNodeIn3D', firstNode));
+        actions.append(reveal, pathFrom);
+      }
       const paths = pathsForNodeIds(nodeIds);
       if (paths.length > 0) {
         const copyPaths = root.document.createElement('button');
@@ -1281,6 +1811,129 @@
       panel.hidden = false;
     }
 
+    function showGroupsPanel(groups) {
+      let panel = root.document.getElementById('brainbar-workflow-panel');
+      if (!panel) {
+        panel = root.document.createElement('div');
+        panel.id = 'brainbar-workflow-panel';
+        root.document.body.appendChild(panel);
+      }
+      panel.innerHTML = '';
+      const close = root.document.createElement('button');
+      close.type = 'button';
+      close.className = 'close';
+      close.textContent = 'Close';
+      close.addEventListener('click', () => { panel.hidden = true; });
+      const title = root.document.createElement('h2');
+      title.textContent = 'Groups';
+      const body = root.document.createElement('p');
+      body.textContent = 'Visible communities ranked by size. Open a group to inspect top notes and bridge notes.';
+      panel.append(close, title, body);
+      if (!groups.length) {
+        const empty = root.document.createElement('p');
+        empty.className = 'empty';
+        empty.textContent = 'No communities found in this graph.';
+        panel.appendChild(empty);
+      }
+      groups.slice(0, 12).forEach((group) => {
+        const row = root.document.createElement('button');
+        row.type = 'button';
+        row.className = 'health-row group-row';
+        row.textContent = `${group.label} · ${group.count}`;
+        row.addEventListener('click', () => showCommunityDetail(group));
+        panel.appendChild(row);
+      });
+      panel.hidden = false;
+      root.__brainBarActiveGraphView = 'groups';
+      updateWorkflowToolbarState();
+    }
+
+    function showCommunityDetail(group) {
+      let panel = root.document.getElementById('brainbar-workflow-panel');
+      if (!panel) {
+        panel = root.document.createElement('div');
+        panel.id = 'brainbar-workflow-panel';
+        root.document.body.appendChild(panel);
+      }
+      panel.innerHTML = '';
+      const close = root.document.createElement('button');
+      close.type = 'button';
+      close.className = 'close';
+      close.textContent = 'Close';
+      close.addEventListener('click', () => { panel.hidden = true; });
+      const title = root.document.createElement('h2');
+      title.textContent = group.label;
+      const body = root.document.createElement('p');
+      body.textContent = `${group.count} notes. Top notes are central inside the group; bridge notes connect this group to other areas.`;
+      panel.append(close, title, body);
+
+      const actions = root.document.createElement('div');
+      actions.className = 'workflow-actions';
+      const focus = root.document.createElement('button');
+      focus.type = 'button';
+      focus.textContent = 'Focus community';
+      focus.addEventListener('click', () => {
+        applyNodeSetView('groups', group.nodeIds);
+        panel.hidden = true;
+      });
+      const reveal = root.document.createElement('button');
+      reveal.type = 'button';
+      reveal.textContent = 'Reveal in 3D';
+      reveal.addEventListener('click', () => {
+        sendGraphBridgeAction('showCommunityIn3D', {
+          communityId: group.id,
+          label: group.label
+        });
+      });
+      actions.append(focus, reveal);
+      const paths = group.nodeIds
+        .map((nodeId) => sourceFileForNode(nodeForRuntimeAction(nodeId)))
+        .filter(Boolean);
+      if (paths.length > 0) {
+        const copy = root.document.createElement('button');
+        copy.type = 'button';
+        copy.textContent = 'Copy paths';
+        copy.addEventListener('click', () => root.navigator?.clipboard?.writeText(paths.join('\n')));
+        actions.appendChild(copy);
+      }
+      panel.appendChild(actions);
+
+      appendCommunityNotes(panel, 'Top notes', group.topNotes, 'No top notes found.');
+      appendCommunityNotes(panel, 'Bridge notes', group.bridgeNotes, 'No bridge notes found for this group.');
+      panel.hidden = false;
+    }
+
+    function appendCommunityNotes(panel, title, notes, emptyText) {
+      const section = root.document.createElement('section');
+      const heading = root.document.createElement('h3');
+      heading.textContent = `${title} (${notes.length})`;
+      section.appendChild(heading);
+      if (!notes.length) {
+        const empty = root.document.createElement('p');
+        empty.className = 'empty';
+        empty.textContent = emptyText;
+        section.appendChild(empty);
+      }
+      notes.slice(0, 8).forEach((note) => {
+        const row = root.document.createElement('button');
+        row.type = 'button';
+        row.className = 'health-row';
+        row.textContent = note.bridgeScore
+          ? `${note.label} · ${note.bridgeScore} bridges`
+          : `${note.label} · degree ${note.degree}`;
+        row.addEventListener('click', () => {
+          graphNetwork()?.selectNodes([note.id]);
+          graphNetwork()?.focus(note.id, {
+            scale: 1.14,
+            animation: { duration: 220, easingFunction: 'easeInOutQuad' }
+          });
+          addOpenNoteButton(note.id);
+        });
+        section.appendChild(row);
+      });
+      panel.appendChild(section);
+    }
+
     function showGraphHealthPanel(health) {
       let panel = root.document.getElementById('brainbar-health-panel');
       if (!panel) {
@@ -1301,14 +1954,94 @@
       const summary = root.document.createElement('p');
       summary.textContent = `Read-only check: ${health.counts.nodes} notes, ${health.counts.edges} links, ${health.counts.components} connected groups.`;
       panel.append(close, title, summary);
-      appendGraphCheckActions(panel, health);
-      appendHealthList(panel, 'Needs Links', health.orphanNodes, 'No notes need links right now.');
-      appendHealthList(panel, 'Key Notes', health.hubNodes, 'No unusually connected notes found.');
-      appendComponentList(panel, 'Disconnected Groups', health.isolatedComponents);
-      if (health.staleCentralNodes.length > 0) {
-        appendHealthList(panel, 'Stale Key Notes', health.staleCentralNodes);
-      }
+      graphCheckSections(health, { nodes: currentGraphSnapshot().nodes }).forEach((section) => {
+        appendGraphCheckSection(panel, section);
+      });
       panel.hidden = false;
+    }
+
+    function graphCheckItemNodeIds(section, item) {
+      if (item?.nodeIds) {
+        return item.nodeIds;
+      }
+      if (item?.id && !String(item.id).startsWith('component-')) {
+        return [item.id];
+      }
+      return [];
+    }
+
+    function appendGraphCheckSection(panel, section) {
+      const wrapper = root.document.createElement('section');
+      wrapper.className = 'graph-check-section';
+      const heading = root.document.createElement('h3');
+      heading.textContent = `${section.title} (${section.items.length})`;
+      const summary = root.document.createElement('p');
+      summary.textContent = section.summary;
+      wrapper.append(heading, summary);
+
+      const firstNodeIds = graphCheckItemNodeIds(section, section.items[0]);
+      const actions = root.document.createElement('div');
+      actions.className = 'workflow-actions compact';
+      const show = root.document.createElement('button');
+      show.type = 'button';
+      show.textContent = 'Show in graph';
+      show.disabled = firstNodeIds.length === 0;
+      show.addEventListener('click', () => {
+        applyNodeSetView(section.id, section.items.flatMap((item) => graphCheckItemNodeIds(section, item)));
+        panel.hidden = true;
+      });
+      const reveal = root.document.createElement('button');
+      reveal.type = 'button';
+      reveal.textContent = 'Reveal in 3D';
+      reveal.disabled = firstNodeIds.length === 0;
+      reveal.addEventListener('click', () => {
+        if (firstNodeIds[0]) {
+          sendGraphBridgeAction('revealIn3D', nodeForRuntimeAction(firstNodeIds[0]));
+        }
+      });
+      actions.append(show, reveal);
+      const paths = section.items
+        .flatMap((item) => graphCheckItemNodeIds(section, item))
+        .map((nodeId) => sourceFileForNode(nodeForRuntimeAction(nodeId)))
+        .filter(Boolean);
+      if (paths.length > 0) {
+        const copy = root.document.createElement('button');
+        copy.type = 'button';
+        copy.textContent = 'Copy paths';
+        copy.addEventListener('click', () => root.navigator?.clipboard?.writeText(paths.join('\n')));
+        actions.appendChild(copy);
+      }
+      wrapper.appendChild(actions);
+
+      if (section.items.length === 0) {
+        const empty = root.document.createElement('p');
+        empty.className = 'empty';
+        empty.textContent = 'Nothing to review here.';
+        wrapper.appendChild(empty);
+      }
+      section.items.slice(0, 5).forEach((item, index) => {
+        const row = root.document.createElement('button');
+        row.type = 'button';
+        row.className = 'health-row';
+        const label = item.label || `Group ${index + 1}`;
+        const suffix = item.degree ? ` · ${item.degree}` : (item.size ? ` · ${item.size} notes` : '');
+        row.textContent = `${label}${suffix}`;
+        row.addEventListener('click', () => {
+          const ids = graphCheckItemNodeIds(section, item);
+          if (ids.length === 1) {
+            graphNetwork()?.selectNodes([ids[0]]);
+            graphNetwork()?.focus(ids[0], {
+              scale: 1.14,
+              animation: { duration: 220, easingFunction: 'easeInOutQuad' }
+            });
+          } else if (ids.length > 1) {
+            applyNodeSetView(section.id, ids);
+            panel.hidden = true;
+          }
+        });
+        wrapper.appendChild(row);
+      });
+      panel.appendChild(wrapper);
     }
 
     function appendGraphCheckActions(panel, health) {
@@ -1526,6 +2259,102 @@
       }
     }
 
+    function enhanceCommunityLegend() {
+      try {
+        const legend = root.document.getElementById('legend');
+        if (!legend) {
+          return;
+        }
+        const snapshot = currentGraphSnapshot();
+        const groups = communitySummaries({ nodes: snapshot.nodes, edges: snapshot.edges });
+        const groupByLabel = new Map(groups.map((group) => [group.label, group]));
+        const items = Array.from(legend.querySelectorAll('.legend-item'));
+        if (!items.length) {
+          return;
+        }
+
+        let controls = root.document.getElementById('brainbar-community-controls');
+        if (!controls) {
+          controls = root.document.createElement('div');
+          controls.id = 'brainbar-community-controls';
+          const search = root.document.createElement('input');
+          search.type = 'search';
+          search.placeholder = 'Search groups...';
+          search.id = 'brainbar-community-search';
+          const toggle = root.document.createElement('button');
+          toggle.type = 'button';
+          toggle.id = 'brainbar-community-toggle';
+          toggle.textContent = 'Show more';
+          controls.append(search, toggle);
+          legend.parentElement?.insertBefore(controls, legend);
+          search.addEventListener('input', () => updateCommunityLegendVisibility());
+          toggle.addEventListener('click', () => {
+            root.__brainBarShowAllCommunities2D = !root.__brainBarShowAllCommunities2D;
+            updateCommunityLegendVisibility();
+          });
+        }
+
+        items.forEach((item) => {
+          const labelElement = item.querySelector('.legend-label') || item.querySelector('span:not(.legend-count)') || item;
+          const countElement = item.querySelector('.legend-count');
+          const label = asLabel(labelElement?.textContent);
+          const count = Number(asLabel(countElement?.textContent)) || 0;
+          const group = groupByLabel.get(label) || groups.find((candidate) => candidate.count === count && candidate.label === label);
+          item.dataset.brainBarCommunityCount = String(group?.count ?? count);
+          item.dataset.brainBarCommunityId = group?.id || item.dataset.brainBarCommunityId || '';
+          item.dataset.brainBarCommunityLabel = group?.label || label;
+          item.hidden = count <= 0;
+          if (!item.dataset.brainBarDetailInstalled) {
+            item.dataset.brainBarDetailInstalled = 'true';
+            labelElement.style.cursor = 'pointer';
+            labelElement.addEventListener('click', (event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              const currentGroup = communitySummaries({ nodes: currentGraphSnapshot().nodes, edges: currentGraphSnapshot().edges })
+                .find((candidate) => candidate.id === item.dataset.brainBarCommunityId || candidate.label === item.dataset.brainBarCommunityLabel);
+              if (currentGroup) {
+                showCommunityDetail(currentGroup);
+              }
+            });
+          }
+        });
+        updateCommunityLegendVisibility();
+      } catch (error) {
+        console.debug('BrainBar community legend enhancement skipped', error);
+      }
+    }
+
+    function updateCommunityLegendVisibility() {
+      const legend = root.document.getElementById('legend');
+      const controls = root.document.getElementById('brainbar-community-controls');
+      if (!legend || !controls) {
+        return;
+      }
+      const query = lowerText(root.document.getElementById('brainbar-community-search')?.value || '');
+      const showAll = Boolean(root.__brainBarShowAllCommunities2D);
+      const toggle = root.document.getElementById('brainbar-community-toggle');
+      const items = Array.from(legend.querySelectorAll('.legend-item'))
+        .filter((item) => Number(item.dataset.brainBarCommunityCount || 0) > 0)
+        .sort((left, right) => Number(right.dataset.brainBarCommunityCount || 0) - Number(left.dataset.brainBarCommunityCount || 0)
+          || String(left.dataset.brainBarCommunityLabel || '').localeCompare(String(right.dataset.brainBarCommunityLabel || '')));
+      let shown = 0;
+      items.forEach((item) => {
+        const matches = !query || lowerText(item.dataset.brainBarCommunityLabel).includes(query);
+        const withinLimit = showAll || shown < 12 || query;
+        item.hidden = !matches || !withinLimit;
+        if (matches) {
+          shown += 1;
+        }
+      });
+      Array.from(legend.querySelectorAll('.legend-item'))
+        .filter((item) => Number(item.dataset.brainBarCommunityCount || 0) <= 0)
+        .forEach((item) => { item.hidden = true; });
+      if (toggle) {
+        toggle.hidden = query || items.length <= 12;
+        toggle.textContent = showAll ? 'Show less' : `Show more (${items.length - 12})`;
+      }
+    }
+
     function installPremium2DInteraction() {
       const currentNetwork = graphNetwork();
       if (root.__brainBarPremium2DInteractionInstalled || !currentNetwork) {
@@ -1558,6 +2387,7 @@
         if (selectedNodeId) {
           addOpenNoteButton(selectedNodeId);
         }
+        updateWorkflowToolbarState();
       });
       currentNetwork.on('selectEdge', (params) => {
         hidePremiumTooltip();
@@ -1566,7 +2396,10 @@
           showEdgeInspector(selectedEdgeId);
         }
       });
-      currentNetwork.on('deselectNode', hidePremiumTooltip);
+      currentNetwork.on('deselectNode', () => {
+        hidePremiumTooltip();
+        updateWorkflowToolbarState();
+      });
       currentNetwork.on('dragStart', hidePremiumTooltip);
       currentNetwork.on('zoom', hidePremiumTooltip);
     }
@@ -1723,7 +2556,9 @@
     root.brainBarApplyGraphLens = (lens) => {
       applyNetworkTheme();
       rebuildEmptyCommunityLegend();
+      enhanceCommunityLegend();
       ensureWorkflowToolbar();
+      installSearchReveal2D();
       installNodeActionBridge();
       installPremium2DInteraction();
       ensureOpenNoteButton();
@@ -1762,9 +2597,6 @@
       if (currentNetwork) {
         currentNetwork.redraw();
       }
-      root.__brainBarActiveGraphView = selectedLens === ALL_LENS
-        ? 'global'
-        : (selectedLens === OBSIDIAN_LENS ? 'wikilinks' : 'graphify');
       updateWorkflowToolbarState();
     };
 
@@ -1783,7 +2615,9 @@
     function applyBrainBarGraphRuntime() {
       applyNetworkTheme();
       rebuildEmptyCommunityLegend();
+      enhanceCommunityLegend();
       ensureWorkflowToolbar();
+      installSearchReveal2D();
       installNodeActionBridge();
       installPremium2DInteraction();
       ensureOpenNoteButton();
@@ -1812,6 +2646,8 @@
     computeFocusDiff,
     computeGraphHealth,
     computeLensDiff,
+    bridgeActionPayload,
+    communitySummaries,
     describeWorkflowView,
     edgeInspectorDetails,
     edgeProvenance,
@@ -1825,6 +2661,9 @@
     nodeTooltipLabel,
     normalizeLens,
     recentNodeIds,
+    graphCheckSections,
+    search2DNodes,
+    visibleNodeIdSet,
     workflowViewState,
     sourceFileForNode
   };
