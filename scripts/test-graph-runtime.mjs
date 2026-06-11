@@ -317,6 +317,7 @@ assert.equal(graph3dLiving.edgeCurrentVisual({ phase: 10, edgeId: 'edge-a' }).al
 assert.equal(graph3dLiving.edgeCurrentVisual({ reducedMotion: true }).alpha, 0);
 assert.equal(graph3dLiving.communityBreathingVisual({ reducedMotion: true }).radiusScale, 1);
 assert.equal(graph3dLiving.recentSparkVisual({ phase: 10, nodeId: 'recent-a' }).alpha > 0, true);
+assert.equal(graph3dLiving.recentSparkVisual({ phase: 10, nodeId: 'recent-a' }).isStrong, false);
 assert.equal(graph3dLiving.recentSparkVisual({ reducedMotion: true }).isStrong, false);
 const livingPulse = graph3dLiving.createLivingPulse({
   nodeIds: Array.from({ length: 20 }, (_, index) => `n-${index}`),
@@ -328,6 +329,7 @@ const livingPulse = graph3dLiving.createLivingPulse({
 assert.equal(livingPulse.nodeIds.length, 16);
 assert.equal(livingPulse.edgeIds.length, 48);
 assert.equal(graph3dLiving.pulseVisualState(livingPulse, 1000).expired, false);
+assert.equal(graph3dLiving.pulseVisualState(livingPulse, 1600).alpha <= 0.42, true);
 assert.equal(graph3dLiving.pulseVisualState(livingPulse, 2300).expired, true);
 assert.equal(graph3dLiving.pruneLivingPulses([livingPulse], 2300).length, 0);
 assert.equal(graph3dLiving.pulseVisualState(livingPulse, 1100, { reducedMotion: true }).alpha, 0);

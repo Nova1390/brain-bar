@@ -115,10 +115,10 @@ export function edgeCurrentVisual({ phase = 0, edgeId = '', index = 0, reducedMo
   const progress = local - Math.floor(local);
   const flicker = (Math.sin((Number(phase) + seed * 4) * 0.74) + 1) * 0.5;
   return {
-    alpha: 0.18 + flicker * 0.22,
-    radius: 1.25 + flicker * 0.75,
+    alpha: 0.08 + flicker * 0.12,
+    radius: 0.9 + flicker * 0.45,
     progress,
-    tailAlpha: 0.055 + flicker * 0.045
+    tailAlpha: 0.035 + flicker * 0.03
   };
 }
 
@@ -139,14 +139,11 @@ export function recentSparkVisual({ phase = 0, nodeId = '', index = 0, reducedMo
     return { alpha: 0.055, radiusScale: 1, isStrong: false };
   }
   const seed = stableUnit(nodeId);
-  const cadence = 0.18 + index * 0.015;
-  const local = (Number(phase) * cadence + seed) % 1;
-  const spark = Math.max(0, 1 - Math.abs(local - 0.18) / 0.18);
-  const glow = (Math.sin(Number(phase) * 0.74 + seed * 5.7) + 1) * 0.5;
+  const glow = (Math.sin(Number(phase) * 0.46 + seed * 5.7 + index * 0.13) + 1) * 0.5;
   return {
-    alpha: 0.06 + glow * 0.06 + spark * 0.42,
-    radiusScale: 1 + glow * 0.55 + spark * 2.8,
-    isStrong: spark > 0.72
+    alpha: 0.045 + glow * 0.07,
+    radiusScale: 1 + glow * 0.85,
+    isStrong: false
   };
 }
 
@@ -184,11 +181,12 @@ export function pulseVisualState(pulse, now, { reducedMotion = false } = {}) {
   const duration = Math.max(1, Number(pulse.durationMs) || 1);
   const progress = clamp(((Number(now) || 0) - (Number(pulse.startedAt) || 0)) / duration, 0, 1);
   const easeOut = 1 - Math.pow(1 - progress, 3);
-  const alpha = (1 - progress) * (Number(pulse.intensity) || 1);
+  const softEnvelope = Math.sin(progress * Math.PI);
+  const alpha = softEnvelope * 0.42 * (Number(pulse.intensity) || 1);
   return {
     expired: progress >= 1,
     alpha,
-    radiusScale: 1 + easeOut * 2.6,
+    radiusScale: 1 + easeOut * 1.45,
     progress
   };
 }

@@ -164,7 +164,6 @@ const state = {
   ambientCurrentEdgeIds: new Set(),
   ambientCommunityPulseGroups: [],
   lastLivingInteractionAt: 0,
-  lastRecentSparkAt: 0,
   performanceStats: {
     staticRebuildMs: 0,
     overlayFrameMs: 0,
@@ -1153,17 +1152,17 @@ function drawAmbientEdgeCurrents(width, height) {
     visualContext.lineTo(head.x, head.y);
     visualContext.strokeStyle = color;
     visualContext.globalAlpha = visual.tailAlpha * modeDamping;
-    visualContext.lineWidth = 1.15;
+    visualContext.lineWidth = 0.95;
     visualContext.shadowColor = color;
-    visualContext.shadowBlur = 10;
+    visualContext.shadowBlur = 6;
     visualContext.stroke();
 
     visualContext.beginPath();
     visualContext.arc(head.x, head.y, visual.radius, 0, Math.PI * 2);
-    visualContext.fillStyle = '#f4fbff';
+    visualContext.fillStyle = color;
     visualContext.globalAlpha = visual.alpha * modeDamping;
-    visualContext.shadowColor = 'rgba(218, 242, 255, 0.55)';
-    visualContext.shadowBlur = 12;
+    visualContext.shadowColor = 'rgba(218, 242, 255, 0.24)';
+    visualContext.shadowBlur = 7;
     visualContext.fill();
     rendered += 1;
   });
@@ -1182,7 +1181,6 @@ function drawRecentSparks(width, height) {
     return;
   }
   const phase = state.ambientPhase || performance.now() * 0.001;
-  let strongSparkDrawn = false;
   let rendered = 0;
   visualContext.save();
   Array.from(state.ambientRecentNodeIds).slice(0, ambientRecentNodeLimit).forEach((nodeId, index) => {
@@ -1197,23 +1195,16 @@ function drawRecentSparks(width, height) {
       index,
       reducedMotion: prefersReducedMotion
     });
-    if (visual.isStrong && strongSparkDrawn) {
-      return;
-    }
-    if (visual.isStrong) {
-      strongSparkDrawn = true;
-      state.lastRecentSparkAt = performance.now();
-    }
     const point = ambientProjectedPoint(rawPoint, width, height);
     const depth = depthPresence(point.z);
     const baseRadius = nodeRadiusForDegree(state.degreeByNode.get(node.id) ?? 0, depth);
-    const radius = baseRadius + 2.8 * visual.radiusScale;
+    const radius = baseRadius + 2.2 * visual.radiusScale;
     visualContext.beginPath();
     visualContext.arc(point.x, point.y, radius, 0, Math.PI * 2);
     visualContext.fillStyle = accentColorForCommunity(node.community);
-    visualContext.globalAlpha = visual.alpha * (mode === 'recent' ? 0.92 : 0.72);
-    visualContext.shadowColor = 'rgba(189, 250, 232, 0.45)';
-    visualContext.shadowBlur = prefersReducedMotion ? 0 : 12 + visual.radiusScale * 3;
+    visualContext.globalAlpha = visual.alpha * (mode === 'recent' ? 0.78 : 0.52);
+    visualContext.shadowColor = 'rgba(189, 250, 232, 0.24)';
+    visualContext.shadowBlur = prefersReducedMotion ? 0 : 7 + visual.radiusScale * 2;
     visualContext.fill();
     rendered += 1;
   });
@@ -2932,7 +2923,6 @@ function emitLivingPulse({
 
 function clearLivingPulses(render = true) {
   state.livingPulseEvents = [];
-  state.lastRecentSparkAt = 0;
   state.performanceStats.livingPulseCount = 0;
   state.performanceStats.recentSparkCount = 0;
   if (render) {
