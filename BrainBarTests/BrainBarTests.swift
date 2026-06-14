@@ -281,6 +281,11 @@ final class BrainBarTests: XCTestCase {
         XCTAssertNil(BrainBarConfig.default.reviewQueue.manualCommand)
     }
 
+    func testAgentActivityDefaultsAreConservative() {
+        XCTAssertFalse(BrainBarConfig.default.agentActivity.eventTracingEnabled)
+        XCTAssertTrue(BrainBarConfig.default.agentActivity.fileActivityEnabled)
+    }
+
     func testReviewQueueNormalizationUsesConservativeWatcherMinimum() {
         var reviewQueue = ReviewQueueConfiguration.default
         reviewQueue.isEnabled = true
@@ -462,6 +467,145 @@ final class BrainBarTests: XCTestCase {
         XCTAssertNotEqual(firstCommand?.id, secondCommand?.id)
         XCTAssertNotEqual(secondCommand?.id, model.graphViewportCommand?.id)
         XCTAssertEqual(model.config, initialConfig)
+    }
+
+    func testAgentActivityParsesValidJSONLEvent() throws {
+        let line = #"{"version":1,"agent":"codex","action":"read","path":"Notes/Example.md","timestamp":"2026-06-11T08:00:00.000Z","reason":"context"}"#
+
+        let event = try XCTUnwrap(AgentActivityEventParser.parse(line))
+
+        XCTAssertEqual(event.agent, "codex")
+        XCTAssertEqual(event.action, .read)
+        XCTAssertEqual(event.path, "Notes/Example.md")
+        XCTAssertEqual(event.reason, "context")
+    }
+
+    func testAgentActivityRejectsMalformedJSONL() {
+        XCTAssertNil(AgentActivityEventParser.parse("{"))
+    }
+
+    func testAgentActivityLogRetentionKeepsRecentEventsOnly() throws {
+        let now = Date(timeIntervalSince1970: 2_000_000)
+        let oldEvent = AgentActivityEvent(agent: "codex", action: .read, path: "Old.md", timestamp: now.addingTimeInterval(-AgentActivityLogRetention.maxAge - 60))
+        let recentEvent = AgentActivityEvent(agent: "codex", action: .write, path: "Recent.md", timestamp: now)
+        let oldLine = try agentActivityJSONLine(oldEvent)
+        let recentLine = try agentActivityJSONLine(recentEvent)
+        let retained = AgentActivityLogRetention.retainedLines(
+            from: oldLine + "\n" + "{bad json}\n" + recentLine + "\n",
+            cutoff: now.addingTimeInterval(-AgentActivityLogRetention.maxAge)
+        )
+
+        XCTAssertEqual(retained, [recentLine])
+    }
+
+    func testAgentActivityLogRetentionCapsLineCount() throws {
+        let now = Date(timeIntervalSince1970: 2_000_000)
+        let maxLines = AgentActivityLogRetention.maxLines
+        let lines = try (0..<(maxLines + 4)).map { offset in
+            try agentActivityJSONLine(
+                AgentActivityEvent(
+                    agent: "codex",
+                    action: .read,
+                    path: "Note-\(offset).md",
+                    timestamp: now.addingTimeInterval(TimeInterval(offset))
+                )
+            )
+        }
+        let retained = AgentActivityLogRetention.retainedLines(
+            from: lines.joined(separator: "\n"),
+            cutoff: now.addingTimeInterval(-AgentActivityLogRetention.maxAge)
+        )
+
+        XCTAssertEqual(retained.count, maxLines)
+        XCTAssertFalse(retained.contains(lines[0]))
+        XCTAssertTrue(retained.contains(lines.last!))
+    }
+
+    func testAgentActivityGraphIndexMapsNodeIdPathAndPending() throws {
+        let vault = try temporaryDirectory()
+        let graphDirectory = vault.appendingPathComponent("graphify-out")
+        try FileManager.default.createDirectory(at: graphDirectory, withIntermediateDirectories: true)
+        try """
+        {
+          "nodes": [
+            { "id": "alpha", "label": "Alpha", "source_file": "Notes/Alpha.md", "source_location": "L1" },
+            { "id": "alpha_links", "label": "Links", "source_file": "Notes/Alpha.md", "source_location": "L40" }
+          ],
+          "edges": []
+        }
+        """.write(to: graphDirectory.appendingPathComponent("graph.json"), atomically: true, encoding: .utf8)
+        let index = AgentActivityGraphIndex.load(readAccessURL: graphDirectory)
+        let timestamp = Date(timeIntervalSince1970: 1)
+        let direct = AgentActivityEvent(agent: "codex", action: .read, path: "Notes/Other.md", timestamp: timestamp, nodeId: "alpha")
+        let byPath = AgentActivityEvent(agent: "codex", action: .write, path: "Notes/Alpha.md", timestamp: timestamp)
+        let missing = AgentActivityEvent(agent: "codex", action: .write, path: "Notes/Missing.md", timestamp: timestamp)
+
+        XCTAssertEqual(index.node(for: direct)?.id, "alpha")
+        XCTAssertEqual(index.node(for: byPath)?.id, "alpha")
+        XCTAssertNil(index.node(for: missing))
+    }
+
+    func testAgentActivityCodexInstallerIsIdempotentAndProtectsUnmanagedSkill() throws {
+        let home = try temporaryDirectory()
+        let source = try temporaryDirectory()
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
+        try "skill".write(to: source.appendingPathComponent("SKILL.md"), atomically: true, encoding: .utf8)
+        try FileManager.default.createDirectory(at: home.appendingPathComponent(".codex/skills"), withIntermediateDirectories: true)
+        let installer = AgentActivityCodexInstaller(homeURL: home, sourceURL: source)
+
+        XCTAssertEqual(try installer.install(), .installed)
+        XCTAssertTrue(installer.isInstalled())
+        XCTAssertTrue(installer.agentsInstructionsInstalled())
+        let agentsText = try String(contentsOf: installer.agentsURL, encoding: .utf8)
+        XCTAssertTrue(agentsText.contains("BEGIN BRAINBAR AGENT TRACE"))
+        XCTAssertTrue(agentsText.contains("brainbar-trace read"))
+        XCTAssertEqual(try installer.install(), .installed)
+
+        try FileManager.default.removeItem(at: installer.markerURL)
+        XCTAssertEqual(try installer.install(), .existingUnmanagedSkill)
+    }
+
+    func testAgentActivityCodexInstallerUpdatesManagedAgentsBlockWithoutDuplicating() throws {
+        let home = try temporaryDirectory()
+        let source = try temporaryDirectory()
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
+        try "skill".write(to: source.appendingPathComponent("SKILL.md"), atomically: true, encoding: .utf8)
+        try FileManager.default.createDirectory(at: home.appendingPathComponent(".codex/skills"), withIntermediateDirectories: true)
+        let agentsURL = home.appendingPathComponent(".codex/AGENTS.md")
+        try """
+        # User Instructions
+
+        Keep this line.
+        <!-- BEGIN BRAINBAR AGENT TRACE -->
+        old managed text
+        <!-- END BRAINBAR AGENT TRACE -->
+
+        Keep this footer.
+        """.write(to: agentsURL, atomically: true, encoding: .utf8)
+        let installer = AgentActivityCodexInstaller(homeURL: home, sourceURL: source)
+
+        XCTAssertEqual(try installer.install(), .installed)
+        XCTAssertEqual(try installer.install(), .installed)
+
+        let text = try String(contentsOf: agentsURL, encoding: .utf8)
+        XCTAssertTrue(text.contains("Keep this line."))
+        XCTAssertTrue(text.contains("Keep this footer."))
+        XCTAssertFalse(text.contains("old managed text"))
+        XCTAssertEqual(text.components(separatedBy: "BEGIN BRAINBAR AGENT TRACE").count - 1, 1)
+        XCTAssertEqual(text.components(separatedBy: "END BRAINBAR AGENT TRACE").count - 1, 1)
+    }
+
+    private func agentActivityJSONLine(_ event: AgentActivityEvent) throws -> String {
+        var payload: [String: Any] = [
+            "version": event.version,
+            "agent": event.agent,
+            "action": event.action.rawValue,
+            "path": event.path,
+            "timestamp": AgentActivityDateCoding.string(from: event.timestamp)
+        ]
+        payload["node_id"] = event.nodeId
+        let data = try JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])
+        return String(data: data, encoding: .utf8)!
     }
 
     private func temporaryDirectory() throws -> URL {

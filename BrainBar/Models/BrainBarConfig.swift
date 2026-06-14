@@ -10,6 +10,7 @@ struct BrainBarConfig: Codable, Equatable, Sendable {
     var notificationsEnabled: Bool
     var commands: CommandConfiguration
     var reviewQueue: ReviewQueueConfiguration
+    var agentActivity: AgentActivityConfiguration
 
     static let `default` = BrainBarConfig(
         vaultPath: "",
@@ -27,7 +28,8 @@ struct BrainBarConfig: Codable, Equatable, Sendable {
             ),
             brainCheck: nil
         ),
-        reviewQueue: .default
+        reviewQueue: .default,
+        agentActivity: .default
     )
 
     enum CodingKeys: String, CodingKey {
@@ -40,6 +42,7 @@ struct BrainBarConfig: Codable, Equatable, Sendable {
         case notificationsEnabled
         case commands
         case reviewQueue
+        case agentActivity
     }
 
     init(
@@ -51,7 +54,8 @@ struct BrainBarConfig: Codable, Equatable, Sendable {
         useObsidianURLScheme: Bool,
         notificationsEnabled: Bool,
         commands: CommandConfiguration,
-        reviewQueue: ReviewQueueConfiguration
+        reviewQueue: ReviewQueueConfiguration,
+        agentActivity: AgentActivityConfiguration
     ) {
         self.vaultPath = vaultPath
         self.projectDashboardRelativePath = projectDashboardRelativePath
@@ -62,6 +66,7 @@ struct BrainBarConfig: Codable, Equatable, Sendable {
         self.notificationsEnabled = notificationsEnabled
         self.commands = commands
         self.reviewQueue = reviewQueue
+        self.agentActivity = agentActivity
     }
 
     init(from decoder: Decoder) throws {
@@ -75,6 +80,7 @@ struct BrainBarConfig: Codable, Equatable, Sendable {
         notificationsEnabled = try container.decode(Bool.self, forKey: .notificationsEnabled)
         commands = try container.decode(CommandConfiguration.self, forKey: .commands)
         reviewQueue = try container.decodeIfPresent(ReviewQueueConfiguration.self, forKey: .reviewQueue) ?? .default
+        agentActivity = try container.decodeIfPresent(AgentActivityConfiguration.self, forKey: .agentActivity) ?? .default
     }
 }
 
@@ -117,6 +123,7 @@ extension BrainBarConfig {
             config.commands.refreshGraph.arguments = ["update", "."]
         }
         config.reviewQueue = config.reviewQueue.normalized
+        config.agentActivity = config.agentActivity.normalized
         return config
     }
 }
@@ -152,6 +159,20 @@ struct ReviewQueueConfiguration: Codable, Equatable, Sendable {
             configuration.backgroundWatcherEnabled = false
         }
         return configuration
+    }
+}
+
+struct AgentActivityConfiguration: Codable, Equatable, Sendable {
+    var eventTracingEnabled: Bool
+    var fileActivityEnabled: Bool
+
+    static let `default` = AgentActivityConfiguration(
+        eventTracingEnabled: false,
+        fileActivityEnabled: true
+    )
+
+    var normalized: AgentActivityConfiguration {
+        self
     }
 }
 

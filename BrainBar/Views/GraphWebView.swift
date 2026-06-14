@@ -8,6 +8,7 @@ struct GraphWebView: NSViewRepresentable {
     let reloadToken: Int
     let sourceLens: GraphSourceLens
     let reviewQueueStatus: ReviewQueueStatus
+    let agentActivitySnapshot: AgentActivitySnapshot
     let viewportCommand: GraphViewportCommand?
     let onOpenNode: @MainActor (GraphNodeOpenRequest) -> Void
 
@@ -28,6 +29,7 @@ struct GraphWebView: NSViewRepresentable {
         webView.navigationDelegate = context.coordinator
         context.coordinator.sourceLens = sourceLens
         context.coordinator.reviewQueueScript = Self.reviewQueueTargetsScript(status: reviewQueueStatus)
+        context.coordinator.agentActivitySnapshot = agentActivitySnapshot
         let graphMetadataPayload = Self.graphMetadataPayload(readAccessURL: readAccessURL)
         context.coordinator.graphMetadataVersion = graphMetadataPayload.version
         context.coordinator.graphMetadataScript = graphMetadataPayload.script
@@ -46,6 +48,10 @@ struct GraphWebView: NSViewRepresentable {
         if context.coordinator.reviewQueueScript != reviewQueueScript {
             context.coordinator.reviewQueueScript = reviewQueueScript
             context.coordinator.applyReviewQueueTargets(in: webView)
+        }
+        if context.coordinator.agentActivitySnapshot != agentActivitySnapshot {
+            context.coordinator.agentActivitySnapshot = agentActivitySnapshot
+            context.coordinator.applyAgentActivity(in: webView)
         }
         context.coordinator.applyViewportCommandIfNeeded(viewportCommand, in: webView)
         if didLoad || didUpdateGraphMetadata || context.coordinator.sourceLens != sourceLens {
@@ -72,6 +78,7 @@ struct GraphWebView: NSViewRepresentable {
         var graphMetadataVersion = ""
         var graphMetadataScript = ""
         var reviewQueueScript = ""
+        var agentActivitySnapshot: AgentActivitySnapshot = .empty
         var lastViewportCommandID = -1
         var onOpenNode: @MainActor (GraphNodeOpenRequest) -> Void
 
@@ -81,6 +88,7 @@ struct GraphWebView: NSViewRepresentable {
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             applyReviewQueueTargets(in: webView)
+            applyAgentActivity(in: webView)
             applyLens(sourceLens, in: webView)
         }
 
@@ -89,6 +97,15 @@ struct GraphWebView: NSViewRepresentable {
             \(reviewQueueScript)
             if (window.brainBarApplyReviewQueueTargets) {
               window.brainBarApplyReviewQueueTargets(window.__brainBarReviewQueueTargets || []);
+            }
+            """
+            webView.evaluateJavaScript(script)
+        }
+
+        func applyAgentActivity(in webView: WKWebView) {
+            let script = """
+            if (window.brainBarApplyAgentActivity2D) {
+              window.brainBarApplyAgentActivity2D(\(GraphWebView.agentActivityJSON(agentActivitySnapshot)));
             }
             """
             webView.evaluateJavaScript(script)
@@ -127,6 +144,8 @@ struct GraphWebView: NSViewRepresentable {
             if (window.brainBarApplyGraphLens) {
               window.brainBarApplyGraphLens("\(lens.rawValue)");
             }
+            document.documentElement.classList.remove("brainbar-graph-preparing");
+            document.documentElement.classList.add("brainbar-graph-ready");
             """
             webView.evaluateJavaScript(script)
         }
@@ -288,7 +307,7 @@ private extension GraphWebView {
             scripts.append(
                 WKUserScript(
                     source: styleInjectionScript(css: css),
-                    injectionTime: .atDocumentEnd,
+                    injectionTime: .atDocumentStart,
                     forMainFrameOnly: true
                 )
             )
@@ -339,6 +358,18 @@ private extension GraphWebView {
         return "window.__brainBarReviewQueueTargets = \(json);"
     }
 
+    static func agentActivityJSON(_ snapshot: AgentActivitySnapshot) -> String {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        guard
+            let data = try? encoder.encode(snapshot),
+            let json = String(data: data, encoding: .utf8)
+        else {
+            return "{}"
+        }
+        return json
+    }
+
     static func bundledResourceString(name: String, extension fileExtension: String, subdirectory: String) -> String? {
         guard
             let url = Bundle.main.url(forResource: name, withExtension: fileExtension, subdirectory: subdirectory),
@@ -353,6 +384,8 @@ private extension GraphWebView {
     static func styleInjectionScript(css: String) -> String {
         """
         (() => {
+          const root = document.documentElement;
+          root.classList.add('brainbar-graph-preparing');
           const existing = document.getElementById('brainbar-graph-theme');
           if (existing) {
             existing.remove();
@@ -360,7 +393,11 @@ private extension GraphWebView {
           const style = document.createElement('style');
           style.id = 'brainbar-graph-theme';
           style.textContent = \(jsStringLiteral(css));
-          document.head.appendChild(style);
+          (document.head || root).appendChild(style);
+          window.setTimeout(() => {
+            root.classList.remove('brainbar-graph-preparing');
+            root.classList.add('brainbar-graph-ready');
+          }, 1500);
         })();
         """
     }

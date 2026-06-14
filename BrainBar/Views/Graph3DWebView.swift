@@ -9,6 +9,7 @@ struct Graph3DWebView: NSViewRepresentable {
     let sourceLens: GraphSourceLens
     let resetCameraToken: Int
     let viewportCommand: GraphViewportCommand?
+    let agentActivitySnapshot: AgentActivitySnapshot
     let onDiagnostic: @MainActor (String) -> Void
     let onOpenNode: @MainActor (GraphNodeOpenRequest) -> Void
 
@@ -33,6 +34,7 @@ struct Graph3DWebView: NSViewRepresentable {
         context.coordinator.resetCameraToken = resetCameraToken
         context.coordinator.graphJSONURL = readAccessURL.appendingPathComponent("graph.json")
         context.coordinator.graphPayloadScript = Self.graphPayloadScript(readAccessURL: readAccessURL)
+        context.coordinator.agentActivitySnapshot = agentActivitySnapshot
         load(in: webView, context: context)
         return webView
     }
@@ -44,6 +46,10 @@ struct Graph3DWebView: NSViewRepresentable {
         context.coordinator.graphJSONURL = readAccessURL.appendingPathComponent("graph.json")
         context.coordinator.graphPayloadScript = Self.graphPayloadScript(readAccessURL: readAccessURL)
         context.coordinator.pendingViewportCommand = viewportCommand
+        if context.coordinator.agentActivitySnapshot != agentActivitySnapshot {
+            context.coordinator.agentActivitySnapshot = agentActivitySnapshot
+            context.coordinator.applyAgentActivity(agentActivitySnapshot, in: webView)
+        }
 
         if didLoad {
             return
@@ -88,6 +94,7 @@ struct Graph3DWebView: NSViewRepresentable {
         var pendingViewportCommand: GraphViewportCommand?
         var graphJSONURL: URL?
         var graphPayloadScript = ""
+        var agentActivitySnapshot: AgentActivitySnapshot = .empty
         var onDiagnostic: @MainActor (String) -> Void
         var onOpenNode: @MainActor (GraphNodeOpenRequest) -> Void
 
@@ -101,6 +108,7 @@ struct Graph3DWebView: NSViewRepresentable {
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             loadGraph(sourceLens, in: webView)
+            applyAgentActivity(agentActivitySnapshot, in: webView)
             applyViewportCommandIfNeeded(pendingViewportCommand, in: webView)
         }
 
@@ -110,6 +118,15 @@ struct Graph3DWebView: NSViewRepresentable {
             window.__brainBarPendingGraphLens = "\(lens.rawValue)";
             if (window.brainBarLoadGraph) {
               window.brainBarLoadGraph(window.__brainBarGraphJSON, "\(lens.rawValue)");
+            }
+            """
+            evaluate(script, in: webView)
+        }
+
+        func applyAgentActivity(_ snapshot: AgentActivitySnapshot, in webView: WKWebView) {
+            let script = """
+            if (window.brainBarApplyAgentActivity) {
+              window.brainBarApplyAgentActivity(\(Graph3DWebView.agentActivityJSON(snapshot)));
             }
             """
             evaluate(script, in: webView)
@@ -281,6 +298,18 @@ extension Graph3DWebView {
         window.__brainBarGraphJSON = \(json);
         window.__brainBarNodeFileMetadata = \(GraphNodeFileMetadata.json(graphObject: object, readAccessURL: readAccessURL));
         """
+    }
+
+    static func agentActivityJSON(_ snapshot: AgentActivitySnapshot) -> String {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        guard
+            let data = try? encoder.encode(snapshot),
+            let json = String(data: data, encoding: .utf8)
+        else {
+            return "{}"
+        }
+        return json
     }
 
     static func jsStringLiteral(_ value: String) -> String {

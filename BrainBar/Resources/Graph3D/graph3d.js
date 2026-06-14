@@ -78,6 +78,8 @@ const graphStoryEdgeLimit = 80;
 const graphStoryPreviewLimit = 3;
 const searchResultLimit = 20;
 const searchRevealNeighborLimit = 16;
+const collapsedCommunityLimit = 8;
+const expandedCommunityLimit = 32;
 
 const pointTexture = createPointTexture();
 
@@ -87,6 +89,7 @@ const state = {
   communities: [],
   communityByName: new Map(),
   communityEnabled: new Set(),
+  legendExpanded: false,
   visibleNodes: [],
   visibleEdges: [],
   visibleNodeIds: new Set(),
@@ -150,6 +153,12 @@ const state = {
   activePathVariantId: 'shortest',
   pathMessage: '',
   pathPulsePhase: 0,
+  agentActivityEvents: [],
+  agentActivityNodeIds: new Set(),
+  agentActivityPendingPaths: [],
+  agentActivityLastEventAt: null,
+  agentActivityTracingEnabled: false,
+  agentActivityEventLogPath: '',
   lastDiagnostic: '',
   cameraPreset: 'Fit',
   lastFrameStatus: 'Waiting',
@@ -968,6 +977,7 @@ function drawVisualFrame({ width, height, pixelRatio }) {
   drawAmbientCommunityBreathing(width, height);
   drawAmbientEdgeCurrents(width, height);
   drawRecentSparks(width, height);
+  drawAgentActivityOverlay(width, height);
 
   if (hoverAmount > 0.01) {
     visualContext.save();
@@ -1210,6 +1220,56 @@ function drawRecentSparks(width, height) {
   });
   visualContext.restore();
   state.performanceStats.recentSparkCount = rendered;
+}
+
+function drawAgentActivityOverlay(width, height) {
+  if (!state.agentActivityEvents.length || !state.projectedPoints.size) {
+    return;
+  }
+  const now = Date.now();
+  const recentEvents = state.agentActivityEvents.slice(0, 40);
+  visualContext.save();
+  recentEvents.forEach((event, index) => {
+    if (!event.nodeId || event.pending) {
+      return;
+    }
+    const node = nodeForId(event.nodeId);
+    const rawPoint = state.projectedPoints.get(event.nodeId);
+    if (!node || !rawPoint) {
+      return;
+    }
+    const ageMs = Number.isFinite(event.timestampMs) ? Math.max(0, now - event.timestampMs) : index * 1000;
+    const ageFade = clamp(1 - ageMs / 120000, 0.18, 1);
+    const actionColor = agentActivityColor(event.action);
+    const point = ambientProjectedPoint(rawPoint, width, height);
+    const depth = depthPresence(point.z);
+    const radius = nodeRadiusForDegree(state.degreeByNode.get(node.id) ?? 0, depth);
+    const isFocus = event.action === 'focus';
+    const isStrongAction = ['write', 'create', 'closeout', 'decision', 'focus'].includes(event.action);
+    visualContext.beginPath();
+    visualContext.arc(point.x, point.y, radius + (isStrongAction ? 11.5 : 9), 0, Math.PI * 2);
+    visualContext.fillStyle = actionColor;
+    visualContext.globalAlpha = (isStrongAction ? 0.11 : 0.075) * ageFade;
+    visualContext.shadowColor = actionColor;
+    visualContext.shadowBlur = prefersReducedMotion ? 0 : 18;
+    visualContext.fill();
+    visualContext.beginPath();
+    visualContext.arc(point.x, point.y, radius + (isFocus ? 9.5 : 7.5), 0, Math.PI * 2);
+    visualContext.strokeStyle = actionColor;
+    visualContext.globalAlpha = (isFocus ? 0.72 : 0.54) * ageFade;
+    visualContext.lineWidth = isFocus ? 2.35 : 1.85;
+    visualContext.shadowColor = actionColor;
+    visualContext.shadowBlur = prefersReducedMotion ? 0 : 14;
+    visualContext.stroke();
+    if (isStrongAction) {
+      visualContext.beginPath();
+      visualContext.arc(point.x, point.y, Math.max(radius + 1.8, 3.2), 0, Math.PI * 2);
+      visualContext.fillStyle = actionColor;
+      visualContext.globalAlpha = 0.36 * ageFade;
+      visualContext.fill();
+    }
+  });
+  visualContext.restore();
 }
 
 function drawActiveVisualOverlay(hoverTrails, edgeTrails, hoverAmount, width, height) {
@@ -1891,6 +1951,9 @@ function buildNodeFocusMap(hoverTrails, edgeTrails) {
     });
     return focus;
   }
+  state.agentActivityNodeIds.forEach((nodeId) => {
+    mergeNodeFocus(focus, nodeId, 0.78, 0.28);
+  });
   hoverTrails.forEach((trail) => {
     mergeNodeFocus(focus, trail.node.id, trail.intensity, 0);
     const neighbors = state.adjacencyByNode.get(trail.node.id) ?? new Set();
@@ -1984,10 +2047,24 @@ function renderNodeInfo(node) {
       ? renderRecentOrbitPanel()
       : state.graphStoryMode
       ? renderGraphStoryPanel()
-      : `${renderGraphStoryEntry()}${renderRecentOrbitEntry()}<p class="muted italic">Click a node to inspect it</p>`;
+      : `
+        <section class="sidebar-section context-empty">
+          <div class="sidebar-section-header">
+            <h3>Start exploring</h3>
+            <span>3D</span>
+          </div>
+          <div class="sidebar-entry-list">
+            ${renderGraphStoryEntry()}
+            ${renderRecentOrbitEntry()}
+            ${renderAgentActivityPanel()}
+          </div>
+          <p class="muted italic">Click a node to inspect it</p>
+        </section>
+      `;
     wireCommunitySpotlightPanel();
     wireRecentOrbitPanel();
     wireGraphStoryPanel();
+    wireAgentActivityPanel();
     return;
   }
 
@@ -2007,36 +2084,48 @@ function renderNodeInfo(node) {
     : '';
   const topNeighbors = topNeighborsForNode(node.id, 12);
   nodeInfo.innerHTML = `
-    <h3>${escapeHTML(node.label)}</h3>
-    ${sourceButton}
-    <div class="focus-actions">
-      <button id="focus-orbit" class="${isFocused ? 'selected' : ''}">Focus</button>
-      <button data-depth="1" ${state.focusDepth === 1 && isFocused ? 'class="selected"' : ''}>Depth 1</button>
-      <button data-depth="2" ${state.focusDepth === 2 && isFocused ? 'class="selected"' : ''}>Depth 2</button>
-      <button data-depth="3" ${state.focusDepth === 3 && isFocused ? 'class="selected"' : ''}>Depth 3</button>
-      <button id="back-to-all" ${state.focusMode || state.pathMode || state.recentOrbitMode || state.graphStoryMode || state.searchRevealNodeId ? '' : 'disabled'}>Back to all</button>
-    </div>
-    <div class="path-actions">
-      <button id="start-path" class="${state.pathSourceId === node.id && !state.pathTargetId ? 'selected' : ''}">Start path</button>
-      <button id="clear-path" ${state.pathMode ? '' : 'disabled'}>Clear path</button>
-    </div>
-    ${focusStatus}
-    ${pathStatus}
-    ${revealStatus}
+    <section class="sidebar-section node-summary">
+      <div class="sidebar-section-header">
+        <h3>${escapeHTML(node.label)}</h3>
+        <span>${degreeForNode(node.id)} links</span>
+      </div>
+      ${sourceButton ? `<div class="sidebar-actions primary-actions">${sourceButton}</div>` : ''}
+      <div class="focus-actions sidebar-actions">
+        <button id="focus-orbit" class="${isFocused ? 'selected' : ''}">Focus</button>
+        <button data-depth="1" ${state.focusDepth === 1 && isFocused ? 'class="selected"' : ''}>Depth 1</button>
+        <button data-depth="2" ${state.focusDepth === 2 && isFocused ? 'class="selected"' : ''}>Depth 2</button>
+        <button data-depth="3" ${state.focusDepth === 3 && isFocused ? 'class="selected"' : ''}>Depth 3</button>
+        <button id="back-to-all" ${state.focusMode || state.pathMode || state.recentOrbitMode || state.graphStoryMode || state.searchRevealNodeId ? '' : 'disabled'}>Back to all</button>
+      </div>
+      <div class="path-actions sidebar-actions">
+        <button id="start-path" class="${state.pathSourceId === node.id && !state.pathTargetId ? 'selected' : ''}">Start path</button>
+        <button id="clear-path" ${state.pathMode ? '' : 'disabled'}>Clear path</button>
+      </div>
+      ${focusStatus}
+      ${pathStatus}
+      ${revealStatus}
+      <div class="sidebar-meta">
+        <p><strong>Type</strong><span>${escapeHTML(node.type ?? node.file_type ?? 'document')}</span></p>
+        <p><strong>Community</strong><span>${escapeHTML(node.community)}</span></p>
+        ${source ? `<p><strong>Source</strong><span>${escapeHTML(source)}</span></p>` : ''}
+      </div>
+    </section>
     ${state.communitySpotlightName ? renderCommunitySpotlightPanel() : ''}
     ${state.recentOrbitMode ? renderRecentOrbitPanel() : ''}
     ${state.graphStoryMode ? renderGraphStoryPanel() : ''}
+    ${renderAgentActivityPanel()}
     ${renderPathPanel()}
-    <p><strong>Type:</strong> ${escapeHTML(node.type ?? node.file_type ?? 'document')}</p>
-    <p><strong>Community:</strong> ${escapeHTML(node.community)}</p>
-    ${source ? `<p><strong>Source:</strong> ${escapeHTML(source)}</p>` : ''}
-    <p><strong>Degree:</strong> ${degreeForNode(node.id)}</p>
-    <h4>Top neighbors</h4>
-    <div class="neighbor-list">
-      ${topNeighbors.length
-        ? topNeighbors.map((neighbor) => `<button class="neighbor-button" data-node-id="${escapeHTML(neighbor.id)}">${escapeHTML(neighbor.label)}<span>${neighbor.degree}</span></button>`).join('')
-        : '<p class="muted">No neighbors in this view.</p>'}
-    </div>
+    <section class="sidebar-section neighbor-section">
+      <div class="sidebar-section-header">
+        <h4>Top neighbors</h4>
+        <span>${topNeighbors.length}</span>
+      </div>
+      <div class="neighbor-list">
+        ${topNeighbors.length
+          ? topNeighbors.map((neighbor) => `<button class="neighbor-button sidebar-row" data-node-id="${escapeHTML(neighbor.id)}">${escapeHTML(neighbor.label)}<span>${neighbor.degree}</span></button>`).join('')
+          : '<p class="muted">No neighbors in this view.</p>'}
+      </div>
+    </section>
   `;
 
   const button = document.getElementById('open-note');
@@ -2056,6 +2145,7 @@ function renderNodeInfo(node) {
   wireCommunitySpotlightPanel();
   wireRecentOrbitPanel();
   wireGraphStoryPanel();
+  wireAgentActivityPanel();
   nodeInfo.querySelectorAll('.path-step[data-node-id]').forEach((pathButton) => {
     pathButton.addEventListener('click', () => {
       const pathNode = nodeForId(pathButton.dataset.nodeId);
@@ -2132,10 +2222,14 @@ function renderRecentOrbitEntry() {
     return '';
   }
   return `
-    <section class="recent-orbit-entry">
-      <button class="primary-button" id="start-recent-orbit">Recent Orbit</button>
-      <p class="muted">${items.length} recently changed or date-named notes in this view.</p>
-    </section>
+    <button class="sidebar-command" id="start-recent-orbit">
+      <span class="sidebar-command-icon recent">R</span>
+      <span class="sidebar-command-copy">
+        <strong>Recent Orbit</strong>
+        <small>${items.length} recently changed notes</small>
+      </span>
+      <span class="sidebar-command-chevron">&gt;</span>
+    </button>
   `;
 }
 
@@ -2184,16 +2278,69 @@ function wireRecentOrbitPanel() {
   });
 }
 
+function renderAgentActivityPanel() {
+  const events = state.agentActivityEvents.slice(0, 3);
+  const pending = state.agentActivityPendingPaths;
+  if (!events.length && !pending.length) {
+    return '';
+  }
+  const eventRows = events.map((event) => {
+    const label = event.label || event.path || event.nodeId || 'Unmapped activity';
+    const mapped = event.nodeId && !event.pending;
+    return `
+      <button class="agent-activity-row" data-node-id="${escapeHTML(event.nodeId || '')}" data-source-file="${escapeHTML(event.sourceFile || event.path || '')}" ${mapped ? '' : 'disabled'}>
+        <span class="agent-dot ${escapeHTML(event.action || 'activity')}"></span>
+        <strong>${escapeHTML(label)}</strong>
+        <small>${escapeHTML(event.agent || 'local')} · ${escapeHTML(event.action || 'activity')}</small>
+      </button>
+    `;
+  }).join('');
+  const pendingSummary = pending.length
+    ? `<button class="sidebar-command compact agent-pending-summary" disabled>
+        <span class="sidebar-command-icon pending">!</span>
+        <span class="sidebar-command-copy">
+          <strong>Pending graph refresh</strong>
+          <small>${pending.length} ${pending.length === 1 ? 'path' : 'paths'} not in graph yet</small>
+        </span>
+      </button>`
+    : '';
+  return `
+    <section class="agent-activity-panel">
+      <div class="agent-activity-heading">
+        <h4>Agent Activity</h4>
+        <span>${events.length} recent</span>
+      </div>
+      <div class="agent-activity-list">${eventRows || '<p class="muted">No mapped events yet.</p>'}</div>
+      ${pendingSummary}
+    </section>
+  `;
+}
+
+function wireAgentActivityPanel() {
+  nodeInfo.querySelectorAll('.agent-activity-row[data-node-id]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const node = nodeForId(button.dataset.nodeId);
+      if (node) {
+        selectNode(node, true);
+      }
+    });
+  });
+}
+
 function renderGraphStoryEntry() {
   const steps = graphStoryVisibleSteps();
   if (!steps.length) {
     return '';
   }
   return `
-    <section class="graph-story-entry">
-      <button class="primary-button" id="start-graph-story">Graph Story</button>
-      <p class="muted">${steps.length} guided steps through this visible graph.</p>
-    </section>
+    <button class="sidebar-command primary" id="start-graph-story">
+      <span class="sidebar-command-icon story">G</span>
+      <span class="sidebar-command-copy">
+        <strong>Graph Story</strong>
+        <small>${steps.length} guided steps through this graph</small>
+      </span>
+      <span class="sidebar-command-chevron">&gt;</span>
+    </button>
   `;
 }
 
@@ -2431,7 +2578,24 @@ function topNeighborsForNode(nodeId, limit = 12) {
 
 function renderLegend() {
   legend.innerHTML = '';
-  state.communities.forEach((community) => {
+  const visibleCommunities = state.legendExpanded
+    ? state.communities.slice(0, expandedCommunityLimit)
+    : state.communities.slice(0, collapsedCommunityLimit);
+  const summary = document.createElement('div');
+  summary.className = 'legend-summary';
+  summary.innerHTML = `
+    <span>${state.legendExpanded ? `Showing ${visibleCommunities.length}` : `Top ${visibleCommunities.length}`} of ${state.communities.length}</span>
+    ${state.communities.length > collapsedCommunityLimit
+      ? `<button id="legend-toggle">${state.legendExpanded ? 'Show less' : 'Show all'}</button>`
+      : ''}
+  `;
+  legend.appendChild(summary);
+  summary.querySelector('#legend-toggle')?.addEventListener('click', () => {
+    state.legendExpanded = !state.legendExpanded;
+    renderLegend();
+  });
+
+  visibleCommunities.forEach((community) => {
     const row = document.createElement('div');
     row.className = `legend-item ${state.communitySpotlightName === community.name || state.graphStoryActiveCommunityName === community.name ? 'spotlighted' : ''}`;
     row.innerHTML = `
@@ -2456,6 +2620,12 @@ function renderLegend() {
     });
     legend.appendChild(row);
   });
+  if (state.legendExpanded && state.communities.length > expandedCommunityLimit) {
+    const overflow = document.createElement('p');
+    overflow.className = 'legend-overflow muted';
+    overflow.textContent = `+${state.communities.length - expandedCommunityLimit} more communities hidden for performance`;
+    legend.appendChild(overflow);
+  }
 }
 
 function renderStats() {
@@ -3748,6 +3918,65 @@ function colorForEdge(edge) {
   return accentColorForCommunity(source?.community ?? target?.community ?? '');
 }
 
+function agentActivityColor(action) {
+  switch (String(action || '').toLowerCase()) {
+    case 'read':
+    case 'open':
+      return '#89b7ff';
+    case 'write':
+    case 'closeout':
+    case 'decision':
+      return '#f4b75e';
+    case 'create':
+      return '#80d596';
+    case 'delete':
+      return '#e9878f';
+    case 'focus':
+      return '#d8e4ff';
+    case 'graph_refresh':
+      return '#9bc7d9';
+    default:
+      return '#a9b5cf';
+  }
+}
+
+function applyAgentActivitySnapshot(snapshot = {}) {
+  const visibleNodeIds = state.visibleNodeIds || new Set();
+  const events = Array.isArray(snapshot.events) ? snapshot.events : [];
+  const normalizedEvents = events.slice(0, 80).map((event) => {
+    const nodeId = event.nodeId ? String(event.nodeId) : '';
+    const timestampMs = Date.parse(event.timestamp || event.timestampMs || '');
+    return {
+      id: String(event.id || `${event.agent || 'agent'}:${event.action || 'activity'}:${event.path || nodeId}`),
+      action: String(event.action || 'activity').toLowerCase(),
+      agent: String(event.agent || 'agent'),
+      path: String(event.path || ''),
+      nodeId,
+      label: String(event.label || event.path || nodeId || ''),
+      sourceFile: String(event.sourceFile || event.path || ''),
+      pending: Boolean(event.pending) || (nodeId ? !visibleNodeIds.has(nodeId) : true),
+      timestamp: event.timestamp,
+      timestampMs: Number.isFinite(timestampMs) ? timestampMs : 0
+    };
+  });
+  state.agentActivityEvents = normalizedEvents;
+  state.agentActivityNodeIds = new Set(
+    normalizedEvents
+      .filter((event) => event.nodeId && !event.pending && visibleNodeIds.has(event.nodeId))
+      .slice(0, 40)
+      .map((event) => event.nodeId)
+  );
+  state.agentActivityPendingPaths = Array.isArray(snapshot.pendingPaths)
+    ? snapshot.pendingPaths.slice(0, 24).map(String)
+    : normalizedEvents.filter((event) => event.pending && event.path).map((event) => event.path).slice(0, 24);
+  state.agentActivityLastEventAt = snapshot.lastEventAt || normalizedEvents[0]?.timestamp || null;
+  state.agentActivityTracingEnabled = Boolean(snapshot.tracingEnabled);
+  state.agentActivityEventLogPath = String(snapshot.eventLogPath || '');
+  renderSidebar();
+  updateHud();
+  requestRender();
+}
+
 function nodeForId(nodeId) {
   const index = state.nodeIndexById.get(nodeId);
   return Number.isInteger(index) ? state.visibleNodes[index] : null;
@@ -3955,6 +4184,10 @@ function installWindowAPI() {
     state.selectedNode = null;
     clearInteractiveModes();
     applyLens(true);
+  };
+
+  window.brainBarApplyAgentActivity = (snapshot) => {
+    applyAgentActivitySnapshot(snapshot || {});
   };
 
   window.brainBarResetCamera = resetCamera;

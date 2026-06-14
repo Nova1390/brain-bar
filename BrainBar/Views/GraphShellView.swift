@@ -30,82 +30,51 @@ struct GraphShellView: View {
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: 0) {
             header
-            graphSurface
-            footer
+            if mode.isFocus {
+                graphSurface
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                if shouldShowFooter {
+                    footer
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 7)
+                        .background {
+                            Rectangle()
+                                .fill(BrainBarTheme.chrome)
+                                .overlay(alignment: .top) {
+                                    Rectangle()
+                                        .fill(BrainBarTheme.borderSubtle)
+                                        .frame(height: 1)
+                                }
+                        }
+                }
+            } else {
+                VStack(spacing: 8) {
+                    graphSurface
+                    if shouldShowFooter {
+                        footer
+                    }
+                }
+                .padding(contentPadding)
+            }
         }
-        .padding(mode == .popover ? 12 : 16)
-        .background(.regularMaterial)
+        .background(BrainBarTheme.frame)
+        .ignoresSafeArea(.container, edges: mode.isFocus ? .top : [])
     }
 
     private var header: some View {
-        HStack(spacing: 10) {
-            Label("BrainBar", systemImage: "brain.head.profile")
-                .font(.headline.weight(.semibold))
-                .labelStyle(.titleAndIcon)
+        GraphChromeBar(
+            model: model,
+            mode: mode,
+            shows3DControls: model.graphViewMode == .threeD && usesExperimental3DRenderer,
+            openSettings: openSettings,
+            openFocusWindow: openFocusWindow
+        )
+    }
 
-            InlineStatus(text: model.status.gitDescription, systemImage: "point.3.connected.trianglepath.dotted")
-                .help("Git status for the configured vault")
-                .accessibilityHint("Git status for the configured vault, not the BrainBar app repository")
-
-            if model.status.graphHtmlExists {
-                if mode.isFocus {
-                    GraphViewModeControl(
-                        selectedMode: model.graphViewMode,
-                        onSelect: model.setGraphViewMode
-                    )
-                }
-
-                if model.graphViewMode == .threeD {
-                    GraphLensControl(
-                        selectedLens: model.graphSourceLens,
-                        onSelect: model.setGraphSourceLens
-                    )
-                }
-            }
-
-            Spacer(minLength: 12)
-
-            if mode.isFocus, model.status.graphHtmlExists {
-                GraphViewportControls(
-                    showsTopView: model.graphViewMode == .threeD && usesExperimental3DRenderer,
-                    onZoomOut: model.zoomGraphOut,
-                    onZoomIn: model.zoomGraphIn,
-                    onFit: model.fitGraphView,
-                    onTopView: model.resetGraph3DCamera,
-                    onResetTilt: model.resetGraph3DTilt
-                )
-            }
-
-            GraphActionMenu(model: model)
-
-            IconButton(systemImage: "gearshape", help: "Settings") {
-                openSettings()
-            }
-
-            if mode.showsFocusButton {
-                IconButton(systemImage: "macwindow", help: "Open Focus Window") {
-                    openFocusWindow()
-                }
-            }
-
-            IconButton(systemImage: model.isRefreshingGraph ? "hourglass" : "arrow.clockwise", help: "Refresh status") {
-                Task {
-                    await model.refreshStatus()
-                }
-            }
-        }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 7)
-        .background {
-            Capsule()
-                .fill(.black.opacity(mode.isFocus ? 0.10 : 0.08))
-                .overlay {
-                    Capsule()
-                        .stroke(.white.opacity(0.055), lineWidth: 1)
-                }
-        }
+    private var contentPadding: CGFloat {
+        mode == .popover ? 12 : 14
     }
 
     @ViewBuilder
@@ -135,14 +104,20 @@ struct GraphShellView: View {
                 }
             }
         } else if let graphURL = model.graphFileURL, let readAccessURL = model.graphReadAccessURL {
-            activeGraphView(graphURL: graphURL, readAccessURL: readAccessURL)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(.black.opacity(0.16))
-                .clipShape(.rect(cornerRadius: 10))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 10)
-                        .stroke(.white.opacity(0.08), lineWidth: 1)
-                }
+            if mode.isFocus {
+                activeGraphView(graphURL: graphURL, readAccessURL: readAccessURL)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(BrainBarTheme.canvasAdjacent)
+            } else {
+                activeGraphView(graphURL: graphURL, readAccessURL: readAccessURL)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(BrainBarTheme.canvasAdjacent)
+                    .clipShape(.rect(cornerRadius: 10))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 10)
+                            .stroke(BrainBarTheme.border, lineWidth: 1)
+                    }
+            }
         } else {
             EmptyGraphStateView(
                 title: "Graph unavailable",
@@ -167,6 +142,7 @@ struct GraphShellView: View {
                 sourceLens: model.graphSourceLens,
                 resetCameraToken: model.graph3DResetToken,
                 viewportCommand: model.graphViewportCommand,
+                agentActivitySnapshot: model.agentActivitySnapshot,
                 onDiagnostic: model.reportGraphRendererIssue,
                 onOpenNode: model.openGraphNode
             )
@@ -178,6 +154,7 @@ struct GraphShellView: View {
                     reloadToken: model.graphReloadToken,
                     sourceLens: model.graphSourceLens,
                     reviewQueueStatus: model.reviewQueueStatus,
+                    agentActivitySnapshot: model.agentActivitySnapshot,
                     viewportCommand: model.graphViewportCommand,
                     onOpenNode: model.openGraphNode
                 )
@@ -198,41 +175,41 @@ struct GraphShellView: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 14) {
                 InlineStatus(text: vaultDisplayName, systemImage: "externaldrive")
-                Button {
-                    Task {
-                        await model.refreshGraph()
-                    }
-                } label: {
-                    InlineStatus(text: model.graphRefreshSummary, systemImage: "arrow.triangle.2.circlepath")
-                }
-                .buttonStyle(.plain)
-                .disabled(model.isRefreshingGraph)
-                .help("Refresh Graphify graph")
-                if model.config.commands.brainCheck == nil {
-                    InlineStatus(text: "Brain Check not configured", systemImage: "checkmark.seal")
-                } else {
-                    InlineStatus(text: model.lastBrainCheck?.summary ?? "Brain Check not run", systemImage: "checkmark.seal")
-                }
-                if !model.config.reviewQueue.isEnabled {
+                if model.isRefreshingGraph {
                     Button {
-                        openSettings()
+                        Task {
+                            await model.refreshGraph()
+                        }
                     } label: {
-                        InlineStatus(text: "Configure Review Queue", systemImage: "tray.full")
+                        InlineStatus(text: model.graphRefreshSummary, systemImage: "arrow.triangle.2.circlepath")
                     }
                     .buttonStyle(.plain)
-                    .help("Configure Review Queue")
+                    .disabled(model.isRefreshingGraph)
+                    .help("Refresh Graphify graph")
+                }
+                if model.config.commands.brainCheck != nil, model.lastBrainCheck != nil {
+                    InlineStatus(text: model.lastBrainCheck?.summary ?? "Brain Check not run", systemImage: "checkmark.seal")
                 }
                 Spacer(minLength: 0)
-            }
-
-            if model.config.reviewQueue.isEnabled {
-                ReviewQueuePanel(model: model, onConfigure: openSettings)
             }
 
             if let error = model.errorMessage, !error.isEmpty {
                 ErrorBanner(message: error)
             }
         }
+    }
+
+    private var shouldShowFooter: Bool {
+        if let error = model.errorMessage, !error.isEmpty {
+            return true
+        }
+        if model.isRefreshingGraph {
+            return true
+        }
+        if model.config.commands.brainCheck != nil, model.lastBrainCheck != nil {
+            return true
+        }
+        return false
     }
 
     private var vaultDisplayName: String {
@@ -261,15 +238,120 @@ struct FocusGraphView: View {
     var body: some View {
         GraphShellView(model: model, mode: .focus)
             .frame(minWidth: 900, minHeight: 560)
+            .background(GraphWindowChromeConfigurator())
             .task {
                 await model.refreshStatus()
             }
     }
 }
 
+private struct GraphWindowChromeConfigurator: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView(frame: .zero)
+        configure(window: view.window)
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        configure(window: nsView.window)
+    }
+
+    private func configure(window: NSWindow?) {
+        DispatchQueue.main.async {
+            guard let window else {
+                return
+            }
+            window.titleVisibility = .hidden
+            window.titlebarAppearsTransparent = true
+            window.titlebarSeparatorStyle = .none
+            window.isMovableByWindowBackground = true
+            window.styleMask.insert(.fullSizeContentView)
+        }
+    }
+}
+
+private struct GraphChromeBar: View {
+    let model: AppModel
+    let mode: GraphShellView.Mode
+    let shows3DControls: Bool
+    let openSettings: () -> Void
+    let openFocusWindow: () -> Void
+
+    var body: some View {
+        HStack(spacing: 10) {
+            HStack(spacing: 8) {
+                VaultStatusText(text: model.status.gitDescription)
+                    .help("Git status for the configured vault")
+                    .accessibilityHint("Git status for the configured vault, not the BrainBar app repository")
+            }
+            .layoutPriority(1)
+
+            if mode.isFocus, model.status.graphHtmlExists {
+                GraphModeSwitcher(
+                    selectedMode: model.graphViewMode,
+                    onSelect: model.setGraphViewMode
+                )
+            }
+
+            if model.status.graphHtmlExists, model.graphViewMode == .threeD {
+                GraphSourceLensMenu(
+                    selectedLens: model.graphSourceLens,
+                    onSelect: model.setGraphSourceLens
+                )
+            }
+
+            Spacer(minLength: 10)
+
+            if mode.isFocus, model.status.graphHtmlExists {
+                GraphViewportControls(
+                    showsTopView: shows3DControls,
+                    onZoomOut: model.zoomGraphOut,
+                    onZoomIn: model.zoomGraphIn,
+                    onFit: model.fitGraphView,
+                    onTopView: model.resetGraph3DCamera,
+                    onResetTilt: model.resetGraph3DTilt
+                )
+            }
+
+            HStack(spacing: 4) {
+                GraphActionMenu(model: model)
+
+                ChromeIconButton(systemImage: "gearshape", help: "Settings") {
+                    openSettings()
+                }
+
+                if mode.showsFocusButton {
+                    ChromeIconButton(systemImage: "macwindow", help: "Open Focus Window") {
+                        openFocusWindow()
+                    }
+                }
+
+                ChromeIconButton(systemImage: model.isRefreshingGraph ? "hourglass" : "arrow.clockwise", help: "Refresh status") {
+                    Task {
+                        await model.refreshStatus()
+                    }
+                }
+            }
+        }
+        .padding(.leading, mode.isFocus ? 84 : 12)
+        .padding(.trailing, mode.isFocus ? 14 : 12)
+        .frame(height: mode.isFocus ? 40 : nil)
+        .background {
+            Rectangle()
+                .fill(BrainBarTheme.chrome)
+                .overlay(alignment: .bottom) {
+                    Rectangle()
+                        .fill(BrainBarTheme.borderSubtle)
+                        .frame(height: 1)
+                }
+        }
+    }
+}
+
 private struct GraphActionMenu: View {
     let model: AppModel
     @Environment(\.openWindow) private var openWindow
+    @State private var isReviewQueuePopoverPresented = false
 
     var body: some View {
         Menu {
@@ -341,32 +423,10 @@ private struct GraphActionMenu: View {
             }
 
             Section("Checks") {
-                if model.config.reviewQueue.isEnabled {
-                    Button {
-                        Task {
-                            await model.refreshReviewQueueStatus()
-                        }
-                    } label: {
-                        Label(model.isCheckingReviewQueue ? "Checking Review Queue..." : "Check Review Queue", systemImage: "tray.full")
-                    }
-                    .disabled(model.isCheckingReviewQueue || model.config.reviewQueue.preflightCommand == nil)
-
-                    if model.config.reviewQueue.manualCommand != nil {
-                        Button {
-                            Task {
-                                await model.runReviewQueueAction()
-                            }
-                        } label: {
-                            Label(model.isRunningReviewQueueAction ? "Running Review Queue Action..." : "Run Review Queue Action", systemImage: "play.circle")
-                        }
-                        .disabled(model.isRunningReviewQueueAction)
-                    }
-                } else {
-                    Button {
-                        openSettings()
-                    } label: {
-                        Label("Configure Review Queue", systemImage: "tray.full")
-                    }
+                Button {
+                    isReviewQueuePopoverPresented = true
+                } label: {
+                    Label("Review Queue...", systemImage: "tray.full")
                 }
 
                 if model.config.commands.brainCheck == nil {
@@ -415,11 +475,48 @@ private struct GraphActionMenu: View {
                 NSApplication.shared.terminate(nil)
             }
         } label: {
-            Image(systemName: "ellipsis.circle")
+            ZStack(alignment: .topTrailing) {
+                Image(systemName: "ellipsis.circle")
+                    .font(.system(size: 15, weight: .medium))
+                    .frame(width: 28, height: 28)
+                    .contentShape(.rect(cornerRadius: 8))
+
+                if let badgeColor = reviewQueueBadgeColor {
+                    Circle()
+                        .fill(badgeColor)
+                        .frame(width: 6, height: 6)
+                        .overlay {
+                            Circle()
+                                .stroke(BrainBarTheme.chrome, lineWidth: 1.2)
+                        }
+                        .offset(x: -2, y: 3)
+                }
+            }
         }
         .menuStyle(.button)
-        .buttonStyle(.borderless)
+        .buttonStyle(.plain)
+        .foregroundStyle(BrainBarTheme.secondaryText)
+        .background(BrainBarTheme.panel.opacity(0.001), in: .rect(cornerRadius: 8))
         .help("Actions")
+        .popover(isPresented: $isReviewQueuePopoverPresented, arrowEdge: .top) {
+            ReviewQueuePopover(model: model, onConfigure: openSettings)
+                .frame(width: 360)
+        }
+    }
+
+    private var reviewQueueBadgeColor: Color? {
+        guard model.config.reviewQueue.isEnabled,
+              model.config.reviewQueue.preflightCommand != nil
+        else {
+            return nil
+        }
+        if model.reviewQueueStatus.errorMessage != nil {
+            return BrainBarTheme.error
+        }
+        if let count = model.reviewQueueStatus.pendingCount, count > 0 {
+            return BrainBarTheme.warning
+        }
+        return nil
     }
 
     private func openSettings() {
@@ -433,108 +530,211 @@ private struct GraphActionMenu: View {
     }
 }
 
-private struct ReviewQueuePanel: View {
+private struct ReviewQueuePopover: View {
     let model: AppModel
     let onConfigure: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            HStack(spacing: 10) {
-                InlineStatus(text: "Review Queue", systemImage: "tray.full")
-                Text(summaryText)
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Text("Review Queue")
+                    .font(.headline.weight(.semibold))
+                    .foregroundStyle(BrainBarTheme.primaryText)
+
+                Spacer(minLength: 0)
+
+                Text(statusPillText)
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(statusColor)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(statusColor.opacity(0.12), in: .capsule)
+                    .overlay {
+                        Capsule()
+                            .stroke(statusColor.opacity(0.18), lineWidth: 1)
+                    }
+            }
+
+            VStack(alignment: .leading, spacing: 5) {
+                Text(summaryText)
+                    .font(.callout.weight(.medium))
+                    .foregroundStyle(BrainBarTheme.primaryText)
                     .lineLimit(1)
                     .truncationMode(.tail)
 
                 if let checkedAt = model.reviewQueueStatus.lastCheckedAt {
                     Text("checked \(checkedAt.formattedRelative)")
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(BrainBarTheme.secondaryText)
                         .lineLimit(1)
                 }
+            }
 
-                Spacer(minLength: 0)
-
-                if model.config.reviewQueue.preflightCommand == nil {
+            HStack(spacing: 8) {
+                if !model.config.reviewQueue.isEnabled || model.config.reviewQueue.preflightCommand == nil {
                     Button("Configure") {
                         onConfigure()
                     }
-                    .buttonStyle(.borderless)
+                    .buttonStyle(.borderedProminent)
                     .controlSize(.small)
                 } else {
-                    Button(model.isCheckingReviewQueue ? "Checking..." : "Check") {
+                    Button(model.isCheckingReviewQueue ? "Checking..." : "Check now") {
                         Task {
                             await model.refreshReviewQueueStatus()
                         }
                     }
-                    .buttonStyle(.borderless)
+                    .buttonStyle(.borderedProminent)
                     .controlSize(.small)
                     .disabled(model.isCheckingReviewQueue)
                 }
 
                 if model.config.reviewQueue.manualCommand != nil {
-                    Button(model.isRunningReviewQueueAction ? "Running..." : "Run Action") {
+                    Button(model.isRunningReviewQueueAction ? "Running..." : "Run action") {
                         Task {
                             await model.runReviewQueueAction()
                         }
                     }
-                    .buttonStyle(.borderless)
+                    .buttonStyle(.bordered)
                     .controlSize(.small)
                     .disabled(model.isRunningReviewQueueAction)
                 }
+
+                Spacer(minLength: 0)
             }
 
-            if !model.reviewQueueStatus.items.isEmpty {
-                VStack(alignment: .leading, spacing: 4) {
+            if model.reviewQueueStatus.items.isEmpty {
+                Text(emptyStateText)
+                    .font(.caption)
+                    .foregroundStyle(BrainBarTheme.secondaryText)
+                    .padding(.vertical, 2)
+            } else {
+                VStack(alignment: .leading, spacing: 8) {
                     ForEach(model.reviewQueueStatus.items.prefix(4)) { item in
-                        HStack(spacing: 6) {
-                            Circle()
-                                .fill(.secondary.opacity(0.55))
-                                .frame(width: 4, height: 4)
-                            Text(item.title)
-                                .font(.caption)
-                                .foregroundStyle(.primary.opacity(0.9))
-                                .lineLimit(1)
-                            if let detail = item.detail {
-                                Text(detail)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(1)
-                            }
-                        }
+                        ReviewQueueItemRow(item: item, model: model)
                     }
                 }
-                .padding(.leading, 2)
             }
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .background(.black.opacity(0.12), in: .rect(cornerRadius: 8))
-        .overlay {
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(.white.opacity(0.06), lineWidth: 1)
-        }
+        .padding(16)
+        .background(BrainBarTheme.chrome)
     }
 
     private var statusColor: Color {
-        if model.config.reviewQueue.preflightCommand == nil {
-            return .secondary
+        if !model.config.reviewQueue.isEnabled || model.config.reviewQueue.preflightCommand == nil {
+            return BrainBarTheme.secondaryText
         }
         if model.reviewQueueStatus.errorMessage != nil {
-            return .red
+            return BrainBarTheme.error
         }
         if let count = model.reviewQueueStatus.pendingCount, count > 0 {
-            return .orange
+            return BrainBarTheme.warning
         }
-        return .secondary
+        if model.reviewQueueStatus.pendingCount == 0 {
+            return BrainBarTheme.success
+        }
+        return BrainBarTheme.secondaryText
+    }
+
+    private var statusPillText: String {
+        if !model.config.reviewQueue.isEnabled {
+            return "Off"
+        }
+        if model.config.reviewQueue.preflightCommand == nil {
+            return "Setup"
+        }
+        if model.reviewQueueStatus.errorMessage != nil {
+            return "Error"
+        }
+        if let count = model.reviewQueueStatus.pendingCount, count > 0 {
+            return "\(count)"
+        }
+        if model.reviewQueueStatus.pendingCount == 0 {
+            return "Clear"
+        }
+        return "Idle"
     }
 
     private var summaryText: String {
+        if !model.config.reviewQueue.isEnabled {
+            return "Review Queue is off"
+        }
         if model.config.reviewQueue.preflightCommand == nil {
             return "Status command not configured"
         }
         return model.reviewQueueStatus.summary
+    }
+
+    private var emptyStateText: String {
+        if !model.config.reviewQueue.isEnabled {
+            return "Enable Review Queue in Settings to run a local status command."
+        }
+        if model.config.reviewQueue.preflightCommand == nil {
+            return "Add a status command in Settings."
+        }
+        if model.reviewQueueStatus.pendingCount == 0 {
+            return "No review items."
+        }
+        return "No review items loaded."
+    }
+}
+
+private struct ReviewQueueItemRow: View {
+    let item: ReviewQueueItem
+    let model: AppModel
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 8) {
+            Circle()
+                .fill(BrainBarTheme.secondaryText.opacity(0.55))
+                .frame(width: 5, height: 5)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(item.title)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(BrainBarTheme.primaryText.opacity(0.88))
+                    .lineLimit(1)
+                if let detail = item.detail {
+                    Text(detail)
+                        .font(.caption)
+                        .foregroundStyle(BrainBarTheme.secondaryText)
+                        .lineLimit(1)
+                }
+            }
+
+            Spacer(minLength: 0)
+
+            if canRevealIn3D {
+                Button("Reveal") {
+                    model.openGraphNode(GraphNodeOpenRequest(
+                        action: "revealIn3D",
+                        nodeId: item.nodeId?.isEmpty == false ? item.nodeId! : (item.sourceFile ?? ""),
+                        label: item.title,
+                        sourceFile: item.sourceFile,
+                        communityId: nil,
+                        targetNodeId: nil
+                    ))
+                }
+                .buttonStyle(.borderless)
+                .controlSize(.small)
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(BrainBarTheme.panel.opacity(0.58), in: .rect(cornerRadius: 8))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(BrainBarTheme.borderSubtle, lineWidth: 1)
+        }
+    }
+
+    private var canRevealIn3D: Bool {
+        if let nodeId = item.nodeId, !nodeId.isEmpty {
+            return true
+        }
+        if let sourceFile = item.sourceFile, !sourceFile.isEmpty {
+            return true
+        }
+        return false
     }
 }
 
@@ -664,110 +864,111 @@ private struct SystemStatusMenu: View {
     }
 }
 
-private struct GraphLensControl: View {
+private struct GraphSourceLensMenu: View {
     let selectedLens: GraphSourceLens
     let onSelect: (GraphSourceLens) -> Void
 
     var body: some View {
-        HStack(spacing: 2) {
+        Menu {
             ForEach(GraphSourceLens.allCases) { lens in
                 Button {
                     onSelect(lens)
                 } label: {
-                    Text(lens.label)
-                        .font(.caption.weight(.semibold))
-                        .lineLimit(1)
-                        .frame(minWidth: 54)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 5)
-                        .contentShape(.rect)
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(selectedLens == lens ? .primary : .secondary)
-                .background {
-                    if selectedLens == lens {
-                        Capsule()
-                            .fill(
-                                LinearGradient(
-                                    colors: [
-                                        .white.opacity(0.20),
-                                        Color(red: 0.43, green: 0.52, blue: 0.88).opacity(0.18)
-                                    ],
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                )
-                            )
-                            .overlay {
-                                Capsule()
-                                    .stroke(.white.opacity(0.15), lineWidth: 1)
-                            }
-                            .shadow(color: .black.opacity(0.18), radius: 8, y: 2)
+                    HStack {
+                        Image(systemName: "checkmark")
+                            .opacity(selectedLens == lens ? 1 : 0)
+                        Text(lens.label)
                     }
                 }
                 .help(lens.help)
-                .accessibilityLabel(lens.label)
-                .accessibilityHint(lens.help)
             }
+        } label: {
+            HStack(spacing: 6) {
+                Text("Source")
+                    .foregroundStyle(BrainBarTheme.secondaryText)
+                Text(selectedLens.label)
+                    .foregroundStyle(BrainBarTheme.primaryText.opacity(0.92))
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(BrainBarTheme.mutedText)
+            }
+            .font(.system(size: 12, weight: .semibold))
+            .lineLimit(1)
+            .padding(.horizontal, 8)
+            .frame(height: 25)
+            .contentShape(.rect(cornerRadius: 7))
         }
-        .padding(3)
-        .background(.thinMaterial.opacity(0.9), in: Capsule())
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .background(BrainBarTheme.panel.opacity(0.24), in: .rect(cornerRadius: 7))
         .overlay {
-            Capsule()
-                .stroke(.white.opacity(0.09), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 7)
+                .stroke(BrainBarTheme.borderSubtle, lineWidth: 1)
         }
+        .help("Source lens: \(selectedLens.label)")
     }
 }
 
-private struct GraphViewModeControl: View {
+private struct GraphModeSwitcher: View {
     let selectedMode: GraphViewMode
     let onSelect: (GraphViewMode) -> Void
 
     var body: some View {
         HStack(spacing: 2) {
             ForEach(GraphViewMode.allCases) { mode in
-                Button {
-                    onSelect(mode)
-                } label: {
-                    Text(mode.label)
-                        .font(.caption.weight(.semibold))
-                        .lineLimit(1)
-                        .frame(minWidth: 34)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 5)
-                        .contentShape(.rect)
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(selectedMode == mode ? .primary : .secondary)
-                .background {
-                    if selectedMode == mode {
-                        Capsule()
-                            .fill(
-                                LinearGradient(
-                                    colors: [
-                                        .white.opacity(0.20),
-                                        Color(red: 0.43, green: 0.52, blue: 0.88).opacity(0.18)
-                                    ],
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                )
-                            )
-                            .overlay {
-                                Capsule()
-                                    .stroke(.white.opacity(0.15), lineWidth: 1)
-                            }
-                            .shadow(color: .black.opacity(0.18), radius: 8, y: 2)
-                    }
-                }
-                .help(mode.help)
-                .accessibilityLabel(mode.label)
-                .accessibilityHint(mode.help)
+                GraphModeButton(
+                    mode: mode,
+                    isSelected: selectedMode == mode,
+                    onSelect: onSelect
+                )
             }
         }
-        .padding(3)
-        .background(.thinMaterial.opacity(0.9), in: Capsule())
+        .padding(1)
+        .background(BrainBarTheme.panel.opacity(0.24), in: .rect(cornerRadius: 7))
         .overlay {
-            Capsule()
-                .stroke(.white.opacity(0.09), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 7)
+                .stroke(BrainBarTheme.borderSubtle, lineWidth: 1)
+        }
+    }
+}
+
+private struct GraphModeButton: View {
+    let mode: GraphViewMode
+    let isSelected: Bool
+    let onSelect: (GraphViewMode) -> Void
+
+    var body: some View {
+        Button {
+            onSelect(mode)
+        } label: {
+            Text(mode.label)
+                .font(.system(size: 12, weight: .semibold))
+                .lineLimit(1)
+                .frame(width: 35, height: 23)
+                .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .foregroundColor(isSelected ? BrainBarTheme.primaryText : BrainBarTheme.secondaryText)
+        .background {
+            GraphModeSelectionBackground(isSelected: isSelected)
+        }
+        .help(mode.help)
+        .accessibilityLabel(mode.label)
+        .accessibilityHint(mode.help)
+    }
+}
+
+private struct GraphModeSelectionBackground: View {
+    let isSelected: Bool
+
+    var body: some View {
+        if isSelected {
+            RoundedRectangle(cornerRadius: 6)
+                .fill(BrainBarTheme.accent.opacity(0.13))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(BrainBarTheme.accent.opacity(0.14), lineWidth: 1)
+                }
         }
     }
 }
@@ -782,12 +983,12 @@ private struct GraphViewportControls: View {
 
     var body: some View {
         HStack(spacing: 4) {
-            IconButton(systemImage: "minus.magnifyingglass", help: "Zoom out", action: onZoomOut)
-            IconButton(systemImage: "plus.magnifyingglass", help: "Zoom in", action: onZoomIn)
-            IconButton(systemImage: "arrow.up.left.and.down.right.magnifyingglass", help: "Fit graph", action: onFit)
+            ChromeIconButton(systemImage: "minus.magnifyingglass", help: "Zoom out", action: onZoomOut)
+            ChromeIconButton(systemImage: "plus.magnifyingglass", help: "Zoom in", action: onZoomIn)
+            ChromeIconButton(systemImage: "arrow.up.left.and.down.right.magnifyingglass", help: "Fit graph", action: onFit)
             if showsTopView {
-                IconButton(systemImage: "viewfinder", help: "Top view", action: onTopView)
-                IconButton(systemImage: "rotate.3d", help: "Reset tilt", action: onResetTilt)
+                ChromeIconButton(systemImage: "viewfinder", help: "Top view", action: onTopView)
+                ChromeIconButton(systemImage: "rotate.3d", help: "Reset tilt", action: onResetTilt)
             }
         }
         .padding(.horizontal, 2)
@@ -798,13 +999,13 @@ private struct ThreeDFallbackBadge: View {
     var body: some View {
         Label("3D paused", systemImage: "pause.circle")
             .font(.caption.weight(.semibold))
-            .foregroundStyle(.secondary.opacity(0.9))
+            .foregroundStyle(BrainBarTheme.secondaryText)
             .padding(.horizontal, 10)
             .padding(.vertical, 7)
-            .background(.thinMaterial, in: Capsule())
+            .background(BrainBarTheme.elevated.opacity(0.62), in: Capsule())
             .overlay {
                 Capsule()
-                    .stroke(.white.opacity(0.08), lineWidth: 1)
+                    .stroke(BrainBarTheme.border, lineWidth: 1)
             }
             .help("Using the stable graph renderer while the 3D renderer is paused.")
     }
@@ -818,7 +1019,7 @@ private struct InlineStatus: View {
         if !text.isEmpty {
             Label(text, systemImage: systemImage)
                 .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary.opacity(0.88))
+                .foregroundStyle(BrainBarTheme.secondaryText)
                 .symbolRenderingMode(.hierarchical)
                 .lineLimit(1)
                 .truncationMode(.middle)
@@ -826,7 +1027,27 @@ private struct InlineStatus: View {
     }
 }
 
-private struct IconButton: View {
+private struct VaultStatusText: View {
+    let text: String
+
+    var body: some View {
+        if !text.isEmpty {
+            HStack(spacing: 5) {
+                Image(systemName: "point.3.connected.trianglepath.dotted")
+                    .font(.system(size: 10, weight: .medium))
+                    .symbolRenderingMode(.hierarchical)
+                Text(text)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundStyle(BrainBarTheme.secondaryText)
+            .accessibilityLabel(text)
+        }
+    }
+}
+
+private struct ChromeIconButton: View {
     let systemImage: String
     let help: String
     let action: () -> Void
@@ -835,29 +1056,12 @@ private struct IconButton: View {
         Button(action: action) {
             Image(systemName: systemImage)
                 .font(.system(size: 14, weight: .medium))
-                .frame(width: 28, height: 28)
+                .frame(width: 27, height: 27)
+                .contentShape(.rect(cornerRadius: 7))
         }
         .buttonStyle(.plain)
-        .foregroundStyle(.secondary.opacity(0.92))
-        .background {
-            Circle()
-                .fill(.thinMaterial)
-                .overlay {
-                    Circle()
-                        .fill(
-                            LinearGradient(
-                                colors: [.white.opacity(0.08), .white.opacity(0.015)],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
-                }
-        }
-        .overlay {
-            Circle()
-                .stroke(.white.opacity(0.09), lineWidth: 1)
-        }
-        .shadow(color: .black.opacity(0.16), radius: 7, y: 2)
+        .foregroundStyle(BrainBarTheme.secondaryText)
+        .background(BrainBarTheme.panel.opacity(0.001), in: .rect(cornerRadius: 7))
         .help(help)
     }
 }
@@ -888,7 +1092,7 @@ private struct EmptyGraphStateView: View {
                         HStack(spacing: 5) {
                             Text("\(index + 1)")
                                 .font(.caption2.weight(.bold))
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(BrainBarTheme.secondaryText)
                                 .frame(width: 17, height: 17)
                                 .background(.white.opacity(0.08), in: Circle())
                             Text(step)
@@ -908,10 +1112,10 @@ private struct EmptyGraphStateView: View {
         }
         .padding(28)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(.black.opacity(0.20), in: .rect(cornerRadius: 10))
+        .background(BrainBarTheme.panel.opacity(0.78), in: .rect(cornerRadius: 10))
         .overlay {
             RoundedRectangle(cornerRadius: 10)
-                .stroke(.white.opacity(0.08), lineWidth: 1)
+                .stroke(BrainBarTheme.border, lineWidth: 1)
         }
     }
 }
@@ -922,16 +1126,16 @@ private struct ErrorBanner: View {
     var body: some View {
         Label(message, systemImage: "exclamationmark.triangle.fill")
             .font(.caption)
-            .foregroundStyle(.red)
+            .foregroundStyle(BrainBarTheme.error)
             .lineLimit(2)
             .textSelection(.enabled)
             .padding(.horizontal, 10)
             .padding(.vertical, 7)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(.red.opacity(0.10), in: .rect(cornerRadius: 8))
+            .background(BrainBarTheme.error.opacity(0.10), in: .rect(cornerRadius: 8))
             .overlay {
                 RoundedRectangle(cornerRadius: 8)
-                    .stroke(.red.opacity(0.16), lineWidth: 1)
+                    .stroke(BrainBarTheme.error.opacity(0.16), lineWidth: 1)
             }
     }
 }

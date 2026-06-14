@@ -1,11 +1,25 @@
 :root {
   color-scheme: dark;
+  --bb-frame: #19181b;
+  --bb-chrome: #202024;
+  --bb-panel: #151722;
+  --bb-elevated: #1b1d2a;
+  --bb-canvas-adjacent: #070b13;
+  --bb-border: rgba(255, 255, 255, 0.06);
+  --bb-border-subtle: rgba(255, 255, 255, 0.035);
+  --bb-text: #f2f1f4;
+  --bb-text-secondary: rgba(167, 163, 173, 0.86);
+  --bb-text-muted: rgba(112, 108, 120, 0.72);
+  --bb-accent: #7fa0ff;
+  --bb-warning: #f5b85b;
+  --bb-success: #7fd89b;
+  --bb-error: #ff6b6b;
 }
 
 html,
 body {
-  background: #05070d !important;
-  color: rgba(244, 246, 255, 0.88) !important;
+  background: var(--bb-frame) !important;
+  color: var(--bb-text) !important;
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", "Segoe UI", sans-serif !important;
   letter-spacing: 0 !important;
 }
@@ -20,21 +34,26 @@ body {
 
 #sidebar {
   width: clamp(260px, 23vw, 320px) !important;
-  background:
-    linear-gradient(180deg, rgba(16, 18, 30, 0.96), rgba(8, 10, 18, 0.94)) !important;
-  border-left: 1px solid rgba(210, 222, 255, 0.08) !important;
-  box-shadow:
-    -1px 0 0 rgba(130, 150, 255, 0.06),
-    -26px 0 70px rgba(0, 0, 0, 0.34) !important;
+  background: rgba(21, 23, 34, 0.96) !important;
+  border-left: 1px solid var(--bb-border-subtle) !important;
+  box-shadow: -1px 0 0 rgba(255, 255, 255, 0.02) !important;
   backdrop-filter: blur(24px) saturate(1.16);
   -webkit-backdrop-filter: blur(24px) saturate(1.16);
+}
+
+html.brainbar-graph-preparing #sidebar {
+  opacity: 0 !important;
+}
+
+html.brainbar-graph-ready #sidebar {
+  opacity: 1 !important;
 }
 
 #search-wrap,
 #info-panel,
 #legend-wrap,
 #stats {
-  border-color: rgba(218, 226, 255, 0.075) !important;
+  border-color: var(--bb-border-subtle) !important;
 }
 
 #search-wrap {
@@ -53,21 +72,18 @@ body {
 #search {
   min-height: 40px !important;
   padding: 10px 13px !important;
-  border: 1px solid rgba(166, 181, 226, 0.22) !important;
+  border: 1px solid rgba(127, 160, 255, 0.22) !important;
   border-radius: 12px !important;
-  background:
-    linear-gradient(180deg, rgba(10, 13, 24, 0.86), rgba(5, 7, 14, 0.78)) !important;
-  color: rgba(244, 246, 255, 0.92) !important;
+  background: rgba(7, 11, 19, 0.84) !important;
+  color: var(--bb-text) !important;
   font-size: 14px !important;
   font-weight: 520 !important;
   outline: none !important;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.05),
-    0 12px 32px rgba(0, 0, 0, 0.18) !important;
+  box-shadow: none !important;
 }
 
 #search:focus {
-  border-color: rgba(184, 199, 245, 0.50) !important;
+  border-color: rgba(127, 160, 255, 0.50) !important;
   box-shadow:
     0 0 0 3px rgba(126, 150, 255, 0.10),
     inset 0 1px 0 rgba(255, 255, 255, 0.04) !important;
@@ -78,9 +94,9 @@ body {
   max-height: 260px;
   overflow: auto;
   padding: 5px;
-  border: 1px solid rgba(218, 226, 255, 0.10);
+  border: 1px solid var(--bb-border);
   border-radius: 11px;
-  background: rgba(7, 9, 17, 0.82);
+  background: rgba(21, 23, 34, 0.92);
 }
 
 #brainbar-search-results[hidden] {
@@ -92,10 +108,10 @@ body {
   width: 100%;
   margin: 3px 0;
   padding: 7px 8px;
-  border: 1px solid rgba(218, 226, 255, 0.085);
+  border: 1px solid var(--bb-border);
   border-radius: 9px;
-  background: rgba(244, 246, 255, 0.04);
-  color: rgba(248, 250, 255, 0.92);
+  background: rgba(27, 29, 42, 0.78);
+  color: var(--bb-text);
   text-align: left;
   cursor: pointer;
 }
@@ -117,7 +133,7 @@ body {
 #info-panel h3,
 #legend-wrap h3 {
   margin-bottom: 14px !important;
-  color: rgba(244, 246, 255, 0.54) !important;
+  color: var(--bb-text-muted) !important;
   font-size: 11px !important;
   font-weight: 720 !important;
   letter-spacing: 0.13em !important;
@@ -126,14 +142,14 @@ body {
 #node-info,
 #legend,
 #stats {
-  color: rgba(244, 246, 255, 0.78) !important;
+  color: var(--bb-text-secondary) !important;
   font-size: 13px !important;
 }
 
 #stats {
   padding: 11px 16px !important;
-  background: rgba(7, 9, 17, 0.52) !important;
-  color: rgba(244, 246, 255, 0.62) !important;
+  background: rgba(21, 23, 34, 0.72) !important;
+  color: var(--bb-text-secondary) !important;
   font-size: 12px !important;
   font-weight: 650 !important;
   letter-spacing: 0 !important;
@@ -149,7 +165,7 @@ body {
 
 .legend-item:hover,
 .search-item:hover {
-  background: rgba(210, 222, 255, 0.065) !important;
+  background: rgba(127, 160, 255, 0.10) !important;
 }
 
 .legend-cb,
@@ -157,15 +173,15 @@ body {
   width: 15px !important;
   height: 15px !important;
   border-radius: 5px !important;
-  border: 1px solid rgba(244, 246, 255, 0.22) !important;
-  background: rgba(244, 246, 255, 0.055) !important;
+  border: 1px solid var(--bb-border) !important;
+  background: rgba(27, 29, 42, 0.76) !important;
   box-shadow: none !important;
 }
 
 .legend-cb:checked,
 #select-all-cb:checked {
-  border-color: rgba(135, 161, 255, 0.88) !important;
-  background: rgba(126, 154, 255, 0.84) !important;
+  border-color: rgba(127, 160, 255, 0.88) !important;
+  background: rgba(127, 160, 255, 0.78) !important;
 }
 
 .legend-cb:checked::after,
@@ -187,14 +203,14 @@ body {
 .neighbor-link {
   margin: 4px 0 !important;
   padding: 7px 9px !important;
-  border-left-width: 3px !important;
+  border-left-width: 1px !important;
   border-radius: 8px !important;
-  background: rgba(255, 255, 255, 0.045) !important;
-  color: rgba(244, 246, 255, 0.86) !important;
+  background: rgba(27, 29, 42, 0.72) !important;
+  color: var(--bb-text-secondary) !important;
 }
 
 .neighbor-link:hover {
-  background: rgba(255, 255, 255, 0.075) !important;
+  background: rgba(127, 160, 255, 0.10) !important;
 }
 
 #brainbar-open-note {
@@ -204,19 +220,19 @@ body {
   min-height: 34px;
   margin: 10px 0 4px;
   padding: 8px 13px;
-  border: 1px solid rgba(169, 184, 255, 0.34);
+  border: 1px solid rgba(127, 160, 255, 0.30);
   border-radius: 10px;
-  background: linear-gradient(180deg, rgba(144, 162, 255, 0.24), rgba(112, 132, 228, 0.15));
-  color: rgba(248, 250, 255, 0.96);
+  background: rgba(127, 160, 255, 0.16);
+  color: var(--bb-text);
   font: 720 13px -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
   letter-spacing: 0;
   cursor: pointer;
-  box-shadow: 0 8px 22px rgba(82, 98, 185, 0.16);
+  box-shadow: none;
 }
 
 #brainbar-open-note:hover {
-  border-color: rgba(190, 201, 255, 0.46);
-  background: linear-gradient(180deg, rgba(164, 180, 255, 0.30), rgba(125, 146, 238, 0.20));
+  border-color: rgba(127, 160, 255, 0.42);
+  background: rgba(127, 160, 255, 0.22);
 }
 
 #brainbar-focus-controls,
@@ -232,10 +248,10 @@ body {
 #brainbar-workflow-toolbar button,
 #brainbar-workflow-panel button,
 #brainbar-health-panel button {
-  border: 1px solid rgba(220, 228, 255, 0.12);
+  border: 1px solid var(--bb-border);
   border-radius: 8px;
-  background: rgba(218, 226, 255, 0.052);
-  color: rgba(244, 246, 255, 0.82);
+  background: rgba(27, 29, 42, 0.76);
+  color: var(--bb-text-secondary);
   font: 680 11px -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
   letter-spacing: 0;
   cursor: pointer;
@@ -257,19 +273,17 @@ body {
   align-items: center;
   max-width: min(760px, calc(100vw - 360px));
   padding: 7px;
-  border: 1px solid rgba(218, 226, 255, 0.105);
+  border: 1px solid var(--bb-border);
   border-radius: 13px;
-  background: rgba(8, 11, 20, 0.76);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.035),
-    0 18px 52px rgba(0, 0, 0, 0.26);
+  background: rgba(21, 23, 34, 0.88);
+  box-shadow: none;
   backdrop-filter: blur(18px) saturate(1.12);
   -webkit-backdrop-filter: blur(18px) saturate(1.12);
 }
 
 #brainbar-workflow-toolbar .toolbar-title {
   padding: 0 4px 0 2px;
-  color: rgba(244, 246, 255, 0.50);
+  color: var(--bb-text-muted);
   font: 760 10px -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -284,11 +298,11 @@ body {
 
 #brainbar-workflow-toolbar .source-lens {
   padding-left: 8px;
-  border-left: 1px solid rgba(218, 226, 255, 0.10);
+  border-left: 1px solid var(--bb-border-subtle);
 }
 
 #brainbar-workflow-toolbar .source-lens span {
-  color: rgba(244, 246, 255, 0.42);
+  color: var(--bb-text-muted);
   font: 720 10px -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
 }
 
@@ -316,19 +330,19 @@ body {
 #brainbar-health-panel button:hover {
   border-color: rgba(178, 194, 245, 0.34);
   background: rgba(132, 154, 255, 0.13);
-  color: rgba(248, 250, 255, 0.96);
+  color: var(--bb-text);
 }
 
 #brainbar-workflow-toolbar button.selected {
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.05),
-    0 0 0 1px rgba(132, 154, 255, 0.10);
+  border-color: rgba(127, 160, 255, 0.30);
+  background: rgba(127, 160, 255, 0.16);
+  box-shadow: none;
 }
 
 #brainbar-focus-controls .focus-status {
   flex-basis: 100%;
   margin-bottom: 2px;
-  color: rgba(244, 246, 255, 0.52);
+  color: var(--bb-text-muted);
   font: 700 10px -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
 }
 
@@ -355,19 +369,19 @@ body {
   min-width: 0;
   flex: 1;
   padding: 7px 9px;
-  border: 1px solid rgba(156, 170, 255, 0.18);
+  border: 1px solid var(--bb-border);
   border-radius: 9px;
-  background: rgba(8, 11, 22, 0.62);
-  color: rgba(244, 246, 255, 0.86);
+  background: rgba(7, 11, 19, 0.76);
+  color: var(--bb-text-secondary);
   font: 650 12px -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
 }
 
 #brainbar-community-toggle {
   padding: 7px 9px;
-  border: 1px solid rgba(244, 246, 255, 0.12);
+  border: 1px solid var(--bb-border);
   border-radius: 9px;
-  background: rgba(244, 246, 255, 0.05);
-  color: rgba(244, 246, 255, 0.74);
+  background: rgba(27, 29, 42, 0.72);
+  color: var(--bb-text-secondary);
   font: 700 11px -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
 }
 
@@ -383,15 +397,14 @@ body {
 #brainbar-edge-inspector {
   margin-bottom: 12px;
   padding: 12px;
-  border: 1px solid rgba(218, 226, 255, 0.105);
+  border: 1px solid var(--bb-border);
   border-radius: 11px;
-  background:
-    linear-gradient(180deg, rgba(31, 36, 58, 0.44), rgba(14, 17, 28, 0.36));
+  background: rgba(21, 23, 34, 0.82);
 }
 
 #brainbar-edge-inspector .edge-eyebrow {
   margin-bottom: 5px;
-  color: rgba(244, 246, 255, 0.46);
+  color: var(--bb-text-muted);
   font-size: 9px;
   font-weight: 780;
   letter-spacing: 0.12em;
@@ -401,7 +414,7 @@ body {
 #brainbar-edge-inspector strong {
   display: block;
   margin-bottom: 8px;
-  color: rgba(248, 250, 255, 0.94);
+  color: var(--bb-text);
   font-size: 12px;
   line-height: 1.28;
 }
@@ -415,12 +428,12 @@ body {
 }
 
 #brainbar-edge-inspector .edge-row span {
-  color: rgba(244, 246, 255, 0.46);
+  color: var(--bb-text-muted);
 }
 
 #brainbar-edge-inspector .edge-row b {
   overflow: hidden;
-  color: rgba(244, 246, 255, 0.82);
+  color: var(--bb-text-secondary);
   font-weight: 650;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -436,14 +449,11 @@ body {
   max-height: min(620px, calc(100vh - 110px));
   overflow: auto;
   padding: 15px;
-  border: 1px solid rgba(218, 226, 255, 0.13);
+  border: 1px solid var(--bb-border);
   border-radius: 13px;
-  background:
-    linear-gradient(180deg, rgba(18, 22, 36, 0.92), rgba(8, 10, 18, 0.90));
-  color: rgba(244, 246, 255, 0.86);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.035),
-    0 22px 74px rgba(0, 0, 0, 0.40);
+  background: rgba(21, 23, 34, 0.94);
+  color: var(--bb-text-secondary);
+  box-shadow: none;
   backdrop-filter: blur(22px) saturate(1.12);
   -webkit-backdrop-filter: blur(22px) saturate(1.12);
 }
@@ -468,7 +478,7 @@ body {
 #brainbar-workflow-panel h3,
 #brainbar-health-panel h3 {
   margin: 14px 0 7px;
-  color: rgba(244, 246, 255, 0.52);
+  color: var(--bb-text-muted);
   font-size: 10px;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -477,7 +487,7 @@ body {
 #brainbar-workflow-panel p,
 #brainbar-health-panel p {
   margin: 0;
-  color: rgba(244, 246, 255, 0.58);
+  color: var(--bb-text-muted);
   font-size: 12px;
   line-height: 1.38;
 }
@@ -486,9 +496,9 @@ body {
 #brainbar-health-panel .empty {
   margin-top: 12px;
   padding: 9px 10px;
-  border: 1px solid rgba(244, 246, 255, 0.08);
+  border: 1px solid var(--bb-border-subtle);
   border-radius: 9px;
-  background: rgba(244, 246, 255, 0.035);
+  background: rgba(27, 29, 42, 0.62);
 }
 
 #brainbar-workflow-panel .health-row,
@@ -498,7 +508,7 @@ body {
   margin-top: 5px;
   padding: 8px 9px;
   border-radius: 8px;
-  background: rgba(218, 226, 255, 0.035);
+  background: rgba(27, 29, 42, 0.72);
   overflow: hidden;
   text-align: left;
   text-overflow: ellipsis;
@@ -517,16 +527,14 @@ body {
   z-index: 1000;
   max-width: 260px;
   padding: 8px 10px;
-  border: 1px solid rgba(218, 226, 255, 0.14);
+  border: 1px solid var(--bb-border);
   border-radius: 9px;
-  background: rgba(11, 14, 23, 0.92);
-  color: rgba(244, 246, 255, 0.88);
+  background: rgba(21, 23, 34, 0.94);
+  color: var(--bb-text-secondary);
   font: 650 11px -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
   letter-spacing: 0;
   line-height: 1.25;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.035),
-    0 16px 46px rgba(0, 0, 0, 0.34);
+  box-shadow: none;
   backdrop-filter: blur(16px) saturate(1.12);
   -webkit-backdrop-filter: blur(16px) saturate(1.12);
   opacity: 0;
@@ -548,7 +556,7 @@ body {
 #brainbar-graph-tooltip .eyebrow {
   display: block;
   margin-bottom: 3px;
-  color: rgba(244, 246, 255, 0.46);
+  color: var(--bb-text-muted);
   font-size: 9px;
   font-weight: 750;
   letter-spacing: 0.11em;
@@ -569,14 +577,14 @@ body {
   z-index: 20;
   transform: translate(-50%, -50%);
   padding: 10px 14px;
-  border: 1px solid rgba(244, 246, 255, 0.10);
+  border: 1px solid var(--bb-border);
   border-radius: 999px;
-  background: rgba(12, 15, 25, 0.72);
-  color: rgba(244, 246, 255, 0.62);
+  background: rgba(21, 23, 34, 0.82);
+  color: var(--bb-text-secondary);
   font-size: 12px;
   font-weight: 650;
   letter-spacing: 0;
-  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.25);
+  box-shadow: none;
   backdrop-filter: blur(18px) saturate(1.12);
   -webkit-backdrop-filter: blur(18px) saturate(1.12);
   pointer-events: none;
@@ -592,7 +600,7 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(244, 246, 255, 0.15);
+  background: rgba(167, 163, 173, 0.24);
   border: 3px solid transparent;
   border-radius: 999px;
   background-clip: content-box;
@@ -600,4 +608,205 @@ body {
 
 ::-webkit-scrollbar-track {
   background: transparent;
+}
+
+/* Premium workbench alignment with the 3D sidebar language. */
+:root {
+  --bb-text-muted: rgba(145, 141, 153, 0.78);
+  --bb-text-faint: rgba(111, 107, 119, 0.72);
+}
+
+#sidebar {
+  width: clamp(300px, 24vw, 340px) !important;
+  background: #141720 !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+#search-wrap,
+#info-panel,
+#legend-wrap {
+  padding: 16px !important;
+}
+
+#search {
+  min-height: 44px !important;
+  padding: 11px 14px !important;
+  border-color: rgba(255, 255, 255, 0.09) !important;
+  background: #090d17 !important;
+}
+
+#search:focus,
+#search:focus-visible,
+#brainbar-community-search:focus-visible {
+  border-color: rgba(127, 160, 255, 0.52) !important;
+  outline: 2px solid rgba(127, 160, 255, 0.58) !important;
+  outline-offset: 2px !important;
+}
+
+#info-panel h3,
+#legend-wrap h3,
+#brainbar-workflow-panel h3,
+#brainbar-health-panel h3,
+#brainbar-edge-inspector .edge-eyebrow,
+#brainbar-graph-tooltip .eyebrow {
+  color: rgba(242, 241, 244, 0.70) !important;
+  font-size: 12px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0 !important;
+  text-transform: none !important;
+}
+
+.legend-item,
+.search-item,
+#brainbar-search-results .brainbar-search-result,
+.neighbor-link,
+#brainbar-workflow-panel .health-row,
+#brainbar-health-panel .health-row {
+  min-height: 34px !important;
+  padding: 8px 9px !important;
+  border-radius: 9px !important;
+  background: rgba(29, 32, 45, 0.66) !important;
+}
+
+#brainbar-search-results,
+#brainbar-workflow-panel .empty,
+#brainbar-health-panel .empty {
+  border-color: var(--bb-border-subtle) !important;
+  background: rgba(7, 11, 19, 0.52) !important;
+}
+
+#brainbar-open-note {
+  min-height: 36px !important;
+}
+
+#brainbar-focus-controls button,
+.edge-actions button,
+#brainbar-workflow-toolbar button,
+#brainbar-workflow-panel button,
+#brainbar-health-panel button,
+#brainbar-community-toggle {
+  min-height: 32px !important;
+  border-radius: 9px !important;
+  background: rgba(29, 32, 45, 0.70) !important;
+}
+
+#brainbar-workflow-toolbar,
+#brainbar-workflow-panel,
+#brainbar-health-panel,
+#stats {
+  background: #141720 !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+#brainbar-edge-inspector {
+  padding: 12px 0 0 !important;
+  border: 0 !important;
+  border-top: 1px solid var(--bb-border-subtle) !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+}
+
+.neighbor-link {
+  border-left-width: 1px !important;
+}
+
+button:focus-visible,
+.legend-cb:focus-visible,
+#select-all-cb:focus-visible {
+  outline: 2px solid rgba(127, 160, 255, 0.70) !important;
+  outline-offset: 2px !important;
+}
+
+/* Premium app surface v2: align 2D Workbench with 3D native sidebar language. */
+:root {
+  --bb-frame: #18171a;
+  --bb-chrome: #1c1b20;
+  --bb-panel: #10131b;
+  --bb-elevated: #191c28;
+  --bb-border: rgba(255, 255, 255, 0.052);
+  --bb-border-subtle: rgba(255, 255, 255, 0.028);
+  --bb-text-secondary: rgba(179, 175, 185, 0.88);
+  --bb-text-muted: rgba(142, 137, 151, 0.84);
+}
+
+#sidebar {
+  background: #10131b !important;
+  border-left-color: var(--bb-border-subtle) !important;
+  box-shadow: none !important;
+}
+
+#search {
+  border-radius: 9px !important;
+  background: #080b13 !important;
+}
+
+#brainbar-workflow-toolbar,
+#brainbar-workflow-panel,
+#brainbar-health-panel,
+#brainbar-search-results {
+  border-color: var(--bb-border-subtle) !important;
+  background: #10131b !important;
+  box-shadow: none !important;
+}
+
+.legend-item,
+.search-item,
+#brainbar-search-results .brainbar-search-result,
+.neighbor-link,
+#brainbar-workflow-panel .health-row,
+#brainbar-health-panel .health-row {
+  border: 1px solid transparent !important;
+  background: rgba(255, 255, 255, 0.032) !important;
+  transition: background 150ms ease, border-color 150ms ease, opacity 150ms ease !important;
+}
+
+.legend-item:hover,
+.search-item:hover,
+#brainbar-search-results .brainbar-search-result:hover,
+.neighbor-link:hover,
+#brainbar-workflow-panel .health-row:hover,
+#brainbar-health-panel .health-row:hover {
+  border-color: rgba(127, 160, 255, 0.22) !important;
+  background: rgba(127, 160, 255, 0.10) !important;
+}
+
+#brainbar-focus-controls button,
+.edge-actions button,
+#brainbar-workflow-toolbar button,
+#brainbar-workflow-panel button,
+#brainbar-health-panel button,
+#brainbar-community-toggle {
+  border-color: var(--bb-border-subtle) !important;
+  border-radius: 8px !important;
+  background: rgba(255, 255, 255, 0.032) !important;
+  transition: background 150ms ease, border-color 150ms ease, opacity 150ms ease !important;
+}
+
+#brainbar-focus-controls button:hover,
+.edge-actions button:hover,
+#brainbar-workflow-toolbar button:hover,
+#brainbar-workflow-panel button:hover,
+#brainbar-health-panel button:hover,
+#brainbar-community-toggle:hover {
+  border-color: rgba(127, 160, 255, 0.24) !important;
+  background: rgba(127, 160, 255, 0.105) !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .legend-item,
+  .search-item,
+  #brainbar-search-results .brainbar-search-result,
+  .neighbor-link,
+  #brainbar-workflow-panel .health-row,
+  #brainbar-health-panel .health-row,
+  #brainbar-focus-controls button,
+  .edge-actions button,
+  #brainbar-workflow-toolbar button,
+  #brainbar-workflow-panel button,
+  #brainbar-health-panel button,
+  #brainbar-community-toggle {
+    transition: none !important;
+  }
 }

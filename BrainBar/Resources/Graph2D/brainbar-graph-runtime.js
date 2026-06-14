@@ -762,12 +762,15 @@
     const reviewTargets = reviewQueueNodeTargetsFromNodes(nodes, reviewQueueTargets);
     const recent = recentNodeIds(nodes);
     const groups = communitySummaries({ nodes, edges });
+    const agentEvents = root.__brainBarAgentActivitySnapshot?.events || [];
+    const agentMappedCount = agentEvents.filter((event) => event && event.nodeId && !event.pending).length;
     return {
       global: { count: nodes.length, hidden: false, disabled: false },
       focus: { count: 0, hidden: false, disabled: false },
       orphans: { count: health.orphanNodes.length, hidden: false, disabled: false },
       hubs: { count: health.hubNodes.length, hidden: false, disabled: false },
       review: { count: reviewTargets.length, hidden: reviewTargets.length === 0, disabled: reviewTargets.length === 0 },
+      agent: { count: agentMappedCount, hidden: false, disabled: agentMappedCount === 0 },
       recent: { count: recent.length, hidden: false, disabled: recent.length === 0 },
       groups: { count: groups.length, hidden: false, disabled: groups.length === 0 },
       wikilinks: { count: health.counts.wikilinkEdges, hidden: false, disabled: health.counts.wikilinkEdges === 0 },
@@ -805,6 +808,12 @@
         title: 'Review',
         body: 'Review Queue items that point to a graph node. Items need source_file or node_id to appear here.',
         empty: 'No Review Queue items currently point to graph nodes.'
+      },
+      agent: {
+        activeName: 'agent',
+        title: 'Agent Activity',
+        body: 'Recent local file and agent metadata events mapped onto this graph.',
+        empty: 'No recent agent activity is mapped to visible graph nodes.'
       },
       recent: {
         activeName: 'recent',
@@ -1792,6 +1801,14 @@
       } else if (view === 'review') {
         const targets = reviewQueueNodeTargets(snapshot.nodes, root.__brainBarReviewQueueTargets || []);
         applyNodeSetView('review', targets);
+      } else if (view === 'agent') {
+        const events = root.__brainBarAgentActivitySnapshot?.events || [];
+        const nodeIds = Array.from(new Set(events
+          .filter((event) => event && event.nodeId && !event.pending)
+          .map((event) => String(event.nodeId))
+          .filter((nodeId) => nodeById(snapshot.nodes, nodeId))
+        )).slice(0, 40);
+        applyNodeSetView('agent', nodeIds);
       } else if (view === 'recent') {
         applyNodeSetView('recent', recentNodeIds(snapshot.nodes));
       } else if (view === 'focus') {
@@ -1831,6 +1848,7 @@
         ['recent', 'Recent Notes'],
         ['orphans', 'Needs Links'],
         ['hubs', 'Key Notes'],
+        ['agent', 'Agent Activity'],
         ['groups', 'Groups'],
         ['health', 'Graph Check']
       ].forEach(([view, label]) => {
@@ -1903,7 +1921,7 @@
         const selected = active === view || (active === 'global' && view === 'global');
         const state = viewState[view] || { count: 0, hidden: false, disabled: false };
         const label = button.dataset.label || button.textContent || '';
-        button.textContent = state.count > 0 && ['orphans', 'hubs', 'review', 'recent'].includes(view)
+        button.textContent = state.count > 0 && ['orphans', 'hubs', 'review', 'recent', 'agent'].includes(view)
           ? `${label} ${state.count}`
           : label;
         if (view === 'focus') {
@@ -2826,6 +2844,14 @@
       updateWorkflowToolbarState();
       if (String(root.__brainBarActiveGraphView || '').toLowerCase() === 'review') {
         applyBuiltInView('review');
+      }
+    };
+
+    root.brainBarApplyAgentActivity2D = (snapshot) => {
+      root.__brainBarAgentActivitySnapshot = snapshot && typeof snapshot === 'object' ? snapshot : {};
+      updateWorkflowToolbarState();
+      if (String(root.__brainBarActiveGraphView || '').toLowerCase() === 'agent') {
+        applyBuiltInView('agent');
       }
     };
 

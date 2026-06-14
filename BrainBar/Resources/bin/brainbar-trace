@@ -1,0 +1,95 @@
+#!/bin/sh
+set -eu
+
+ACTION="${1:-}"
+PATH_VALUE="${2:-}"
+shift 2 2>/dev/null || true
+
+if [ -z "$ACTION" ] || [ -z "$PATH_VALUE" ]; then
+  echo "Usage: brainbar-trace <action> <path> [--agent name] [--reason text] [--session-id id] [--project name] [--source source] [--node-id id] [--status status]" >&2
+  exit 64
+fi
+
+python3 - "$ACTION" "$PATH_VALUE" "$@" <<'PY'
+import datetime
+import json
+import os
+import pathlib
+import sys
+
+MAX_BYTES = 5 * 1024 * 1024
+MAX_LINES = 10000
+MAX_AGE_SECONDS = 7 * 24 * 60 * 60
+
+action = sys.argv[1]
+path_value = sys.argv[2]
+args = sys.argv[3:]
+allowed = {
+    "read", "write", "create", "delete", "focus", "open",
+    "graph_refresh", "closeout", "decision",
+}
+if action not in allowed:
+    print(f"Unsupported action: {action}", file=sys.stderr)
+    sys.exit(64)
+
+fields = {
+    "version": 1,
+    "agent": os.environ.get("BRAINBAR_AGENT_NAME", "codex"),
+    "action": action,
+    "path": path_value,
+    "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z"),
+}
+
+mapping = {
+    "--agent": "agent",
+    "--reason": "reason",
+    "--session-id": "session_id",
+    "--project": "project",
+    "--source": "source",
+    "--node-id": "node_id",
+    "--status": "status",
+}
+index = 0
+while index < len(args):
+    key = args[index]
+    if key not in mapping or index + 1 >= len(args):
+        print(f"Unsupported argument: {key}", file=sys.stderr)
+        sys.exit(64)
+    fields[mapping[key]] = args[index + 1]
+    index += 2
+
+log_path = pathlib.Path.home() / "Library" / "Application Support" / "BrainBar" / "agent-events.jsonl"
+log_path.parent.mkdir(parents=True, exist_ok=True)
+with log_path.open("a", encoding="utf-8") as handle:
+    handle.write(json.dumps(fields, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n")
+
+try:
+    if log_path.stat().st_size > MAX_BYTES:
+        cutoff = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(seconds=MAX_AGE_SECONDS)
+        retained = []
+        with log_path.open("r", encoding="utf-8") as handle:
+            for line in handle:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    payload = json.loads(line)
+                    timestamp = payload.get("timestamp", "")
+                    if timestamp.endswith("Z"):
+                        timestamp = timestamp[:-1] + "+00:00"
+                    parsed_at = datetime.datetime.fromisoformat(timestamp)
+                    if parsed_at.tzinfo is None:
+                        parsed_at = parsed_at.replace(tzinfo=datetime.timezone.utc)
+                except Exception:
+                    continue
+                if parsed_at >= cutoff:
+                    retained.append((parsed_at, line))
+        retained.sort(key=lambda item: (item[0], item[1]))
+        retained = retained[-MAX_LINES:]
+        with log_path.open("w", encoding="utf-8") as handle:
+            for _, line in retained:
+                handle.write(line + "\n")
+except Exception:
+    pass
+print(str(log_path))
+PY

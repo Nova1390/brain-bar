@@ -4,6 +4,15 @@ All notable changes to BrainBar are documented here.
 
 ## Unreleased
 
+## 0.9.7 - 2026-06-14
+
+- Added local Agent Activity overlay support with file activity, metadata-only JSONL events, the bundled `brainbar-trace` helper, and a one-click Codex integration installer.
+- Added automatic Agent Activity log retention so event logs stay bounded without user cleanup.
+- Refined Agent Activity visualization in 3D and compact activity/pending-refresh presentation in the sidebar.
+- Reworked the app shell into a flatter premium macOS surface with shared theme tokens, quieter chrome, hidden non-actionable footer states, and a more native Settings layout.
+- Polished 3D and 2D sidebar/control styling so graph panels feel like one restrained app surface instead of stacked web cards.
+- Updated the app icon assets with the new monochrome mark.
+
 ## 0.9.6 - 2026-06-11
 
 - Upgraded the 2D graph into a Workbench with operational views, Source Lens controls, searchable community details, Search Reveal, clearer Focus depth controls, Graph Check dashboard sections, stronger edge actions, and 2D-to-3D reveal/path/community bridge actions.

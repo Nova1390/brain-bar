@@ -94,6 +94,8 @@ final class AppModel {
     var isCheckingReviewQueue = false
     var isRunningReviewQueueAction = false
     var lastReviewQueueAction: CommandResult?
+    var agentActivitySnapshot: AgentActivitySnapshot = .empty
+    var lastAgentActivityActionMessage: String?
 
     @ObservationIgnored private let configurationManager: ConfigurationManager
     @ObservationIgnored private let commandRunner: CommandRunner
@@ -101,6 +103,8 @@ final class AppModel {
     @ObservationIgnored private let graphServerController: GraphServerController
     @ObservationIgnored private let notificationService: NotificationService
     @ObservationIgnored private let reviewQueueService: ReviewQueueService
+    @ObservationIgnored private let agentActivityService: AgentActivityService
+    @ObservationIgnored private let agentActivityCodexInstaller: AgentActivityCodexInstaller
     @ObservationIgnored private var nextGraphViewportCommandID = 0
     @ObservationIgnored private var reviewQueueWatcherTask: Task<Void, Never>?
 
@@ -146,7 +150,9 @@ final class AppModel {
         vaultStatusService: VaultStatusService = VaultStatusService(),
         graphServerController: GraphServerController = GraphServerController(),
         notificationService: NotificationService = NotificationService(),
-        reviewQueueService: ReviewQueueService = ReviewQueueService()
+        reviewQueueService: ReviewQueueService = ReviewQueueService(),
+        agentActivityService: AgentActivityService = AgentActivityService(),
+        agentActivityCodexInstaller: AgentActivityCodexInstaller = AgentActivityCodexInstaller()
     ) {
         self.configurationManager = configurationManager
         self.commandRunner = commandRunner
@@ -154,8 +160,11 @@ final class AppModel {
         self.graphServerController = graphServerController
         self.notificationService = notificationService
         self.reviewQueueService = reviewQueueService
+        self.agentActivityService = agentActivityService
+        self.agentActivityCodexInstaller = agentActivityCodexInstaller
         self.config = (try? configurationManager.loadOrCreate()) ?? .default
         updateReviewQueueWatcher()
+        updateAgentActivityService()
     }
 
     deinit {
@@ -164,6 +173,7 @@ final class AppModel {
 
     func refreshStatus() async {
         status = await vaultStatusService.status(for: config)
+        agentActivityService.refreshGraphIndex(graphReadAccessURL: graphReadAccessURL)
         graphReloadToken += 1
         errorMessage = nil
     }
@@ -230,6 +240,7 @@ final class AppModel {
             graphReloadToken += 1
             errorMessage = nil
             updateReviewQueueWatcher()
+            updateAgentActivityService()
             Task {
                 await refreshStatus()
             }
@@ -326,6 +337,7 @@ final class AppModel {
                 enabled: config.notificationsEnabled
             )
             await refreshStatus()
+            agentActivityService.refreshGraphIndex(graphReadAccessURL: graphReadAccessURL)
             if result.succeeded, openAfterSuccess {
                 graphReloadToken += 1
             }
@@ -419,6 +431,46 @@ final class AppModel {
         }
     }
 
+    func installCodexAgentActivityIntegration() {
+        do {
+            let status = try agentActivityCodexInstaller.install()
+            lastAgentActivityActionMessage = status.message
+            updateAgentActivityService()
+            errorMessage = status == .installed ? nil : status.message
+        } catch {
+            lastAgentActivityActionMessage = error.localizedDescription
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func writeAgentActivityTestEvent() {
+        do {
+            try agentActivityService.writeTestEvent()
+            lastAgentActivityActionMessage = "Test event written"
+            errorMessage = nil
+        } catch {
+            lastAgentActivityActionMessage = error.localizedDescription
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func openAgentActivityLog() {
+        do {
+            let url = AgentActivityPaths.defaultEventLogURL
+            try FileManager.default.createDirectory(
+                at: url.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            if !FileManager.default.fileExists(atPath: url.path) {
+                try Data().write(to: url)
+            }
+            NSWorkspace.shared.open(url)
+            errorMessage = nil
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
     private func performOpen(_ action: () throws -> Void) {
         do {
             try action()
@@ -447,6 +499,17 @@ final class AppModel {
                 await self?.refreshReviewQueueStatus()
                 try? await Task.sleep(for: .seconds(reviewConfig.watcherIntervalSeconds))
             }
+        }
+    }
+
+    private func updateAgentActivityService() {
+        let vaultURL = vaultStatusService.vaultURL(for: config)
+        agentActivityService.start(
+            config: config.agentActivity.normalized,
+            vaultURL: vaultURL,
+            graphReadAccessURL: graphReadAccessURL
+        ) { [weak self] snapshot in
+            self?.agentActivitySnapshot = snapshot
         }
     }
 }
