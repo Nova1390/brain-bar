@@ -87,6 +87,8 @@ struct AgentActivitySnapshot: Codable, Equatable, Sendable {
     var lastEventAt: Date?
     var eventLogPath: String
     var codexIntegrationInstalled: Bool
+    var claudeIntegrationInstalled: Bool
+    var claudeIntegrationPartial: Bool
     var tracingEnabled: Bool
 
     static let empty = AgentActivitySnapshot(
@@ -96,6 +98,8 @@ struct AgentActivitySnapshot: Codable, Equatable, Sendable {
         lastEventAt: nil,
         eventLogPath: AgentActivityPaths.defaultEventLogURL.path,
         codexIntegrationInstalled: false,
+        claudeIntegrationInstalled: false,
+        claudeIntegrationPartial: false,
         tracingEnabled: false
     )
 }

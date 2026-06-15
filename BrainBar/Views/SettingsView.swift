@@ -29,7 +29,7 @@ struct SettingsView: View {
                 SettingsFooter()
             }
             .padding(12)
-            .frame(width: 178)
+            .frame(width: 196)
             .background(BrainBarTheme.chrome)
             .overlay(alignment: .trailing) {
                 Rectangle()
@@ -178,12 +178,27 @@ struct SettingsView: View {
                         .foregroundStyle(BrainBarTheme.secondaryText)
                 }
                 LabeledContent("Codex integration") {
-                    Text(model.agentActivitySnapshot.codexIntegrationInstalled ? "Installed" : "Not installed")
-                        .foregroundStyle(model.agentActivitySnapshot.codexIntegrationInstalled ? BrainBarTheme.success : BrainBarTheme.secondaryText)
+                    AgentIntegrationStatusValue(
+                        imageName: "AgentCodexIcon",
+                        accent: BrainBarTheme.accent,
+                        status: model.agentActivitySnapshot.codexIntegrationInstalled ? "Installed" : "Not installed",
+                        statusColor: model.agentActivitySnapshot.codexIntegrationInstalled ? BrainBarTheme.success : BrainBarTheme.secondaryText
+                    )
+                }
+                LabeledContent("Claude integration") {
+                    AgentIntegrationStatusValue(
+                        imageName: "AgentClaudeIcon",
+                        accent: BrainBarTheme.warning,
+                        status: claudeIntegrationStatusText,
+                        statusColor: claudeIntegrationStatusColor
+                    )
                 }
                 HStack {
                     Button("Install Codex Integration") {
                         model.installCodexAgentActivityIntegration()
+                    }
+                    Button("Install Claude Integration") {
+                        model.installClaudeAgentActivityIntegration()
                     }
                     Button("Write Test Event") {
                         model.writeAgentActivityTestEvent()
@@ -207,6 +222,26 @@ struct SettingsView: View {
                 SettingsHelpText("The local server is a fallback/debug option. The main graph view loads the HTML directly inside BrainBar.")
             }
         }
+    }
+
+    private var claudeIntegrationStatusText: String {
+        if model.agentActivitySnapshot.claudeIntegrationInstalled {
+            return "Installed"
+        }
+        if model.agentActivitySnapshot.claudeIntegrationPartial {
+            return "Partial"
+        }
+        return "Not installed"
+    }
+
+    private var claudeIntegrationStatusColor: Color {
+        if model.agentActivitySnapshot.claudeIntegrationInstalled {
+            return BrainBarTheme.success
+        }
+        if model.agentActivitySnapshot.claudeIntegrationPartial {
+            return BrainBarTheme.warning
+        }
+        return BrainBarTheme.secondaryText
     }
 
     private func chooseVault() {
@@ -404,6 +439,9 @@ private struct SettingsFooter: View {
         .font(.caption)
         .foregroundStyle(BrainBarTheme.secondaryText)
         .buttonStyle(.link)
+        .lineLimit(1)
+        .truncationMode(.tail)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var versionText: String {
@@ -427,6 +465,31 @@ private struct SettingsSaveStatus: View {
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
             .background((succeeded ? BrainBarTheme.success : BrainBarTheme.error).opacity(0.10), in: Capsule())
+    }
+}
+
+private struct AgentIntegrationStatusValue: View {
+    let imageName: String
+    let accent: Color
+    let status: String
+    let statusColor: Color
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(imageName)
+                .resizable()
+                .scaledToFit()
+                .clipShape(.rect(cornerRadius: 7))
+                .frame(width: 23, height: 23)
+                .background(accent.opacity(0.12), in: .rect(cornerRadius: 7))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 7)
+                        .stroke(accent.opacity(0.22), lineWidth: 1)
+                }
+            Text(status)
+                .fontWeight(.semibold)
+                .foregroundStyle(statusColor)
+        }
     }
 }
 

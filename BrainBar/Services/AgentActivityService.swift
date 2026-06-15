@@ -311,6 +311,7 @@ final class AgentActivityService {
             Set(mapped.filter(\.pending).map(\.path))
         )
         .sorted()
+        let claudeInstaller = AgentActivityClaudeInstaller()
         return AgentActivitySnapshot(
             events: mapped,
             nodeIds: Array(nodeIds),
@@ -318,6 +319,8 @@ final class AgentActivityService {
             lastEventAt: mapped.map(\.timestamp).max(),
             eventLogPath: eventLogURL.path,
             codexIntegrationInstalled: AgentActivityCodexInstaller().isInstalled(),
+            claudeIntegrationInstalled: claudeInstaller.isInstalled(),
+            claudeIntegrationPartial: claudeInstaller.isPartiallyInstalled(),
             tracingEnabled: config.eventTracingEnabled
         )
     }

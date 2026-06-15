@@ -105,6 +105,7 @@ final class AppModel {
     @ObservationIgnored private let reviewQueueService: ReviewQueueService
     @ObservationIgnored private let agentActivityService: AgentActivityService
     @ObservationIgnored private let agentActivityCodexInstaller: AgentActivityCodexInstaller
+    @ObservationIgnored private let agentActivityClaudeInstaller: AgentActivityClaudeInstaller
     @ObservationIgnored private var nextGraphViewportCommandID = 0
     @ObservationIgnored private var reviewQueueWatcherTask: Task<Void, Never>?
 
@@ -152,7 +153,8 @@ final class AppModel {
         notificationService: NotificationService = NotificationService(),
         reviewQueueService: ReviewQueueService = ReviewQueueService(),
         agentActivityService: AgentActivityService = AgentActivityService(),
-        agentActivityCodexInstaller: AgentActivityCodexInstaller = AgentActivityCodexInstaller()
+        agentActivityCodexInstaller: AgentActivityCodexInstaller = AgentActivityCodexInstaller(),
+        agentActivityClaudeInstaller: AgentActivityClaudeInstaller = AgentActivityClaudeInstaller()
     ) {
         self.configurationManager = configurationManager
         self.commandRunner = commandRunner
@@ -162,6 +164,7 @@ final class AppModel {
         self.reviewQueueService = reviewQueueService
         self.agentActivityService = agentActivityService
         self.agentActivityCodexInstaller = agentActivityCodexInstaller
+        self.agentActivityClaudeInstaller = agentActivityClaudeInstaller
         self.config = (try? configurationManager.loadOrCreate()) ?? .default
         updateReviewQueueWatcher()
         updateAgentActivityService()
@@ -437,6 +440,18 @@ final class AppModel {
             lastAgentActivityActionMessage = status.message
             updateAgentActivityService()
             errorMessage = status == .installed ? nil : status.message
+        } catch {
+            lastAgentActivityActionMessage = error.localizedDescription
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func installClaudeAgentActivityIntegration() {
+        do {
+            let status = try agentActivityClaudeInstaller.install()
+            lastAgentActivityActionMessage = status.message
+            updateAgentActivityService()
+            errorMessage = status == .installed || status == .partial ? nil : status.message
         } catch {
             lastAgentActivityActionMessage = error.localizedDescription
             errorMessage = error.localizedDescription

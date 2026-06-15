@@ -52,7 +52,11 @@ const accentPalette = [
 const baseEdgeColor = '#6f7f9d';
 const selectedStrokeColor = '#f1f4ff';
 const prefersReducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
-const ambientFrameInterval = 50;
+const ambientIdleFrameInterval = 90;
+const ambientBusyFrameInterval = 180;
+const ambientInteractionQuietMs = 520;
+const overlaySlowFrameMs = 24;
+const overlayRecoveryMs = 1200;
 const ambientMotionScale = prefersReducedMotion ? 0 : 1;
 const ambientLocalAmplitude = 1.8 * ambientMotionScale;
 const ambientSampleTarget = 520;
@@ -154,6 +158,7 @@ const state = {
   pathMessage: '',
   pathPulsePhase: 0,
   agentActivityEvents: [],
+  agentActivityRenderableEvents: [],
   agentActivityNodeIds: new Set(),
   agentActivityPendingPaths: [],
   agentActivityLastEventAt: null,
@@ -173,6 +178,9 @@ const state = {
   ambientCurrentEdgeIds: new Set(),
   ambientCommunityPulseGroups: [],
   lastLivingInteractionAt: 0,
+  lastAmbientLayerAt: 0,
+  lastOverlaySlowAt: 0,
+  overlayQuality: 'high',
   performanceStats: {
     staticRebuildMs: 0,
     overlayFrameMs: 0,
@@ -260,6 +268,7 @@ function initScene() {
   controls.screenSpacePanning = true;
   controls.target.set(0, 0, 0);
   controls.addEventListener('change', () => {
+    markLivingInteraction();
     state.cameraPreset = state.cameraPreset === 'Fit' ? 'Manual' : state.cameraPreset;
     markVisualCacheDirty();
     requestRender();
@@ -395,6 +404,45 @@ function applyLens(fit = true) {
 
 function activeMode() {
   return activeModeFromState(state);
+}
+
+function markLivingInteraction() {
+  state.lastLivingInteractionAt = performance.now();
+}
+
+function updateOverlayQuality(frameMs) {
+  const now = performance.now();
+  if (Number.isFinite(frameMs) && frameMs > overlaySlowFrameMs) {
+    state.lastOverlaySlowAt = now;
+    state.overlayQuality = 'low';
+    return;
+  }
+  state.overlayQuality = now - state.lastOverlaySlowAt > overlayRecoveryMs ? 'high' : 'low';
+}
+
+function isInteractionQuiet(now = performance.now()) {
+  return now - state.lastLivingInteractionAt > ambientInteractionQuietMs;
+}
+
+function shouldDrawAmbientDecorations({ now, mode, hoverAmount }) {
+  if (prefersReducedMotion || state.overlayQuality === 'low') {
+    return false;
+  }
+  if (!isInteractionQuiet(now) || hoverAmount > 0.04) {
+    return false;
+  }
+  if (mode !== 'none' && mode !== 'recent') {
+    return false;
+  }
+  if (now - state.lastAmbientLayerAt < ambientIdleFrameInterval) {
+    return false;
+  }
+  state.lastAmbientLayerAt = now;
+  return true;
+}
+
+function shouldDrawAgentActivity() {
+  return state.agentActivityRenderableEvents.length > 0 && state.overlayQuality !== 'low';
 }
 
 function clearInteractiveModes({ preservePathSource = false } = {}) {
@@ -840,7 +888,9 @@ function renderVisualOverlay() {
   }
 
   drawVisualFrame(metrics);
-  state.performanceStats.overlayFrameMs = performance.now() - startedAt;
+  const frameMs = performance.now() - startedAt;
+  state.performanceStats.overlayFrameMs = frameMs;
+  updateOverlayQuality(frameMs);
 }
 
 function ensureVisualCanvas() {
@@ -952,6 +1002,8 @@ function rebuildStaticVisualLayer({ width, height, pixelRatio }) {
 }
 
 function drawVisualFrame({ width, height, pixelRatio }) {
+  const now = performance.now();
+  const mode = activeMode();
   const hoverTrails = updateHoverTrails();
   const edgeTrails = updateEdgeTrails();
   const activeAmount = Math.max(
@@ -972,12 +1024,26 @@ function drawVisualFrame({ width, height, pixelRatio }) {
   visualContext.clearRect(0, 0, width, height);
 
   visualContext.drawImage(staticVisualLayer, 0, 0, width, height);
-  drawAmbientNodeMotion(width, height);
-  drawAmbientRecentWarmth(width, height);
-  drawAmbientCommunityBreathing(width, height);
-  drawAmbientEdgeCurrents(width, height);
-  drawRecentSparks(width, height);
-  drawAgentActivityOverlay(width, height);
+  const drawAmbientDecorations = shouldDrawAmbientDecorations({ now, mode, hoverAmount });
+  if (drawAmbientDecorations) {
+    drawAmbientNodeMotion(width, height);
+    drawAmbientRecentWarmth(width, height);
+    drawAmbientCommunityBreathing(width, height);
+    drawAmbientEdgeCurrents(width, height);
+    drawRecentSparks(width, height);
+  } else if (
+    !prefersReducedMotion &&
+    mode === 'none' &&
+    state.overlayQuality !== 'low' &&
+    isInteractionQuiet(now) &&
+    hoverAmount <= 0.04 &&
+    state.ambientRecentNodeIds.size
+  ) {
+    drawAmbientRecentWarmth(width, height);
+  }
+  if (shouldDrawAgentActivity()) {
+    drawAgentActivityOverlay(width, height);
+  }
 
   if (hoverAmount > 0.01) {
     visualContext.save();
@@ -1223,13 +1289,12 @@ function drawRecentSparks(width, height) {
 }
 
 function drawAgentActivityOverlay(width, height) {
-  if (!state.agentActivityEvents.length || !state.projectedPoints.size) {
+  if (!state.agentActivityRenderableEvents.length || !state.projectedPoints.size) {
     return;
   }
   const now = Date.now();
-  const recentEvents = state.agentActivityEvents.slice(0, 40);
   visualContext.save();
-  recentEvents.forEach((event, index) => {
+  state.agentActivityRenderableEvents.forEach((event, index) => {
     if (!event.nodeId || event.pending) {
       return;
     }
@@ -2013,7 +2078,7 @@ function markVisualCacheDirty() {
 }
 
 function startAmbientMotion() {
-  if (state.ambientFrame || !state.visibleNodes.length) {
+  if (prefersReducedMotion || state.ambientFrame || !state.visibleNodes.length) {
     return;
   }
   state.ambientFrame = requestAnimationFrame(ambientMotionTick);
@@ -2024,7 +2089,12 @@ function ambientMotionTick(timestamp) {
   if (document.hidden || !state.visibleNodes.length) {
     return;
   }
-  if (timestamp - state.lastAmbientTimestamp >= ambientFrameInterval) {
+  const mode = activeMode();
+  const quiet = isInteractionQuiet(timestamp);
+  const interval = state.overlayQuality === 'low' || !quiet || mode !== 'none'
+    ? ambientBusyFrameInterval
+    : ambientIdleFrameInterval;
+  if (timestamp - state.lastAmbientTimestamp >= interval) {
     state.lastAmbientTimestamp = timestamp;
     state.ambientPhase = timestamp * 0.001;
     renderVisualOverlay();
@@ -2287,11 +2357,14 @@ function renderAgentActivityPanel() {
   const eventRows = events.map((event) => {
     const label = event.label || event.path || event.nodeId || 'Unmapped activity';
     const mapped = event.nodeId && !event.pending;
+    const brand = agentActivityBrand(event.agent);
     return `
       <button class="agent-activity-row" data-node-id="${escapeHTML(event.nodeId || '')}" data-source-file="${escapeHTML(event.sourceFile || event.path || '')}" ${mapped ? '' : 'disabled'}>
-        <span class="agent-dot ${escapeHTML(event.action || 'activity')}"></span>
-        <strong>${escapeHTML(label)}</strong>
-        <small>${escapeHTML(event.agent || 'local')} · ${escapeHTML(event.action || 'activity')}</small>
+        <span class="agent-brand ${escapeHTML(brand.key)}" title="${escapeHTML(brand.label)}">${brand.icon ? `<img src="${escapeHTML(brand.icon)}" alt="${escapeHTML(brand.label)}">` : escapeHTML(brand.mark)}</span>
+        <span class="agent-activity-copy">
+          <strong>${escapeHTML(label)}</strong>
+          <small>${escapeHTML(brand.label)} · ${escapeHTML(event.action || 'activity')}</small>
+        </span>
       </button>
     `;
   }).join('');
@@ -3940,6 +4013,20 @@ function agentActivityColor(action) {
   }
 }
 
+function agentActivityBrand(agent) {
+  const normalized = String(agent || '').toLowerCase();
+  if (normalized.includes('codex')) {
+    return { key: 'codex', label: 'Codex', mark: 'Codex', icon: 'assets/agent-codex.png' };
+  }
+  if (normalized.includes('claude')) {
+    return { key: 'claude', label: 'Claude', mark: 'Claude', icon: 'assets/agent-claude.png' };
+  }
+  if (normalized.includes('local')) {
+    return { key: 'local', label: 'Local file', mark: '•' };
+  }
+  return { key: 'agent', label: agent ? String(agent) : 'Agent', mark: 'Ag' };
+}
+
 function applyAgentActivitySnapshot(snapshot = {}) {
   const visibleNodeIds = state.visibleNodeIds || new Set();
   const events = Array.isArray(snapshot.events) ? snapshot.events : [];
@@ -3960,10 +4047,11 @@ function applyAgentActivitySnapshot(snapshot = {}) {
     };
   });
   state.agentActivityEvents = normalizedEvents;
+  state.agentActivityRenderableEvents = normalizedEvents
+    .filter((event) => event.nodeId && !event.pending && visibleNodeIds.has(event.nodeId))
+    .slice(0, 24);
   state.agentActivityNodeIds = new Set(
-    normalizedEvents
-      .filter((event) => event.nodeId && !event.pending && visibleNodeIds.has(event.nodeId))
-      .slice(0, 40)
+    state.agentActivityRenderableEvents
       .map((event) => event.nodeId)
   );
   state.agentActivityPendingPaths = Array.isArray(snapshot.pendingPaths)
@@ -4014,10 +4102,12 @@ function sendNodeAction(action, node) {
 
 function wireEvents() {
   renderer?.domElement?.addEventListener('pointermove', (event) => {
+    markLivingInteraction();
     schedulePointerHitTest(event);
   });
 
   renderer?.domElement?.addEventListener('pointerleave', () => {
+    markLivingInteraction();
     if (state.pointerHitFrame) {
       cancelAnimationFrame(state.pointerHitFrame);
       state.pointerHitFrame = null;
@@ -4033,6 +4123,7 @@ function wireEvents() {
   });
 
   renderer?.domElement?.addEventListener('click', (event) => {
+    markLivingInteraction();
     const node = nodeAtEvent(event);
     if (node) {
       if (state.pathMode && state.pathSourceId && !state.pathTargetId && node.id !== state.pathSourceId) {
@@ -4055,6 +4146,7 @@ function wireEvents() {
   });
 
   renderer?.domElement?.addEventListener('dblclick', (event) => {
+    markLivingInteraction();
     const node = nodeAtEvent(event);
     if (node) {
       sendNodeAction('openNode', node);

@@ -595,6 +595,87 @@ final class BrainBarTests: XCTestCase {
         XCTAssertEqual(text.components(separatedBy: "END BRAINBAR AGENT TRACE").count - 1, 1)
     }
 
+    func testAgentActivityClaudeInstallerInstallsFallbackAndSkillSource() throws {
+        let home = try temporaryDirectory()
+        let source = try temporaryDirectory()
+        try FileManager.default.createDirectory(
+            at: source.appendingPathComponent(".claude-plugin"),
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.createDirectory(
+            at: source.appendingPathComponent("skills/brainbar-agent-trace"),
+            withIntermediateDirectories: true
+        )
+        try "{}".write(to: source.appendingPathComponent(".claude-plugin/plugin.json"), atomically: true, encoding: .utf8)
+        try "skill".write(to: source.appendingPathComponent("skills/brainbar-agent-trace/SKILL.md"), atomically: true, encoding: .utf8)
+        try FileManager.default.createDirectory(at: home.appendingPathComponent(".claude/skill-sources"), withIntermediateDirectories: true)
+        let installer = AgentActivityClaudeInstaller(homeURL: home, sourceURL: source)
+
+        XCTAssertEqual(try installer.install(), .installed)
+        XCTAssertTrue(installer.isInstalled())
+        XCTAssertTrue(installer.claudeInstructionsInstalled())
+        XCTAssertEqual(try installer.install(), .installed)
+
+        let text = try String(contentsOf: installer.claudeInstructionsURL, encoding: .utf8)
+        XCTAssertTrue(text.contains("BEGIN BRAINBAR AGENT TRACE"))
+        XCTAssertTrue(text.contains("brainbar-trace read"))
+        XCTAssertTrue(text.contains("--agent claude"))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: installer.markerURL.path))
+
+        try FileManager.default.removeItem(at: installer.markerURL)
+        XCTAssertEqual(try installer.install(), .existingUnmanagedSkill)
+    }
+
+    func testAgentActivityClaudeInstallerUpdatesManagedInstructionsWithoutDuplicating() throws {
+        let home = try temporaryDirectory()
+        let source = try temporaryDirectory()
+        try FileManager.default.createDirectory(
+            at: source.appendingPathComponent(".claude-plugin"),
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.createDirectory(
+            at: source.appendingPathComponent("skills/brainbar-agent-trace"),
+            withIntermediateDirectories: true
+        )
+        try "{}".write(to: source.appendingPathComponent(".claude-plugin/plugin.json"), atomically: true, encoding: .utf8)
+        try "skill".write(to: source.appendingPathComponent("skills/brainbar-agent-trace/SKILL.md"), atomically: true, encoding: .utf8)
+        let claudeURL = home.appendingPathComponent(".claude/CLAUDE.md")
+        try FileManager.default.createDirectory(at: claudeURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try """
+        # User Instructions
+
+        Keep this line.
+        <!-- BEGIN BRAINBAR AGENT TRACE -->
+        old managed text
+        <!-- END BRAINBAR AGENT TRACE -->
+
+        Keep this footer.
+        """.write(to: claudeURL, atomically: true, encoding: .utf8)
+        let installer = AgentActivityClaudeInstaller(homeURL: home, sourceURL: source)
+
+        XCTAssertEqual(try installer.install(), .partial)
+        XCTAssertEqual(try installer.install(), .partial)
+
+        let text = try String(contentsOf: claudeURL, encoding: .utf8)
+        XCTAssertTrue(text.contains("Keep this line."))
+        XCTAssertTrue(text.contains("Keep this footer."))
+        XCTAssertFalse(text.contains("old managed text"))
+        XCTAssertEqual(text.components(separatedBy: "BEGIN BRAINBAR AGENT TRACE").count - 1, 1)
+        XCTAssertEqual(text.components(separatedBy: "END BRAINBAR AGENT TRACE").count - 1, 1)
+    }
+
+    func testAgentActivityClaudeInstallerReturnsPartialWithoutSkillSourcesDirectory() throws {
+        let home = try temporaryDirectory()
+        let source = try temporaryDirectory()
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
+        let installer = AgentActivityClaudeInstaller(homeURL: home, sourceURL: source)
+
+        XCTAssertEqual(try installer.install(), .partial)
+        XCTAssertTrue(installer.claudeInstructionsInstalled())
+        XCTAssertTrue(installer.isPartiallyInstalled())
+        XCTAssertFalse(installer.isInstalled())
+    }
+
     private func agentActivityJSONLine(_ event: AgentActivityEvent) throws -> String {
         var payload: [String: Any] = [
             "version": event.version,

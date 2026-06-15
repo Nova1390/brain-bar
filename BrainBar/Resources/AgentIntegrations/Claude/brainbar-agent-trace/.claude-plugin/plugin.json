@@ -1,0 +1,19 @@
+{
+  "name": "brainbar-agent-trace",
+  "version": "0.9.7",
+  "description": "Emit metadata-only BrainBar Agent Activity events while working on local notes or project files.",
+  "author": {
+    "name": "Nova1390",
+    "url": "https://github.com/Nova1390"
+  },
+  "homepage": "https://github.com/Nova1390/brain-bar",
+  "repository": "https://github.com/Nova1390/brain-bar",
+  "license": "MIT",
+  "keywords": [
+    "brainbar",
+    "agent-activity",
+    "local-first",
+    "metadata",
+    "knowledge-graph"
+  ]
+}

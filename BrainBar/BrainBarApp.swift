@@ -6,7 +6,7 @@ struct BrainBarApp: App {
     @State private var model = AppModel()
 
     var body: some Scene {
-        MenuBarExtra("BrainBar", systemImage: "brain.head.profile") {
+        MenuBarExtra("BrainBar", image: "MenuBarIcon") {
             DashboardView(model: model)
                 .frame(width: 860, height: 620)
                 .task {
@@ -17,10 +17,11 @@ struct BrainBarApp: App {
 
         Window("BrainBar Settings", id: "settings") {
             SettingsView(model: model)
-                .frame(width: 640, height: 640)
+                .frame(minWidth: 820, minHeight: 560)
                 .background(WindowFrontAnchor(level: .floating))
         }
-        .windowResizability(.contentSize)
+        .defaultSize(width: 860, height: 640)
+        .windowResizability(.contentMinSize)
 
         Window("BrainBar Graph", id: "graph-focus") {
             FocusGraphView(model: model)

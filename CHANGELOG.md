@@ -4,6 +4,14 @@ All notable changes to BrainBar are documented here.
 
 ## Unreleased
 
+## 0.9.8 - 2026-06-15
+
+- Added one-click Claude Agent Activity integration with a bundled Claude skill/plugin and managed `CLAUDE.md` fallback instructions.
+- Added official Codex and Claude icons to Agent Activity rows and Settings integration status.
+- Improved `brainbar-trace` agent detection so explicit `--agent`, environment hints, and parent process inference can distinguish Codex and Claude events.
+- Updated the menu bar extra to use the official BrainBar mark as a correctly scaled template icon.
+- Extended Agent Activity tests for Claude installation, managed instructions, and trace agent inference.
+
 ## 0.9.7 - 2026-06-14
 
 - Added local Agent Activity overlay support with file activity, metadata-only JSONL events, the bundled `brainbar-trace` helper, and a one-click Codex integration installer.

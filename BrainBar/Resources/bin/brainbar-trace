@@ -15,6 +15,7 @@ import datetime
 import json
 import os
 import pathlib
+import subprocess
 import sys
 
 MAX_BYTES = 5 * 1024 * 1024
@@ -32,14 +33,6 @@ if action not in allowed:
     print(f"Unsupported action: {action}", file=sys.stderr)
     sys.exit(64)
 
-fields = {
-    "version": 1,
-    "agent": os.environ.get("BRAINBAR_AGENT_NAME", "codex"),
-    "action": action,
-    "path": path_value,
-    "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z"),
-}
-
 mapping = {
     "--agent": "agent",
     "--reason": "reason",
@@ -48,6 +41,59 @@ mapping = {
     "--source": "source",
     "--node-id": "node_id",
     "--status": "status",
+}
+
+def explicit_agent(arguments):
+    for position, argument in enumerate(arguments):
+        if argument == "--agent" and position + 1 < len(arguments):
+            return arguments[position + 1]
+    return None
+
+def command_name(pid):
+    try:
+        return subprocess.check_output(
+            ["ps", "-p", str(pid), "-o", "comm="],
+            text=True,
+            stderr=subprocess.DEVNULL,
+        ).strip()
+    except Exception:
+        return ""
+
+def parent_pid(pid):
+    try:
+        value = subprocess.check_output(
+            ["ps", "-p", str(pid), "-o", "ppid="],
+            text=True,
+            stderr=subprocess.DEVNULL,
+        ).strip()
+        return int(value) if value else 0
+    except Exception:
+        return 0
+
+def inferred_agent():
+    env_agent = os.environ.get("BRAINBAR_AGENT_NAME", "").strip()
+    if env_agent:
+        return env_agent
+    pid = os.getppid()
+    seen = set()
+    for _ in range(12):
+        if pid <= 1 or pid in seen:
+            break
+        seen.add(pid)
+        name = command_name(pid).lower()
+        if "claude" in name:
+            return "claude"
+        if "codex" in name:
+            return "codex"
+        pid = parent_pid(pid)
+    return "codex"
+
+fields = {
+    "version": 1,
+    "agent": explicit_agent(args) or inferred_agent(),
+    "action": action,
+    "path": path_value,
+    "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z"),
 }
 index = 0
 while index < len(args):
