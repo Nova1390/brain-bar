@@ -4,6 +4,14 @@ All notable changes to BrainBar are documented here.
 
 ## Unreleased
 
+## 0.9.81 - 2026-06-16
+
+- Restored smooth 3D drag and zoom performance by disabling the invisible WebGL render pass while keeping the full canvas graph visible.
+- Disabled continuous living-graph animation loops by default and kept only low-cost static/reactive visual signals.
+- Added adaptive 3D canvas pixel ratio for dense graphs to reduce Retina overdraw during camera movement.
+- Reduced selected-node overlay cost for high-degree nodes by capping highlighted neighbor and edge work.
+- Cached 3D graph metadata payloads and made Agent Activity polling/publishing lighter to reduce app-wide update pressure.
+
 ## 0.9.8 - 2026-06-15
 
 - Added one-click Claude Agent Activity integration with a bundled Claude skill/plugin and managed `CLAUDE.md` fallback instructions.

@@ -79,6 +79,8 @@ final class AgentActivityService {
     private var eventFingerprints: Set<String> = []
     private var graphIndex = AgentActivityGraphIndex.empty
     private var snapshotHandler: ((AgentActivitySnapshot) -> Void)?
+    private var lastPublishedSnapshot: AgentActivitySnapshot?
+    private var eventLogStamp: AgentActivityFileStamp?
     private var eventLogWatcherTask: Task<Void, Never>?
     private var fileActivityWatcherTask: Task<Void, Never>?
     private var knownFileState: [String: Date] = [:]
@@ -102,12 +104,14 @@ final class AgentActivityService {
         stop()
         self.config = config.normalized
         self.snapshotHandler = snapshotHandler
+        lastPublishedSnapshot = nil
+        eventLogStamp = nil
         if let graphReadAccessURL {
             graphIndex = AgentActivityGraphIndex.load(readAccessURL: graphReadAccessURL)
         } else {
             graphIndex = .empty
         }
-        readEventLog()
+        readEventLog(force: true)
         startEventLogWatcherIfNeeded()
         if config.fileActivityEnabled, let vaultURL {
             startFileActivityWatcher(vaultURL: vaultURL.standardizedFileURL)
@@ -144,7 +148,7 @@ final class AgentActivityService {
             ),
             to: eventLogURL
         )
-        readEventLog()
+        readEventLog(force: true)
         publishSnapshot()
     }
 
@@ -158,29 +162,34 @@ final class AgentActivityService {
         }
         eventLogWatcherTask = Task { [weak self] in
             while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(1))
                 await MainActor.run {
-                    self?.readEventLog()
+                    guard self?.readEventLog() == true else {
+                        return
+                    }
                     self?.publishSnapshot()
                 }
-                try? await Task.sleep(for: .seconds(1))
             }
         }
     }
 
     private func startFileActivityWatcher(vaultURL: URL) {
-        knownFileState = scanTrackedFiles(vaultURL: vaultURL)
         fileActivityWatcherTask = Task { [weak self] in
+            let initialState = await Self.scanTrackedFilesAsync(vaultURL: vaultURL)
+            await MainActor.run {
+                self?.knownFileState = initialState
+            }
             while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(1))
+                try? await Task.sleep(for: .seconds(2))
+                let nextState = await Self.scanTrackedFilesAsync(vaultURL: vaultURL)
                 await MainActor.run {
-                    self?.pollFileActivity(vaultURL: vaultURL)
+                    self?.applyFileActivityState(nextState)
                 }
             }
         }
     }
 
-    private func pollFileActivity(vaultURL: URL) {
-        let nextState = scanTrackedFiles(vaultURL: vaultURL)
+    private func applyFileActivityState(_ nextState: [String: Date]) {
         guard nextState != knownFileState else {
             return
         }
@@ -212,7 +221,13 @@ final class AgentActivityService {
         )
     }
 
-    private func scanTrackedFiles(vaultURL: URL) -> [String: Date] {
+    private nonisolated static func scanTrackedFilesAsync(vaultURL: URL) async -> [String: Date] {
+        await Task.detached(priority: .utility) {
+            scanTrackedFiles(vaultURL: vaultURL)
+        }.value
+    }
+
+    private nonisolated static func scanTrackedFiles(vaultURL: URL) -> [String: Date] {
         let keys: Set<URLResourceKey> = [.contentModificationDateKey, .isRegularFileKey]
         guard let enumerator = FileManager.default.enumerator(
             at: vaultURL,
@@ -237,7 +252,7 @@ final class AgentActivityService {
         return result
     }
 
-    private func shouldTrackFile(_ path: String) -> Bool {
+    private nonisolated static func shouldTrackFile(_ path: String) -> Bool {
         guard !path.isEmpty,
               !path.hasPrefix(".git/"),
               !path.hasPrefix("graphify-out/"),
@@ -248,7 +263,7 @@ final class AgentActivityService {
         return path.hasSuffix(".md") || path.hasSuffix(".markdown") || path.hasSuffix(".txt")
     }
 
-    private func relativeVaultPath(_ path: String, vaultURL: URL) -> String? {
+    private nonisolated static func relativeVaultPath(_ path: String, vaultURL: URL) -> String? {
         let absolutePath = URL(fileURLWithPath: path).standardizedFileURL.path
         let vaultPath = vaultURL.standardizedFileURL.path
         guard absolutePath == vaultPath || absolutePath.hasPrefix(vaultPath + "/") else {
@@ -260,26 +275,38 @@ final class AgentActivityService {
         return String(absolutePath.dropFirst(vaultPath.count + 1))
     }
 
-    private func readEventLog() {
-        guard config.eventTracingEnabled,
+    @discardableResult
+    private func readEventLog(force: Bool = false) -> Bool {
+        guard config.eventTracingEnabled else {
+            return false
+        }
+        let stamp = Self.fileStamp(for: eventLogURL)
+        guard force || stamp != eventLogStamp else {
+            return false
+        }
+        eventLogStamp = stamp
+        guard
               let data = try? Data(contentsOf: eventLogURL),
               let content = String(data: data, encoding: .utf8)
         else {
-            return
+            return false
         }
         AgentActivityLogRetention.pruneIfNeeded(url: eventLogURL)
+        var didAddEvent = false
         for line in content.split(separator: "\n") {
             guard let event = AgentActivityEventParser.parse(String(line)) else {
                 continue
             }
-            addEvent(event)
+            didAddEvent = addEvent(event) || didAddEvent
         }
+        return didAddEvent
     }
 
-    private func addEvent(_ event: AgentActivityEvent) {
+    @discardableResult
+    private func addEvent(_ event: AgentActivityEvent) -> Bool {
         let fingerprint = AgentActivityEventParser.fingerprint(event)
         guard !eventFingerprints.contains(fingerprint) else {
-            return
+            return false
         }
         eventFingerprints.insert(fingerprint)
         events.append(event)
@@ -288,10 +315,16 @@ final class AgentActivityService {
             events = Array(events.prefix(160))
             eventFingerprints = Set(events.map(AgentActivityEventParser.fingerprint))
         }
+        return true
     }
 
     private func publishSnapshot() {
-        snapshotHandler?(snapshot())
+        let nextSnapshot = snapshot()
+        guard nextSnapshot != lastPublishedSnapshot else {
+            return
+        }
+        lastPublishedSnapshot = nextSnapshot
+        snapshotHandler?(nextSnapshot)
     }
 
     private func snapshot() -> AgentActivitySnapshot {
@@ -324,6 +357,19 @@ final class AgentActivityService {
             tracingEnabled: config.eventTracingEnabled
         )
     }
+
+    private nonisolated static func fileStamp(for url: URL) -> AgentActivityFileStamp {
+        let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey])
+        return AgentActivityFileStamp(
+            modifiedAt: values?.contentModificationDate,
+            fileSize: values?.fileSize
+        )
+    }
+}
+
+private struct AgentActivityFileStamp: Equatable {
+    var modifiedAt: Date?
+    var fileSize: Int?
 }
 
 enum AgentActivityEventParser {

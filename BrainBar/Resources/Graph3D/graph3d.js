@@ -52,17 +52,29 @@ const accentPalette = [
 const baseEdgeColor = '#6f7f9d';
 const selectedStrokeColor = '#f1f4ff';
 const prefersReducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
+const ambientRuntimeEnabled = false;
+const responsePulseRuntimeEnabled = true;
+const staticRecentWarmthEnabled = true;
+const staticHubGlowEnabled = true;
+const edgeGlintsRuntimeEnabled = false;
+const renderHiddenWebGLLayer = false;
 const ambientIdleFrameInterval = 90;
 const ambientBusyFrameInterval = 180;
+const edgeGlintFrameInterval = 220;
 const ambientInteractionQuietMs = 520;
 const overlaySlowFrameMs = 24;
 const overlayRecoveryMs = 1200;
+const overlayDenseNodeThreshold = 3200;
+const overlayDenseEdgeThreshold = 7600;
+const overlayVeryDenseNodeThreshold = 5000;
+const overlayVeryDenseEdgeThreshold = 12000;
 const ambientMotionScale = prefersReducedMotion ? 0 : 1;
 const ambientLocalAmplitude = 1.8 * ambientMotionScale;
 const ambientSampleTarget = 520;
 const ambientRecentNodeLimit = 24;
-const ambientCurrentIdleEdgeLimit = 90;
-const ambientCurrentActiveEdgeLimit = 48;
+const staticHubGlowLimit = 18;
+const ambientCurrentIdleEdgeLimit = 18;
+const ambientCurrentActiveEdgeLimit = 24;
 const ambientCommunityLimit = 8;
 const ambientCommunityNodeLimit = 36;
 const livingPulseNodeLimit = 16;
@@ -82,6 +94,8 @@ const graphStoryEdgeLimit = 80;
 const graphStoryPreviewLimit = 3;
 const searchResultLimit = 20;
 const searchRevealNeighborLimit = 16;
+const selectedNeighborVisualLimit = 48;
+const selectedEdgeVisualLimit = 96;
 const collapsedCommunityLimit = 8;
 const expandedCommunityLimit = 32;
 
@@ -175,6 +189,7 @@ const state = {
   spotlightCache: new Map(),
   livingPulseEvents: [],
   ambientRecentNodeIds: new Set(),
+  staticHubNodeIds: [],
   ambientCurrentEdgeIds: new Set(),
   ambientCommunityPulseGroups: [],
   lastLivingInteractionAt: 0,
@@ -184,6 +199,8 @@ const state = {
   performanceStats: {
     staticRebuildMs: 0,
     overlayFrameMs: 0,
+    visualPixelRatio: 1,
+    staticHubGlowCount: 0,
     highlightedEdgeCount: 0,
     lastHitTestCandidateCount: 0,
     livingPulseCount: 0,
@@ -407,6 +424,9 @@ function activeMode() {
 }
 
 function markLivingInteraction() {
+  if (!ambientRuntimeEnabled && !edgeGlintsRuntimeEnabled) {
+    return;
+  }
   state.lastLivingInteractionAt = performance.now();
 }
 
@@ -439,6 +459,16 @@ function shouldDrawAmbientDecorations({ now, mode, hoverAmount }) {
   }
   state.lastAmbientLayerAt = now;
   return true;
+}
+
+function shouldDrawEdgeGlints({ now, mode, hoverAmount }) {
+  if (!edgeGlintsRuntimeEnabled || prefersReducedMotion || state.overlayQuality === 'low') {
+    return false;
+  }
+  if (mode !== 'none' || hoverAmount > 0.04 || !isInteractionQuiet(now)) {
+    return false;
+  }
+  return state.ambientCurrentEdgeIds.size > 0;
 }
 
 function shouldDrawAgentActivity() {
@@ -659,6 +689,7 @@ function rebuildMeshes() {
   state.adjacencyByNode = buildAdjacencyMap(state.visibleEdges);
   state.edgesByNode = buildEdgeMap(state.visibleEdges);
   state.edgeById = new Map(state.visibleEdges.map((edge) => [edge.id, edge]));
+  updateStaticHubNodes(degreeMap);
   markVisualCacheDirty();
 
   state.visibleNodes.forEach((node, index) => {
@@ -857,7 +888,9 @@ function resize() {
 
 function render() {
   controls.update();
-  renderer.render(scene, camera);
+  if (renderHiddenWebGLLayer) {
+    renderer.render(scene, camera);
+  }
   updateHoverIntensity();
   renderVisualOverlay();
   state.lastFrameStatus = state.visibleProjectedNodeCount > 0 ? 'Visible' : 'Waiting for view';
@@ -878,11 +911,13 @@ function renderVisualOverlay() {
   if (!state.visibleNodes.length || !state.positions.size) {
     state.visibleProjectedNodeCount = 0;
     state.projectedPoints = new Map();
+    state.performanceStats.visualPixelRatio = metrics.pixelRatio;
     visualContext.setTransform(metrics.pixelRatio, 0, 0, metrics.pixelRatio, 0, 0);
     visualContext.clearRect(0, 0, metrics.width, metrics.height);
     return;
   }
 
+  state.performanceStats.visualPixelRatio = metrics.pixelRatio;
   if (state.visualCacheDirty) {
     rebuildStaticVisualLayer(metrics);
   }
@@ -897,7 +932,7 @@ function ensureVisualCanvas() {
   const rect = stage.getBoundingClientRect();
   const width = Math.max(Math.floor(rect.width), 1);
   const height = Math.max(Math.floor(rect.height), 1);
-  const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+  const pixelRatio = visualOverlayPixelRatio();
   const backingWidth = Math.max(Math.floor(width * pixelRatio), 1);
   const backingHeight = Math.max(Math.floor(height * pixelRatio), 1);
 
@@ -916,6 +951,19 @@ function ensureVisualCanvas() {
   }
 
   return { width, height, pixelRatio };
+}
+
+function visualOverlayPixelRatio() {
+  const deviceRatio = Math.min(window.devicePixelRatio || 1, 2);
+  const nodeCount = state.visibleNodes.length;
+  const edgeCount = state.visibleEdges.length;
+  if (nodeCount >= overlayVeryDenseNodeThreshold || edgeCount >= overlayVeryDenseEdgeThreshold) {
+    return Math.min(deviceRatio, 1);
+  }
+  if (nodeCount >= overlayDenseNodeThreshold || edgeCount >= overlayDenseEdgeThreshold) {
+    return Math.min(deviceRatio, 1.25);
+  }
+  return deviceRatio;
 }
 
 function rebuildStaticVisualLayer({ width, height, pixelRatio }) {
@@ -974,6 +1022,8 @@ function rebuildStaticVisualLayer({ width, height, pixelRatio }) {
   staticVisualContext.stroke(baseEdgePath);
   staticVisualContext.restore();
 
+  drawStaticHubGlows(projected);
+
   state.visibleNodes.forEach((node) => {
     const point = projected.get(node.id);
     if (!point) {
@@ -1001,6 +1051,54 @@ function rebuildStaticVisualLayer({ width, height, pixelRatio }) {
   state.performanceStats.staticRebuildMs = performance.now() - startedAt;
 }
 
+function updateStaticHubNodes(degreeMap = state.degreeByNode) {
+  if (!staticHubGlowEnabled) {
+    state.staticHubNodeIds = [];
+    state.performanceStats.staticHubGlowCount = 0;
+    return;
+  }
+  state.staticHubNodeIds = state.visibleNodes
+    .map((node) => ({
+      id: node.id,
+      degree: degreeMap.get(node.id) ?? 0
+    }))
+    .filter((item) => item.degree > 1)
+    .sort((left, right) => right.degree - left.degree || left.id.localeCompare(right.id))
+    .slice(0, staticHubGlowLimit)
+    .map((item) => item.id);
+}
+
+function drawStaticHubGlows(projected) {
+  if (!staticHubGlowEnabled || !state.staticHubNodeIds.length) {
+    state.performanceStats.staticHubGlowCount = 0;
+    return;
+  }
+  let rendered = 0;
+  staticVisualContext.save();
+  state.staticHubNodeIds.forEach((nodeId) => {
+    const node = nodeForId(nodeId);
+    const point = projected.get(nodeId);
+    if (!node || !point) {
+      return;
+    }
+    const degree = state.degreeByNode.get(nodeId) ?? 0;
+    const depth = depthPresence(point.z);
+    const radius = nodeRadiusForDegree(degree, depth);
+    const color = accentColorForCommunity(node.community);
+    const haloRadius = radius + clamp(Math.log1p(degree) * 1.8, 5.5, 13);
+    staticVisualContext.beginPath();
+    staticVisualContext.arc(point.x, point.y, haloRadius, 0, Math.PI * 2);
+    staticVisualContext.fillStyle = color;
+    staticVisualContext.globalAlpha = (0.038 + depth * 0.028) * (prefersReducedMotion ? 0.65 : 1);
+    staticVisualContext.shadowColor = color;
+    staticVisualContext.shadowBlur = prefersReducedMotion ? 0 : 10;
+    staticVisualContext.fill();
+    rendered += 1;
+  });
+  staticVisualContext.restore();
+  state.performanceStats.staticHubGlowCount = rendered;
+}
+
 function drawVisualFrame({ width, height, pixelRatio }) {
   const now = performance.now();
   const mode = activeMode();
@@ -1024,7 +1122,7 @@ function drawVisualFrame({ width, height, pixelRatio }) {
   visualContext.clearRect(0, 0, width, height);
 
   visualContext.drawImage(staticVisualLayer, 0, 0, width, height);
-  const drawAmbientDecorations = shouldDrawAmbientDecorations({ now, mode, hoverAmount });
+  const drawAmbientDecorations = ambientRuntimeEnabled && shouldDrawAmbientDecorations({ now, mode, hoverAmount });
   if (drawAmbientDecorations) {
     drawAmbientNodeMotion(width, height);
     drawAmbientRecentWarmth(width, height);
@@ -1032,14 +1130,17 @@ function drawVisualFrame({ width, height, pixelRatio }) {
     drawAmbientEdgeCurrents(width, height);
     drawRecentSparks(width, height);
   } else if (
+    staticRecentWarmthEnabled &&
     !prefersReducedMotion &&
     mode === 'none' &&
     state.overlayQuality !== 'low' &&
-    isInteractionQuiet(now) &&
     hoverAmount <= 0.04 &&
     state.ambientRecentNodeIds.size
   ) {
     drawAmbientRecentWarmth(width, height);
+  }
+  if (shouldDrawEdgeGlints({ now, mode, hoverAmount })) {
+    drawAmbientEdgeCurrents(width, height);
   }
   if (shouldDrawAgentActivity()) {
     drawAgentActivityOverlay(width, height);
@@ -1055,12 +1156,14 @@ function drawVisualFrame({ width, height, pixelRatio }) {
   }
 
   drawActiveVisualOverlay(hoverTrails, edgeTrails, hoverAmount, width, height);
-  drawLivingPulses(width, height);
+  if (responsePulseRuntimeEnabled) {
+    drawLivingPulses(width, height);
+  }
   if (state.pathMode && state.pathOrderedEdgeIds.length && !prefersReducedMotion) {
     state.pathPulsePhase = performance.now() * 0.001;
     requestRender();
   }
-  if (state.livingPulseEvents.length && !prefersReducedMotion) {
+  if (responsePulseRuntimeEnabled && state.livingPulseEvents.length && !prefersReducedMotion && state.overlayQuality !== 'low') {
     requestRender();
   }
 }
@@ -1599,7 +1702,14 @@ function buildHighlightedEdges(hoverTrails, edgeTrails, width, height) {
     );
   }
   if (state.selectedNode) {
-    const linkedEdges = state.edgesByNode.get(state.selectedNode.id) ?? [];
+    const linkedEdges = (state.edgesByNode.get(state.selectedNode.id) ?? [])
+      .slice()
+      .sort((left, right) => {
+        const leftNeighborId = left.source === state.selectedNode.id ? left.target : left.source;
+        const rightNeighborId = right.source === state.selectedNode.id ? right.target : right.source;
+        return degreeForNode(rightNeighborId) - degreeForNode(leftNeighborId) || left.id.localeCompare(right.id);
+      })
+      .slice(0, selectedEdgeVisualLimit);
     return cachedOverlayEdges(
       `selected:${state.selectedNode.id}:${linkedEdges.map((edge) => edge.id).join('|')}`,
       linkedEdges.map((edge) => ({
@@ -1723,6 +1833,10 @@ function drawPathPulseOverlay(width, height) {
 function drawLivingPulses(width, height) {
   if (!state.livingPulseEvents.length) {
     state.performanceStats.livingPulseCount = 0;
+    return;
+  }
+  if (state.overlayQuality === 'low') {
+    clearLivingPulses(false);
     return;
   }
   const now = performance.now();
@@ -2010,9 +2124,8 @@ function buildNodeFocusMap(hoverTrails, edgeTrails) {
   }
   if (state.selectedNode) {
     mergeNodeFocus(focus, state.selectedNode.id, 1, 0);
-    const neighbors = state.adjacencyByNode.get(state.selectedNode.id) ?? new Set();
-    neighbors.forEach((neighborId) => {
-      mergeNodeFocus(focus, neighborId, 0, 0.78);
+    topNeighborsForNode(state.selectedNode.id, selectedNeighborVisualLimit).forEach((neighbor) => {
+      mergeNodeFocus(focus, neighbor.id, 0, 0.78);
     });
     return focus;
   }
@@ -2078,7 +2191,7 @@ function markVisualCacheDirty() {
 }
 
 function startAmbientMotion() {
-  if (prefersReducedMotion || state.ambientFrame || !state.visibleNodes.length) {
+  if ((!ambientRuntimeEnabled && !edgeGlintsRuntimeEnabled) || prefersReducedMotion || state.ambientFrame || !state.visibleNodes.length) {
     return;
   }
   state.ambientFrame = requestAnimationFrame(ambientMotionTick);
@@ -2086,14 +2199,23 @@ function startAmbientMotion() {
 
 function ambientMotionTick(timestamp) {
   state.ambientFrame = null;
+  if (!ambientRuntimeEnabled && !edgeGlintsRuntimeEnabled) {
+    return;
+  }
   if (document.hidden || !state.visibleNodes.length) {
     return;
   }
   const mode = activeMode();
   const quiet = isInteractionQuiet(timestamp);
-  const interval = state.overlayQuality === 'low' || !quiet || mode !== 'none'
-    ? ambientBusyFrameInterval
-    : ambientIdleFrameInterval;
+  if (!ambientRuntimeEnabled && (!quiet || mode !== 'none' || state.overlayQuality === 'low')) {
+    startAmbientMotion();
+    return;
+  }
+  const interval = !ambientRuntimeEnabled
+    ? edgeGlintFrameInterval
+    : (state.overlayQuality === 'low' || !quiet || mode !== 'none'
+        ? ambientBusyFrameInterval
+        : ambientIdleFrameInterval);
   if (timestamp - state.lastAmbientTimestamp >= interval) {
     state.lastAmbientTimestamp = timestamp;
     state.ambientPhase = timestamp * 0.001;
@@ -3051,6 +3173,11 @@ function recentOrbitVisibleItems(limit = recentOrbitNodeLimit) {
 }
 
 function updateAmbientRecentNodes() {
+  if (!ambientRuntimeEnabled && !staticRecentWarmthEnabled) {
+    state.ambientRecentNodeIds = new Set();
+    state.performanceStats.ambientRecentCount = 0;
+    return;
+  }
   const items = recentOrbitVisibleItems(ambientRecentNodeLimit);
   state.ambientRecentNodeIds = new Set(selectAmbientRecentNodeIds({
     recentItems: items,
@@ -3061,12 +3188,27 @@ function updateAmbientRecentNodes() {
 }
 
 function updateAmbientSignalCaches() {
+  if (!ambientRuntimeEnabled && !edgeGlintsRuntimeEnabled) {
+    state.ambientCurrentEdgeIds = new Set();
+    state.ambientCommunityPulseGroups = [];
+    state.performanceStats.ambientCurrentEdgeCount = 0;
+    state.performanceStats.ambientCommunityPulseCount = 0;
+    state.performanceStats.recentSparkCount = 0;
+    return;
+  }
   state.ambientCurrentEdgeIds = new Set(selectAmbientCurrentEdgeIds({
     edges: state.visibleEdges,
     recentNodeIds: state.ambientRecentNodeIds,
     activeNodeIds: activeAmbientNodeIds(),
     limit: ambientCurrentIdleEdgeLimit
   }));
+  if (!ambientRuntimeEnabled) {
+    state.ambientCommunityPulseGroups = [];
+    state.performanceStats.ambientCurrentEdgeCount = state.ambientCurrentEdgeIds.size;
+    state.performanceStats.ambientCommunityPulseCount = 0;
+    state.performanceStats.recentSparkCount = 0;
+    return;
+  }
   state.ambientCommunityPulseGroups = selectCommunityPulseGroups({
     nodes: state.visibleNodes,
     limitCommunities: ambientCommunityLimit,
@@ -3138,7 +3280,9 @@ function emitLivingPulse({
   intensity = 0.65,
   durationMs = 1100
 } = {}) {
-  if (prefersReducedMotion) {
+  if (!responsePulseRuntimeEnabled || prefersReducedMotion || state.overlayQuality === 'low') {
+    state.livingPulseEvents = [];
+    state.performanceStats.livingPulseCount = 0;
     return;
   }
   const pulseNodeIds = Array.from(nodeIds || []).filter((nodeId) => state.visibleNodeIds.has(String(nodeId)));
@@ -4323,6 +4467,12 @@ function installWindowAPI() {
     applyCommunitySpotlight(communityName);
   };
   window.brainBarRendererDiagnostics = () => ({
+    ambientRuntimeEnabled,
+    responsePulseRuntimeEnabled,
+    staticRecentWarmthEnabled,
+    staticHubGlowEnabled,
+    edgeGlintsRuntimeEnabled,
+    renderHiddenWebGLLayer,
     activeMode: activeMode(),
     nodes: state.visibleNodes.length,
     edges: state.visibleEdges.length,
@@ -4338,6 +4488,8 @@ function installWindowAPI() {
     visibleProjectedNodeCount: state.visibleProjectedNodeCount,
     staticRebuildMs: Number(state.performanceStats.staticRebuildMs.toFixed(2)),
     overlayFrameMs: Number(state.performanceStats.overlayFrameMs.toFixed(2)),
+    visualPixelRatio: state.performanceStats.visualPixelRatio,
+    staticHubGlowCount: state.performanceStats.staticHubGlowCount,
     livingPulseCount: state.performanceStats.livingPulseCount,
     ambientRecentCount: state.performanceStats.ambientRecentCount,
     ambientCurrentEdgeCount: state.performanceStats.ambientCurrentEdgeCount,

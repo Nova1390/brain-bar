@@ -33,7 +33,9 @@ struct Graph3DWebView: NSViewRepresentable {
         context.coordinator.sourceLens = sourceLens
         context.coordinator.resetCameraToken = resetCameraToken
         context.coordinator.graphJSONURL = readAccessURL.appendingPathComponent("graph.json")
-        context.coordinator.graphPayloadScript = Self.graphPayloadScript(readAccessURL: readAccessURL)
+        let graphPayload = Self.graphPayload(readAccessURL: readAccessURL)
+        context.coordinator.graphPayloadVersion = graphPayload.version
+        context.coordinator.graphPayloadScript = graphPayload.script
         context.coordinator.agentActivitySnapshot = agentActivitySnapshot
         load(in: webView, context: context)
         return webView
@@ -44,7 +46,11 @@ struct Graph3DWebView: NSViewRepresentable {
         context.coordinator.onOpenNode = onOpenNode
         context.coordinator.onDiagnostic = onDiagnostic
         context.coordinator.graphJSONURL = readAccessURL.appendingPathComponent("graph.json")
-        context.coordinator.graphPayloadScript = Self.graphPayloadScript(readAccessURL: readAccessURL)
+        let graphPayload = Self.graphPayload(readAccessURL: readAccessURL)
+        if context.coordinator.graphPayloadVersion != graphPayload.version {
+            context.coordinator.graphPayloadVersion = graphPayload.version
+            context.coordinator.graphPayloadScript = graphPayload.script
+        }
         context.coordinator.pendingViewportCommand = viewportCommand
         if context.coordinator.agentActivitySnapshot != agentActivitySnapshot {
             context.coordinator.agentActivitySnapshot = agentActivitySnapshot
@@ -93,6 +99,7 @@ struct Graph3DWebView: NSViewRepresentable {
         var lastViewportCommandID: Int?
         var pendingViewportCommand: GraphViewportCommand?
         var graphJSONURL: URL?
+        var graphPayloadVersion = ""
         var graphPayloadScript = ""
         var agentActivitySnapshot: AgentActivitySnapshot = .empty
         var onDiagnostic: @MainActor (String) -> Void
@@ -273,31 +280,14 @@ struct Graph3DWebView: NSViewRepresentable {
 }
 
 extension Graph3DWebView {
+    @MainActor
+    static func graphPayload(readAccessURL: URL) -> GraphMetadataPayload {
+        GraphMetadataPayloadCache.payload(readAccessURL: readAccessURL)
+    }
+
+    @MainActor
     static func graphPayloadScript(readAccessURL: URL) -> String {
-        let graphJSONURL = readAccessURL.appendingPathComponent("graph.json")
-        guard
-            let data = try? Data(contentsOf: graphJSONURL),
-            let object = try? JSONSerialization.jsonObject(with: data),
-            let normalizedData = try? JSONSerialization.data(withJSONObject: object),
-            let json = String(data: normalizedData, encoding: .utf8)
-        else {
-            return """
-            window.__brainBarGraphJSONVersion = "missing";
-            window.__brainBarGraphJSON = null;
-            window.__brainBarNodeFileMetadata = { byNodeId: {}, bySourceFile: {} };
-            """
-        }
-
-        let resourceValues = try? graphJSONURL.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey])
-        let modifiedAt = resourceValues?.contentModificationDate?.timeIntervalSince1970 ?? 0
-        let fileSize = resourceValues?.fileSize ?? data.count
-        let version = "\(graphJSONURL.path):\(modifiedAt):\(fileSize)"
-
-        return """
-        window.__brainBarGraphJSONVersion = \(jsStringLiteral(version));
-        window.__brainBarGraphJSON = \(json);
-        window.__brainBarNodeFileMetadata = \(GraphNodeFileMetadata.json(graphObject: object, readAccessURL: readAccessURL));
-        """
+        graphPayload(readAccessURL: readAccessURL).script
     }
 
     static func agentActivityJSON(_ snapshot: AgentActivitySnapshot) -> String {

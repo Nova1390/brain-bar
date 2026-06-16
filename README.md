@@ -27,10 +27,11 @@ graphify-out/
 
 It does not vendor Graphify, upload vault content, rewrite generated Graphify files, or write to the vault from graph exploration features. The 3D and 2D graph modes are runtime-only views over local data.
 
-## What Is In v0.9.8
+## What Is In v0.9.81
 
 - **3D Explorer by default.** Search Reveal, Focus Orbit, Shortest Path, Explain Path, Path Compare, Community Spotlight, Recent Orbit, Graph Story, and Living Graph polish.
 - **Agent Activity.** Local file activity plus metadata-only `brainbar-trace` events, with one-click Codex and Claude integrations.
+- **3D performance recovery.** Smooth drag and zoom on dense graphs by removing invisible render work and keeping only low-cost static/reactive living signals.
 - **2D Workbench.** Operational graph inspection for recent notes, key notes, needs-links notes, groups, edge provenance, Graph Check, and bridge actions into 3D.
 - **Premium macOS surface.** Flatter app chrome, quieter sidebars, updated BrainBar mark, and a more native Settings layout.
 - **Notarized releases.** Public GitHub Releases ship as Developer ID signed, Apple-notarized `BrainBar.dmg` files.
@@ -80,7 +81,7 @@ BRAIN_BAR_FORCE=1 curl -fsSL https://raw.githubusercontent.com/Nova1390/brain-ba
 
 Agent Activity shows what local tools and agents are touching in your graph. BrainBar watches recent local file activity and can also read metadata-only JSONL events from the bundled `brainbar-trace` helper.
 
-The v0.9.8 integration includes one-click installers for Codex and Claude. When enabled, supported agents can emit events such as `read`, `write`, `create`, `delete`, `focus`, `closeout`, and `decision`. BrainBar maps those paths back to graph nodes when possible and shows pending paths when the graph has not been refreshed yet.
+The v0.9.81 integration includes one-click installers for Codex and Claude. When enabled, supported agents can emit events such as `read`, `write`, `create`, `delete`, `focus`, `closeout`, and `decision`. BrainBar maps those paths back to graph nodes when possible and shows pending paths when the graph has not been refreshed yet.
 
 ![BrainBar Agent Activity](docs/brainbar-agent-activity.png)
 
